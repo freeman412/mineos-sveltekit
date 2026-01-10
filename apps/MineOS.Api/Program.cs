@@ -1,0 +1,162 @@
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Data.Sqlite;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.IdentityModel.Tokens;
+using Microsoft.OpenApi;
+using System.Text;
+using MineOS.Api.Middleware;
+using MineOS.Api.Endpoints;
+using MineOS.Application.Interfaces;
+using HostOptions = MineOS.Application.Options.HostOptions;
+using ApiKeyOptions = MineOS.Application.Options.ApiKeyOptions;
+using JwtOptions = MineOS.Application.Options.JwtOptions;
+using MineOS.Infrastructure.Persistence;
+using MineOS.Infrastructure.Services;
+using Serilog;
+
+Log.Logger = new LoggerConfiguration()
+    .MinimumLevel.Information()
+    .Enrich.FromLogContext()
+    .WriteTo.Console()
+    .CreateLogger();
+
+var builder = WebApplication.CreateBuilder(args);
+
+builder.Logging.ClearProviders();
+
+builder.Host.UseSerilog((context, services, config) =>
+{
+    config
+        .ReadFrom.Configuration(context.Configuration)
+        .ReadFrom.Services(services)
+        .Enrich.FromLogContext();
+});
+
+builder.Services.AddEndpointsApiExplorer();
+builder.Services.AddSwaggerGen(options =>
+{
+    options.SwaggerDoc("v1", new OpenApiInfo
+    {
+        Title = "MineOS.Api",
+        Version = "v1"
+    });
+
+    // API Key authentication (for server-to-backend calls)
+    options.AddSecurityDefinition("ApiKey", new OpenApiSecurityScheme
+    {
+        Description = "API key needed to access protected endpoints. Use header: X-Api-Key",
+        In = ParameterLocation.Header,
+        Name = "X-Api-Key",
+        Type = SecuritySchemeType.ApiKey
+    });
+
+    // JWT Bearer authentication (for user login)
+    options.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
+    {
+        Description = "JWT Authorization header using the Bearer scheme.",
+        Name = "Authorization",
+        In = ParameterLocation.Header,
+        Type = SecuritySchemeType.Http,
+        Scheme = "bearer",
+        BearerFormat = "JWT"
+    });
+
+    // Add security requirements using OpenApiSecuritySchemeReference (required for Microsoft.OpenApi 2.x)
+    options.AddSecurityRequirement(doc => new OpenApiSecurityRequirement
+    {
+        { new OpenApiSecuritySchemeReference("ApiKey", doc), new List<string>() },
+        { new OpenApiSecuritySchemeReference("Bearer", doc), new List<string>() }
+    });
+});
+
+builder.Services.Configure<HostOptions>(builder.Configuration.GetSection("Host"));
+builder.Services.Configure<ApiKeyOptions>(builder.Configuration.GetSection("ApiKey"));
+builder.Services.Configure<JwtOptions>(builder.Configuration.GetSection("Auth:Jwt"));
+
+builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+    .AddJwtBearer(options =>
+    {
+        var resolved = builder.Configuration.GetSection("Auth:Jwt").Get<JwtOptions>() ?? new JwtOptions();
+        if (string.IsNullOrWhiteSpace(resolved.SigningKey))
+        {
+            resolved.SigningKey = "change-me";
+        }
+
+        options.TokenValidationParameters = new TokenValidationParameters
+        {
+            ValidateIssuer = true,
+            ValidateAudience = true,
+            ValidateIssuerSigningKey = true,
+            ValidIssuer = resolved.Issuer,
+            ValidAudience = resolved.Audience,
+            IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(resolved.SigningKey))
+        };
+    });
+
+builder.Services.AddAuthorization();
+
+builder.Services.AddDbContext<AppDbContext>(options =>
+{
+    var connectionString = builder.Configuration.GetConnectionString("Default");
+    options.UseSqlite(connectionString);
+});
+builder.Services.AddScoped<IApiKeyValidator, ApiKeyValidator>();
+builder.Services.AddScoped<IHostService, HostService>();
+builder.Services.AddScoped<IAuthService, AuthService>();
+builder.Services.AddSingleton<IPasswordHasher, Argon2PasswordHasher>();
+builder.Services.AddSingleton<IJwtTokenService, JwtTokenService>();
+builder.Services.AddScoped<ApiKeySeeder>();
+builder.Services.AddScoped<UserSeeder>();
+
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy("DevCors", policy =>
+    {
+        policy
+            .AllowAnyHeader()
+            .AllowAnyMethod()
+            .AllowAnyOrigin();
+    });
+});
+
+var app = builder.Build();
+
+
+app.UseCors("DevCors");
+app.UseSwagger();
+app.UseSwaggerUI();
+
+app.UseSerilogRequestLogging();
+app.Lifetime.ApplicationStopped.Register(Log.CloseAndFlush);
+app.UseAuthentication();
+app.UseAuthorization();
+app.UseMiddleware<ApiKeyMiddleware>();
+
+var connectionString = builder.Configuration.GetConnectionString("Default");
+if (!string.IsNullOrWhiteSpace(connectionString))
+{
+    var sqliteBuilder = new SqliteConnectionStringBuilder(connectionString);
+    if (!string.IsNullOrWhiteSpace(sqliteBuilder.DataSource))
+    {
+        var dbPath = Path.GetFullPath(sqliteBuilder.DataSource);
+        var dbDir = Path.GetDirectoryName(dbPath);
+        if (!string.IsNullOrWhiteSpace(dbDir))
+        {
+            Directory.CreateDirectory(dbDir);
+        }
+    }
+}
+
+using (var scope = app.Services.CreateScope())
+{
+    var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+    db.Database.EnsureCreated();
+    var seeder = scope.ServiceProvider.GetRequiredService<ApiKeySeeder>();
+    await seeder.EnsureSeedAsync(CancellationToken.None);
+    var userSeeder = scope.ServiceProvider.GetRequiredService<UserSeeder>();
+    await userSeeder.EnsureSeedAsync(CancellationToken.None);
+}
+
+app.MapApiEndpoints();
+
+app.Run();

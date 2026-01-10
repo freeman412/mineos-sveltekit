@@ -33,3 +33,9 @@ node_modules
 # .NET build artifacts
 bin
 obj
+
+# SQLite
+*.db
+*.db-shm
+*.db-wal
+apps/MineOS.Api/data/

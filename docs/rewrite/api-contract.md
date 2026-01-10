@@ -6,8 +6,10 @@ This is a first-pass contract derived from the current Node/Socket.IO behavior. 
 - Base path: /api/v1
 - Content type: application/json
 - All endpoints return standard problem details on error.
-- Auth: TBD (cookie + session, or JWT). Endpoints below assume authenticated access unless noted.
- - Health: GET /api/v1/health
+- Auth:
+  - API: `X-Api-Key` header for protected backend endpoints.
+  - User: JWT Bearer token for `/auth/me` and future user endpoints.
+- Health: GET /api/v1/health
 
 ## Data types (shape only)
 - HostMetrics: { uptimeSeconds, freeMemBytes, loadAvg: [1,5,15], disk: { availableBytes, freeBytes, totalBytes } }
@@ -22,12 +24,13 @@ This is a first-pass contract derived from the current Node/Socket.IO behavior. 
 - Notice: { uuid, command, success, err?, timeInitiated, timeResolved }
 
 ## Auth
-- POST /api/v1/auth/login { username, password }
+- POST /api/v1/auth/login { username, password } -> { accessToken, expiresInSeconds, tokenType, username, role }
 - POST /api/v1/auth/logout
-- GET /api/v1/auth/me -> { username, roles }
+- GET /api/v1/auth/me (Bearer token) -> { username, role }
 
 ## Host
 - GET /api/v1/host/metrics -> HostMetrics
+- GET /api/v1/host/metrics/stream?intervalMs=2000 -> SSE stream of HostMetrics
 - GET /api/v1/host/servers -> ServerSummary[]
 - GET /api/v1/host/profiles -> Profile[]
 - POST /api/v1/host/profiles/{id}/download

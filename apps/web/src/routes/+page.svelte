@@ -1,10 +1,15 @@
 <script lang="ts">
 	import type { ApiResult, HostMetrics, ServerSummary } from '$lib/api/types';
+	import { onMount } from 'svelte';
 
 	export let data: {
 		metrics: ApiResult<HostMetrics>;
 		servers: ApiResult<ServerSummary[]>;
 	};
+
+	let liveMetrics: HostMetrics | null = null;
+	let liveError: string | null = null;
+	let liveConnected = false;
 
 	const formatBytes = (value: number) => {
 		if (!value) return '0 B';
@@ -18,6 +23,63 @@
 		const minutes = Math.floor((seconds % 3600) / 60);
 		return `${hours}h ${minutes}m`;
 	};
+
+	const parseSse = async (response: Response, onData: (payload: string) => void) => {
+		const reader = response.body?.getReader();
+		if (!reader) return;
+		const decoder = new TextDecoder();
+		let buffer = '';
+
+		while (true) {
+			const { done, value } = await reader.read();
+			if (done) break;
+			buffer += decoder.decode(value, { stream: true });
+
+			let idx = buffer.indexOf('\n\n');
+			while (idx >= 0) {
+				const chunk = buffer.slice(0, idx).trim();
+				buffer = buffer.slice(idx + 2);
+				for (const line of chunk.split('\n')) {
+					if (line.startsWith('data:')) {
+						onData(line.slice(5).trim());
+					}
+				}
+				idx = buffer.indexOf('\n\n');
+			}
+		}
+	};
+
+	onMount(() => {
+		const controller = new AbortController();
+		const start = async () => {
+			try {
+				const response = await fetch(`/api/host/metrics/stream?intervalMs=2000`, {
+					signal: controller.signal
+				});
+
+				if (!response.ok) {
+					liveError = `Live stream failed: ${response.status}`;
+					return;
+				}
+
+				liveConnected = true;
+				await parseSse(response, (payload) => {
+					try {
+						liveMetrics = JSON.parse(payload) as HostMetrics;
+					} catch {
+						liveError = 'Live stream parse error';
+					}
+				});
+			} catch (err) {
+				if (!(err instanceof DOMException && err.name === 'AbortError')) {
+					liveError = err instanceof Error ? err.message : 'Live stream error';
+				}
+			}
+		};
+
+		start();
+		return () => controller.abort();
+	});
 </script>
 
 <svelte:head>
@@ -70,6 +132,21 @@
 				<p class="metric">{data.metrics.data.loadAvg.join(' / ')}</p>
 			{:else}
 				<p class="metric muted">n/a</p>
+			{/if}
+		</div>
+		<div class="card live-card">
+			<h2>Live Metrics</h2>
+			{#if liveMetrics}
+				<p class="metric">{liveMetrics.loadAvg.join(' / ')}</p>
+				<p class="subtext">
+					{formatBytes(liveMetrics.freeMemBytes)} free · {formatBytes(liveMetrics.disk.freeBytes)} disk
+				</p>
+			{:else if liveError}
+				<p class="metric muted">{liveError}</p>
+			{:else if liveConnected}
+				<p class="metric muted">Waiting for data...</p>
+			{:else}
+				<p class="metric muted">Connecting…</p>
 			{/if}
 		</div>
 	</section>
@@ -195,6 +272,12 @@
 
 	.metric.muted {
 		color: #717aa3;
+	}
+
+	.subtext {
+		margin: 8px 0 0;
+		color: #98a2c9;
+		font-size: 13px;
 	}
 
 	.panel {

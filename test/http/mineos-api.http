@@ -1,0 +1,33 @@
+@baseUrl = {{baseUrl}}
+@apiKey = {{apiKey}}
+@jwt = {{login.response.body.accessToken}}
+
+### Health (anonymous)
+GET {{baseUrl}}/api/v1/health
+
+# @name login
+### Login (anonymous)
+POST {{baseUrl}}/api/v1/auth/login
+Content-Type: application/json
+
+{
+  "username": "admin",
+  "password": "admin123!"
+}
+
+### Auth me (JWT)
+GET {{baseUrl}}/api/v1/auth/me
+Authorization: Bearer {{jwt}}
+
+### Host metrics (API key required)
+GET {{baseUrl}}/api/v1/host/metrics
+X-Api-Key: {{apiKey}}
+
+### Host servers (API key required)
+GET {{baseUrl}}/api/v1/host/servers
+X-Api-Key: {{apiKey}}
+
+### Host metrics stream (API key required)
+GET {{baseUrl}}/api/v1/host/metrics/stream?intervalMs=2000
+X-Api-Key: {{apiKey}}
+Accept: text/event-stream
