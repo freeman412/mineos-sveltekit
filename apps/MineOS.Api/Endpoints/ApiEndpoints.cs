@@ -10,6 +10,8 @@ public static class ApiEndpoints
         api.MapAuthEndpoints();
         api.MapHostEndpoints();
         api.MapServerEndpoints();
+        api.MapProfileEndpoints();
+        api.MapJobEndpoints();
 
         return app;
     }

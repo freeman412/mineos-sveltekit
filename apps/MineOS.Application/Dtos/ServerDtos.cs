@@ -12,20 +12,58 @@ public record NoticeDto(
 
 public record MemoryInfoDto(long? RssBytes);
 
-public record PingInfoDto(string? ServerVersion, string? Motd, int? PlayersOnline, int? PlayersMax);
+public record PingInfoDto(
+    int Protocol,
+    string ServerVersion,
+    string Motd,
+    int PlayersOnline,
+    int PlayersMax);
 
 public record QueryInfoDto(Dictionary<string, object>? Raw);
 
 public record ServerHeartbeatDto(
-    bool Up,
-    MemoryInfoDto? Memory,
+    string Name,
+    string Status,
+    int? JavaPid,
+    int? ScreenPid,
     PingInfoDto? Ping,
-    QueryInfoDto? Query,
-    long Timestamp);
+    long? MemoryBytes);
+
+public record ServerDetailDto(
+    string Name,
+    DateTimeOffset CreatedAt,
+    int OwnerUid,
+    int OwnerGid,
+    string OwnerUsername,
+    string OwnerGroupname,
+    string Status,
+    int? JavaPid,
+    int? ScreenPid,
+    ServerConfigDto? Config);
+
+public record ServerConfigDto(
+    JavaConfigDto Java,
+    MinecraftConfigDto Minecraft,
+    OnRebootConfigDto OnReboot);
+
+public record JavaConfigDto(
+    string JavaBinary,
+    int JavaXmx,
+    int JavaXms,
+    string? JavaTweaks,
+    string? JarFile,
+    string? JarArgs);
+
+public record MinecraftConfigDto(
+    string? Profile,
+    bool Unconventional);
+
+public record OnRebootConfigDto(
+    bool Start);
 
 public record ConsoleCommandDto(string Command);
 
-public record CreateServerRequest(string ServerName, Dictionary<string, string>? Properties, bool Unconventional);
+public record CreateServerRequest(string Name, int OwnerUid, int OwnerGid);
 
 public record DeleteServerRequest(bool DeleteLive, bool DeleteBackups, bool DeleteArchives);
 

@@ -46,7 +46,7 @@ public sealed class HostService : IHostService
     {
         while (!cancellationToken.IsCancellationRequested)
         {
-            yield return await GetMetricsAsync(cancellationToken);
+            yield return await GetMetricsAsync(cancellationToken);  
             try
             {
                 await Task.Delay(interval, cancellationToken);

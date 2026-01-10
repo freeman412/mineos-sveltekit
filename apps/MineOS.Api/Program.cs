@@ -110,8 +110,20 @@ builder.Services.AddDbContext<AppDbContext>(options =>
 builder.Services.AddScoped<IApiKeyValidator, ApiKeyValidator>();
 builder.Services.AddScoped<IHostService, HostService>();
 builder.Services.AddScoped<IAuthService, AuthService>();
+builder.Services.AddScoped<IServerService, ServerService>();
+builder.Services.AddScoped<IBackupService, BackupService>();
+builder.Services.AddScoped<IArchiveService, ArchiveService>();
+builder.Services.AddScoped<IConsoleService, ConsoleService>();
+builder.Services.AddScoped<IMonitoringService, MonitoringService>();
+builder.Services.AddScoped<IFileService, FileService>();
+builder.Services.AddScoped<IProfileService, ProfileService>();
+builder.Services.AddSingleton<IProcessManager, ProcessManager>();
 builder.Services.AddSingleton<IPasswordHasher, Argon2PasswordHasher>();
 builder.Services.AddSingleton<IJwtTokenService, JwtTokenService>();
+builder.Services.AddSingleton<BackgroundJobService>();
+builder.Services.AddSingleton<IBackgroundJobService>(sp => sp.GetRequiredService<BackgroundJobService>());
+builder.Services.AddHostedService(sp => sp.GetRequiredService<BackgroundJobService>());
+builder.Services.AddHttpClient<IProfileService, ProfileService>();
 builder.Services.AddScoped<ApiKeySeeder>();
 builder.Services.AddScoped<UserSeeder>();
 

@@ -4,7 +4,10 @@
       "Bash(dotnet build:*)",
       "Bash(dotnet restore:*)",
       "Bash(timeout 5 curl:*)",
-      "Bash(timeout 3 curl:*)"
+      "Bash(timeout 3 curl:*)",
+      "Bash(lsof:*)",
+      "Bash(xargs kill -9)",
+      "Bash(npm uninstall:*)"
     ]
   }
 }

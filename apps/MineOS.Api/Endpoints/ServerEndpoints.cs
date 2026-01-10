@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
 using MineOS.Application.Dtos;
+using MineOS.Application.Interfaces;
 
 namespace MineOS.Api.Endpoints;
 
@@ -7,52 +8,178 @@ public static class ServerEndpoints
 {
     public static RouteGroupBuilder MapServerEndpoints(this RouteGroupBuilder api)
     {
-        var servers = api.MapGroup("/servers");
+        var servers = api.MapGroup("/servers")
+            .RequireAuthorization()
+            .WithMetadata(new Middleware.SkipApiKeyAttribute());
 
-        servers.MapPost("/", (CreateServerRequest _) =>
-            EndpointHelpers.NotImplementedFeature("servers.create"));
-
-        servers.MapDelete("/{name}", ([FromRoute] string name, [FromBody] DeleteServerRequest _) =>
-            EndpointHelpers.NotImplementedFeature($"servers.delete:{name}"));
-
-        servers.MapGet("/{name}/status", (string name) =>
+        // Server CRUD
+        servers.MapPost("/", async (
+            [FromBody] CreateServerRequest request,
+            IServerService serverService,
+            HttpContext context,
+            CancellationToken cancellationToken) =>
         {
-            var heartbeat = new ServerHeartbeatDto(
-                Up: false,
-                Memory: null,
-                Ping: null,
-                Query: null,
-                Timestamp: DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
-
-            return Results.Ok(heartbeat);
+            try
+            {
+                // TODO: Get username from JWT claims
+                var username = "admin";
+                var server = await serverService.CreateServerAsync(request, username, cancellationToken);
+                return Results.Created($"/api/servers/{server.Name}", server);
+            }
+            catch (InvalidOperationException ex)
+            {
+                return Results.Conflict(new { error = ex.Message });
+            }
         });
 
-        servers.MapPost("/{name}/actions/{action}", (string name, string action, ActionRequest _) =>
-            EndpointHelpers.NotImplementedFeature($"servers.action:{name}:{action}"));
+        servers.MapGet("/{name}", async (
+            string name,
+            IServerService serverService,
+            CancellationToken cancellationToken) =>
+        {
+            try
+            {
+                var server = await serverService.GetServerAsync(name, cancellationToken);
+                return Results.Ok(server);
+            }
+            catch (DirectoryNotFoundException ex)
+            {
+                return Results.NotFound(new { error = ex.Message });
+            }
+        });
 
-        servers.MapPost("/{name}/console", (string name, ConsoleCommandDto _) =>
-            EndpointHelpers.NotImplementedFeature($"servers.console:{name}"));
+        servers.MapDelete("/{name}", async (
+            string name,
+            IServerService serverService,
+            CancellationToken cancellationToken) =>
+        {
+            try
+            {
+                await serverService.DeleteServerAsync(name, cancellationToken);
+                return Results.NoContent();
+            }
+            catch (DirectoryNotFoundException ex)
+            {
+                return Results.NotFound(new { error = ex.Message });
+            }
+            catch (InvalidOperationException ex)
+            {
+                return Results.Conflict(new { error = ex.Message });
+            }
+        });
 
-        servers.MapGet("/{name}/server-properties", (string name) =>
-            Results.Ok(new Dictionary<string, string>()));
+        // Server status
+        servers.MapGet("/{name}/status", async (
+            string name,
+            IServerService serverService,
+            CancellationToken cancellationToken) =>
+        {
+            try
+            {
+                var heartbeat = await serverService.GetServerStatusAsync(name, cancellationToken);
+                return Results.Ok(heartbeat);
+            }
+            catch (DirectoryNotFoundException ex)
+            {
+                return Results.NotFound(new { error = ex.Message });
+            }
+        });
 
-        servers.MapPut("/{name}/server-properties", (string name, Dictionary<string, string> _) =>
-            EndpointHelpers.NotImplementedFeature($"servers.server-properties.put:{name}"));
+        // Server actions
+        servers.MapPost("/{name}/actions/{action}", async (
+            string name,
+            string action,
+            IServerService serverService,
+            CancellationToken cancellationToken) =>
+        {
+            try
+            {
+                switch (action.ToLower())
+                {
+                    case "start":
+                        await serverService.StartServerAsync(name, cancellationToken);
+                        return Results.Ok(new { message = $"Server '{name}' started" });
 
-        servers.MapGet("/{name}/server-config", (string name) =>
-            Results.Ok(new Dictionary<string, Dictionary<string, string>>()));
+                    case "stop":
+                        await serverService.StopServerAsync(name, 30, cancellationToken);
+                        return Results.Ok(new { message = $"Server '{name}' stopped" });
 
-        servers.MapPut("/{name}/server-config", (string name, Dictionary<string, Dictionary<string, string>> _) =>
-            EndpointHelpers.NotImplementedFeature($"servers.server-config.put:{name}"));
+                    case "restart":
+                        await serverService.RestartServerAsync(name, cancellationToken);
+                        return Results.Ok(new { message = $"Server '{name}' restarted" });
 
-        servers.MapGet("/{name}/archives", (string name) =>
-            Results.Ok(Array.Empty<ArchiveEntryDto>()));
+                    case "kill":
+                        await serverService.KillServerAsync(name, cancellationToken);
+                        return Results.Ok(new { message = $"Server '{name}' killed" });
 
-        servers.MapGet("/{name}/backups", (string name) =>
-            Results.Ok(Array.Empty<IncrementEntryDto>()));
+                    default:
+                        return Results.BadRequest(new { error = $"Unknown action: {action}" });
+                }
+            }
+            catch (DirectoryNotFoundException ex)
+            {
+                return Results.NotFound(new { error = ex.Message });
+            }
+            catch (InvalidOperationException ex)
+            {
+                return Results.Conflict(new { error = ex.Message });
+            }
+            catch (TimeoutException ex)
+            {
+                return Results.StatusCode(408); // Request Timeout
+            }
+        });
 
-        servers.MapGet("/{name}/backups/sizes", (string name) =>
-            Results.Ok(Array.Empty<IncrementEntryDto>()));
+        // Server properties
+        servers.MapGet("/{name}/server-properties", async (
+            string name,
+            IServerService serverService,
+            CancellationToken cancellationToken) =>
+        {
+            var properties = await serverService.GetServerPropertiesAsync(name, cancellationToken);
+            return Results.Ok(properties);
+        });
+
+        servers.MapPut("/{name}/server-properties", async (
+            string name,
+            [FromBody] Dictionary<string, string> properties,
+            IServerService serverService,
+            CancellationToken cancellationToken) =>
+        {
+            await serverService.UpdateServerPropertiesAsync(name, properties, cancellationToken);
+            return Results.Ok(new { message = "Properties updated" });
+        });
+
+        // Server config
+        servers.MapGet("/{name}/server-config", async (
+            string name,
+            IServerService serverService,
+            CancellationToken cancellationToken) =>
+        {
+            var config = await serverService.GetServerConfigAsync(name, cancellationToken);
+            return Results.Ok(config);
+        });
+
+        servers.MapPut("/{name}/server-config", async (
+            string name,
+            [FromBody] ServerConfigDto config,
+            IServerService serverService,
+            CancellationToken cancellationToken) =>
+        {
+            await serverService.UpdateServerConfigAsync(name, config, cancellationToken);
+            return Results.Ok(new { message = "Config updated" });
+        });
+
+        // Phase 2: Backup and archive endpoints
+        servers.MapBackupEndpoints();
+        servers.MapArchiveEndpoints();
+
+        // Phase 3: Console and monitoring endpoints
+        servers.MapConsoleEndpoints();
+        servers.MapMonitoringEndpoints();
+
+        // Phase 4: File management endpoints
+        servers.MapFileEndpoints();
 
         var cron = api.MapGroup("/servers/{name}/cron");
         cron.MapGet("/", (string name) => Results.Ok(Array.Empty<CronJobDto>()));

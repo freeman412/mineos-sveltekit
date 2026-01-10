@@ -8,6 +8,7 @@ RUN apt-get update && apt-get install -y \
   rdiff-backup \
   screen \
   rsync \
+  tar \
   git \
   curl \
   rlwrap \

@@ -51,6 +51,17 @@ The web container is configured to call the API with:
 These are set in `.devcontainer/docker-compose.yml`. The API key must match
 `ApiKey:StaticKey` in `apps/MineOS.Api/appsettings.Development.json`.
 
+## Dependencies
+
+The API container includes the following Minecraft server management dependencies:
+
+- **rdiff-backup**: For incremental server backups (Phase 2)
+- **tar**: For compressed archive creation (.tar.gz)
+- **screen**: For managing server processes
+- **rsync**: For file synchronization (used in Phase 4 profiles)
+- **openjdk-17-jre-headless**: Default Java runtime
+- **temurin-8-jre**: Legacy Java 8 support
+
 ## Tips
 
 - Need a shell in the other service? Use `Dev Containers: Attach to Running Container...`
