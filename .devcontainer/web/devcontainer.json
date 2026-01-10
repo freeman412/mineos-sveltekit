@@ -1,0 +1,26 @@
+{
+  "name": "MineOS Web (Compose)",
+  "dockerComposeFile": [
+    "../docker-compose.yml"
+  ],
+  "service": "web",
+  "workspaceFolder": "/workspaces/mineos-sveltkit",
+  "runServices": [
+    "api",
+    "web"
+  ],
+  "forwardPorts": [
+    5173,
+    5078
+  ],
+  "postCreateCommand": "cd apps/web && npm install",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "svelte.svelte-vscode",
+        "esbenp.prettier-vscode",
+        "ms-dotnettools.csharp"
+      ]
+    }
+  }
+}

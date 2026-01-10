@@ -19,11 +19,40 @@ export const GET: RequestHandler = async ({ fetch, url }) => {
 		}
 	});
 
-	return new Response(response.body, {
-		status: response.status,
-		headers: {
-			'Content-Type': 'text/event-stream',
-			'Cache-Control': 'no-cache'
+	if (!response.body) {
+		return new Response('Upstream did not return a body', { status: 502 });
+	}
+
+	const reader = response.body!.getReader();
+	const stream = new ReadableStream<Uint8Array>({
+		async pull(controller) {
+			try {
+				const { done, value } = await reader.read();
+				if (done) {
+					controller.close();
+					return;
+				}
+				if (value) {
+					controller.enqueue(value);
+				}
+			} catch (err) {
+				controller.error(err);
+			}
+		},
+		cancel() {
+			reader.releaseLock();
 		}
+	});
+
+	const headers = new Headers(response.headers);
+	headers.set('Content-Type', 'text/event-stream');
+	headers.set('Cache-Control', 'no-cache');
+	headers.set('Connection', 'keep-alive');
+	headers.set('X-Accel-Buffering', 'no');
+	headers.delete('Content-Length');
+
+	return new Response(stream, {
+		status: response.status,
+		headers
 	});
 };

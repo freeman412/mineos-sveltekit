@@ -15,8 +15,13 @@ public static class HostEndpoints
         host.MapGet("/metrics/stream",
             async (HttpContext context, IHostService hostService, CancellationToken cancellationToken) =>
             {
+                // Configure SSE headers
                 context.Response.Headers.ContentType = "text/event-stream";
                 context.Response.Headers.CacheControl = "no-cache";
+                context.Response.Headers.Remove("Content-Length");
+
+                // Start the response immediately to send headers and prevent buffering
+                await context.Response.StartAsync(cancellationToken);
 
                 var intervalMs = 2000;
                 if (int.TryParse(context.Request.Query["intervalMs"], out var parsed) && parsed > 100)
@@ -24,11 +29,16 @@ public static class HostEndpoints
                     intervalMs = parsed;
                 }
 
+                var jsonOptions = new JsonSerializerOptions
+                {
+                    PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+                };
+
                 await foreach (var metrics in hostService.StreamMetricsAsync(
                                    TimeSpan.FromMilliseconds(intervalMs),
                                    cancellationToken))
                 {
-                    var payload = JsonSerializer.Serialize(metrics);
+                    var payload = JsonSerializer.Serialize(metrics, jsonOptions);
                     await context.Response.WriteAsync($"data: {payload}\n\n", cancellationToken);
                     await context.Response.Body.FlushAsync(cancellationToken);
                 }

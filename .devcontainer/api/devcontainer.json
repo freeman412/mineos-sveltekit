@@ -1,0 +1,26 @@
+{
+  "name": "MineOS API (Compose)",
+  "dockerComposeFile": [
+    "../docker-compose.yml"
+  ],
+  "service": "api",
+  "workspaceFolder": "/workspaces/mineos-sveltkit",
+  "runServices": [
+    "api",
+    "web"
+  ],
+  "forwardPorts": [
+    5078,
+    5173
+  ],
+  "postCreateCommand": "dotnet restore apps/MineOS.Api/MineOS.Api.csproj",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-dotnettools.csharp",
+        "svelte.svelte-vscode",
+        "esbenp.prettier-vscode"
+      ]
+    }
+  }
+}

@@ -1,0 +1,32 @@
+version: "3.8"
+
+services:
+  api:
+    build:
+      context: ..
+      dockerfile: .devcontainer/Dockerfile.api
+    volumes:
+      - ..:/workspaces/mineos-sveltkit
+      - mineos_minecraft:/var/games/minecraft
+    environment:
+      ASPNETCORE_URLS: http://0.0.0.0:5078
+      DOTNET_USE_POLLING_FILE_WATCHER: "1"
+    ports:
+      - "5078:5078"
+    command: sleep infinity
+
+  web:
+    build:
+      context: ..
+      dockerfile: .devcontainer/Dockerfile.web
+    volumes:
+      - ..:/workspaces/mineos-sveltkit
+    environment:
+      PRIVATE_API_BASE_URL: http://api:5078
+      PRIVATE_API_KEY: dev-static-api-key-change-me
+    ports:
+      - "5173:5173"
+    command: sleep infinity
+
+volumes:
+  mineos_minecraft:

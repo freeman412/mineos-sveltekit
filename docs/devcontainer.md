@@ -1,0 +1,57 @@
+# Dev Containers
+
+This repo uses a Docker Compose-based Dev Containers setup with two services:
+
+- `api`: .NET 8 backend + tools + Minecraft dependencies
+- `web`: SvelteKit frontend
+
+## Prereqs
+
+- Docker Desktop (WSL2 enabled on Windows)
+- VS Code with the "Dev Containers" extension
+
+## Open the containers
+
+1) Open the repo in VS Code.
+2) Open Command Palette: `Dev Containers: Open Folder in Container...`
+3) Pick a config:
+   - `api` -> attaches to the backend container
+   - `web` -> attaches to the frontend container
+
+Both containers start via Compose and share the repo volume.
+
+## Run the backend
+
+In the API container terminal:
+
+```sh
+dotnet watch --project apps/MineOS.Api run
+```
+
+The API listens on `http://localhost:5078` (forwarded from the container).
+
+## Run the frontend
+
+In the web container terminal:
+
+```sh
+cd apps/web
+npm run dev -- --host 0.0.0.0 --port 5174
+```
+
+The web app listens on `http://localhost:5174`.
+
+## Environment wiring
+
+The web container is configured to call the API with:
+
+- `PRIVATE_API_BASE_URL=http://api:5078`
+- `PRIVATE_API_KEY=dev-static-api-key-change-me`
+
+These are set in `.devcontainer/docker-compose.yml`. The API key must match
+`ApiKey:StaticKey` in `apps/MineOS.Api/appsettings.Development.json`.
+
+## Tips
+
+- Need a shell in the other service? Use `Dev Containers: Attach to Running Container...`
+- If port 5173 or 5078 is in use, update `.devcontainer/docker-compose.yml` and re-open.

@@ -33,6 +33,13 @@ builder.Host.UseSerilog((context, services, config) =>
 });
 
 builder.Services.AddEndpointsApiExplorer();
+
+// Configure JSON serialization to use camelCase for JavaScript/TypeScript interop
+builder.Services.ConfigureHttpJsonOptions(options =>
+{
+    options.SerializerOptions.PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase;
+});
+
 builder.Services.AddSwaggerGen(options =>
 {
     options.SwaggerDoc("v1", new OpenApiInfo

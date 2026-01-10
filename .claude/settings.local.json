@@ -1,7 +1,10 @@
 {
   "permissions": {
     "allow": [
-      "Bash(dotnet build:*)"
+      "Bash(dotnet build:*)",
+      "Bash(dotnet restore:*)",
+      "Bash(timeout 5 curl:*)",
+      "Bash(timeout 3 curl:*)"
     ]
   }
 }
