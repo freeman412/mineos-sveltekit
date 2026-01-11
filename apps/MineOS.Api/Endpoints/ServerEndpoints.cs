@@ -146,8 +146,15 @@ public static class ServerEndpoints
             IServerService serverService,
             CancellationToken cancellationToken) =>
         {
-            await serverService.UpdateServerPropertiesAsync(name, properties, cancellationToken);
-            return Results.Ok(new { message = "Properties updated" });
+            try
+            {
+                await serverService.UpdateServerPropertiesAsync(name, properties, cancellationToken);
+                return Results.Ok(new { message = "Properties updated" });
+            }
+            catch (InvalidOperationException ex)
+            {
+                return Results.Conflict(new { error = ex.Message });
+            }
         });
 
         // Server config

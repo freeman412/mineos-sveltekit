@@ -102,10 +102,13 @@ public class ServerService : IServerService
         var propertiesPath = GetPropertiesPath(request.Name);
         var configPath = GetConfigPath(request.Name);
 
+        var usedPorts = await GetUsedPortsAsync(excludeName: null, cancellationToken);
+        var defaultPort = GetNextAvailablePort(usedPorts, 25565);
+
         // Write default server.properties
         var defaultProperties = new Dictionary<string, string>
         {
-            ["server-port"] = "25565",
+            ["server-port"] = defaultPort.ToString(),
             ["max-players"] = "20",
             ["level-seed"] = "",
             ["gamemode"] = "0",
@@ -372,6 +375,20 @@ public class ServerService : IServerService
 
     public async Task UpdateServerPropertiesAsync(string name, Dictionary<string, string> properties, CancellationToken cancellationToken)
     {
+        if (properties.TryGetValue("server-port", out var portValue))
+        {
+            if (!int.TryParse(portValue, out var port) || port < 1 || port > 65535)
+            {
+                throw new InvalidOperationException("Server port must be a number between 1 and 65535.");
+            }
+
+            var usedPorts = await GetUsedPortsAsync(name, cancellationToken);
+            if (usedPorts.Contains(port))
+            {
+                throw new InvalidOperationException($"Port {port} is already in use by another server.");
+            }
+        }
+
         var propertiesPath = GetPropertiesPath(name);
         var content = IniParser.WriteSimple(properties);
         await File.WriteAllTextAsync(propertiesPath, content, cancellationToken);
@@ -665,5 +682,61 @@ public class ServerService : IServerService
         }
 
         return "'" + value.Replace("'", "'\"'\"'") + "'";
+    }
+
+    private async Task<HashSet<int>> GetUsedPortsAsync(string? excludeName, CancellationToken cancellationToken)
+    {
+        var usedPorts = new HashSet<int>();
+        var serversPath = Path.Combine(_options.BaseDirectory, _options.ServersPathSegment);
+        if (!Directory.Exists(serversPath))
+        {
+            return usedPorts;
+        }
+
+        foreach (var dir in Directory.EnumerateDirectories(serversPath))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var serverName = Path.GetFileName(dir);
+            if (string.IsNullOrWhiteSpace(serverName))
+            {
+                continue;
+            }
+            if (!string.IsNullOrWhiteSpace(excludeName) &&
+                serverName.Equals(excludeName, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            var propertiesPath = Path.Combine(dir, "server.properties");
+            if (!File.Exists(propertiesPath))
+            {
+                continue;
+            }
+
+            var content = await File.ReadAllTextAsync(propertiesPath, cancellationToken);
+            var props = IniParser.ParseSimple(content);
+            if (props.TryGetValue("server-port", out var portValue) &&
+                int.TryParse(portValue, out var port))
+            {
+                usedPorts.Add(port);
+            }
+        }
+
+        return usedPorts;
+    }
+
+    private static int GetNextAvailablePort(HashSet<int> usedPorts, int startPort)
+    {
+        var port = startPort;
+        while (usedPorts.Contains(port))
+        {
+            port++;
+            if (port > 65535)
+            {
+                throw new InvalidOperationException("No available ports were found.");
+            }
+        }
+
+        return port;
     }
 }
