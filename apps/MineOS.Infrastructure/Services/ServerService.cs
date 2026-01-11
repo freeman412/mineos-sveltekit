@@ -245,11 +245,31 @@ public class ServerService : IServerService
         await EnsureExecutableAvailableAsync("screen", "-v", "GNU screen", cancellationToken);
         await EnsureExecutableAvailableAsync(javaBinary, "-version", "Java runtime", cancellationToken);
 
-        var resolvedJarPath = ResolveJarPath(serverPath, jarFile);
-        _logger.LogInformation("Resolved JAR path for {ServerName}: {JarPath}", name, resolvedJarPath);
-        if (!File.Exists(resolvedJarPath))
+        // Check if using modern Forge @argfile syntax (e.g., "@user_jvm_args.txt @libraries/.../unix_args.txt")
+        var isArgFileSyntax = jarFile.TrimStart().StartsWith("@");
+
+        if (isArgFileSyntax)
         {
-            throw new InvalidOperationException($"Configured JAR file not found: {resolvedJarPath}");
+            // Validate that each referenced arg file exists
+            var argFiles = jarFile.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            foreach (var argFile in argFiles)
+            {
+                var filePath = Path.Combine(serverPath, argFile.TrimStart('@'));
+                if (!File.Exists(filePath))
+                {
+                    throw new InvalidOperationException($"Forge argument file not found: {filePath}");
+                }
+            }
+            _logger.LogInformation("Using Forge @argfile syntax for {ServerName}: {ArgFiles}", name, jarFile);
+        }
+        else
+        {
+            var resolvedJarPath = ResolveJarPath(serverPath, jarFile);
+            _logger.LogInformation("Resolved JAR path for {ServerName}: {JarPath}", name, resolvedJarPath);
+            if (!File.Exists(resolvedJarPath))
+            {
+                throw new InvalidOperationException($"Configured JAR file not found: {resolvedJarPath}");
+            }
         }
 
         var logDir = Path.Combine(serverPath, "logs");
@@ -280,8 +300,17 @@ public class ServerService : IServerService
             javaArgs.AddRange(config.Java.JavaTweaks.Split(' ', StringSplitOptions.RemoveEmptyEntries));
         }
 
-        javaArgs.Add("-jar");
-        javaArgs.Add(resolvedJarPath);
+        // Modern Forge uses @argfile syntax instead of -jar
+        if (isArgFileSyntax)
+        {
+            // Add each @argfile reference
+            javaArgs.AddRange(jarFile.Split(' ', StringSplitOptions.RemoveEmptyEntries));
+        }
+        else
+        {
+            javaArgs.Add("-jar");
+            javaArgs.Add(ResolveJarPath(serverPath, jarFile));
+        }
 
         if (!string.IsNullOrEmpty(config.Java.JarArgs))
         {
