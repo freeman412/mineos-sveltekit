@@ -325,6 +325,30 @@
 		border-radius: 8px;
 		padding: 1rem;
 		overflow: auto;
+		scrollbar-width: thin;
+		scrollbar-color: rgba(106, 176, 76, 0.35) transparent;
+	}
+
+	.file-list::-webkit-scrollbar,
+	.file-viewer::-webkit-scrollbar {
+		width: 8px;
+		height: 8px;
+	}
+
+	.file-list::-webkit-scrollbar-track,
+	.file-viewer::-webkit-scrollbar-track {
+		background: transparent;
+	}
+
+	.file-list::-webkit-scrollbar-thumb,
+	.file-viewer::-webkit-scrollbar-thumb {
+		background: rgba(106, 176, 76, 0.35);
+		border-radius: 999px;
+	}
+
+	.file-list::-webkit-scrollbar-thumb:hover,
+	.file-viewer::-webkit-scrollbar-thumb:hover {
+		background: rgba(106, 176, 76, 0.6);
 	}
 
 	.file-list h3,

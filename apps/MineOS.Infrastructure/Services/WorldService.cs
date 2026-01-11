@@ -12,14 +12,50 @@ public sealed class WorldService : IWorldService
     private readonly ILogger<WorldService> _logger;
     private readonly HostOptions _hostOptions;
 
-    private static readonly string[] WorldFolders = { "world", "world_nether", "world_the_end" };
-
     public WorldService(
         ILogger<WorldService> logger,
         IOptions<HostOptions> hostOptions)
     {
         _logger = logger;
         _hostOptions = hostOptions.Value;
+    }
+
+    private bool IsWorldFolder(string path)
+    {
+        // A folder is a world if it contains level.dat or session.lock
+        return File.Exists(Path.Combine(path, "level.dat")) ||
+               File.Exists(Path.Combine(path, "session.lock"));
+    }
+
+    private string DetermineWorldType(string worldName, string worldPath)
+    {
+        // Check for dimension folders (indicates this is a Bukkit/Spigot/Paper world container)
+        var dimNether = Path.Combine(worldPath, "DIM-1");
+        var dimEnd = Path.Combine(worldPath, "DIM1");
+
+        // Vanilla-style separate world folders
+        if (worldName.Contains("nether", StringComparison.OrdinalIgnoreCase) ||
+            worldName == "world_nether" ||
+            worldName == "DIM-1")
+        {
+            return "Nether";
+        }
+
+        if (worldName.Contains("end", StringComparison.OrdinalIgnoreCase) ||
+            worldName == "world_the_end" ||
+            worldName == "DIM1")
+        {
+            return "The End";
+        }
+
+        // If it has dimension folders inside, it's the main world container
+        if (Directory.Exists(dimNether) || Directory.Exists(dimEnd))
+        {
+            return "Overworld (Multi-Dimension)";
+        }
+
+        // Default to Overworld
+        return "Overworld";
     }
 
     private string GetServerPath(string serverName) =>
@@ -50,24 +86,31 @@ public sealed class WorldService : IWorldService
 
         var worlds = new List<WorldDto>();
 
-        foreach (var worldName in WorldFolders)
+        // Scan all directories in the server folder
+        var directories = Directory.GetDirectories(serverPath);
+
+        foreach (var dirPath in directories)
         {
-            var worldPath = Path.Combine(serverPath, worldName);
-            if (!Directory.Exists(worldPath))
+            var worldName = Path.GetFileName(dirPath);
+
+            // Skip non-world folders
+            if (!IsWorldFolder(dirPath))
             {
                 continue;
             }
 
-            var type = worldName switch
+            // Skip common non-world folders even if they might have world files
+            if (worldName.Equals("plugins", StringComparison.OrdinalIgnoreCase) ||
+                worldName.Equals("logs", StringComparison.OrdinalIgnoreCase) ||
+                worldName.Equals("crash-reports", StringComparison.OrdinalIgnoreCase) ||
+                worldName.Equals("backups", StringComparison.OrdinalIgnoreCase))
             {
-                "world" => "Overworld",
-                "world_nether" => "Nether",
-                "world_the_end" => "The End",
-                _ => "Unknown"
-            };
+                continue;
+            }
 
+            var type = DetermineWorldType(worldName, dirPath);
             var size = await GetWorldSizeAsync(serverName, worldName, cancellationToken);
-            var lastModified = Directory.GetLastWriteTimeUtc(worldPath);
+            var lastModified = Directory.GetLastWriteTimeUtc(dirPath);
 
             worlds.Add(new WorldDto(
                 worldName,
@@ -76,7 +119,18 @@ public sealed class WorldService : IWorldService
                 lastModified));
         }
 
-        return worlds;
+        // Sort worlds: Overworld first, then Nether, then The End, then custom
+        return worlds
+            .OrderBy(w => w.Type switch
+            {
+                "Overworld" => 0,
+                "Overworld (Multi-Dimension)" => 0,
+                "Nether" => 1,
+                "The End" => 2,
+                _ => 3
+            })
+            .ThenBy(w => w.Name)
+            .ToList();
     }
 
     public async Task<WorldInfoDto> GetWorldInfoAsync(string serverName, string worldName, CancellationToken cancellationToken)
