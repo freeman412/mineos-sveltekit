@@ -206,20 +206,11 @@ if (!string.IsNullOrWhiteSpace(connectionString))
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-    db.Database.EnsureCreated();
-    await db.Database.ExecuteSqlRawAsync("""
-        CREATE TABLE IF NOT EXISTS Jobs (
-            JobId TEXT NOT NULL PRIMARY KEY,
-            Type TEXT NOT NULL,
-            ServerName TEXT NOT NULL,
-            Status TEXT NOT NULL,
-            Percentage INTEGER NOT NULL,
-            Message TEXT NULL,
-            Error TEXT NULL,
-            StartedAt TEXT NOT NULL,
-            CompletedAt TEXT NULL
-        );
-        """);
+
+    // Run migrations on startup
+    await db.Database.MigrateAsync();
+
+    // Seed initial data
     var seeder = scope.ServiceProvider.GetRequiredService<ApiKeySeeder>();
     await seeder.EnsureSeedAsync(CancellationToken.None);
     var userSeeder = scope.ServiceProvider.GetRequiredService<UserSeeder>();
