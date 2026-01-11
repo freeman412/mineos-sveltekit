@@ -1,6 +1,7 @@
 <script lang="ts">
 	import type { PageData } from './$types';
 	import type { LayoutData } from '../$types';
+	import { modal } from '$lib/stores/modal';
 
 	let { data }: { data: PageData & { server: LayoutData['server'] } } = $props();
 
@@ -33,10 +34,10 @@
 				await loadArchives();
 			} else {
 				const errorData = await res.json().catch(() => ({}));
-				alert(`Failed to create archive: ${errorData.error || res.statusText}`);
+				await modal.error(`Failed to create archive: ${errorData.error || res.statusText}`);
 			}
 		} catch (err) {
-			alert(`Error: ${err instanceof Error ? err.message : 'Unknown error'}`);
+			await modal.error(`Error: ${err instanceof Error ? err.message : 'Unknown error'}`);
 		} finally {
 			loading = false;
 		}
@@ -44,9 +45,8 @@
 
 	async function deleteArchive(filename: string) {
 		if (!data.server) return;
-		if (!confirm(`Are you sure you want to delete archive "${filename}"?`)) {
-			return;
-		}
+		const confirmed = await modal.confirm(`Are you sure you want to delete archive "${filename}"?`, 'Delete Archive');
+		if (!confirmed) return;
 
 		actionLoading[filename] = true;
 		try {
@@ -58,10 +58,10 @@
 				await loadArchives();
 			} else {
 				const errorData = await res.json().catch(() => ({}));
-				alert(`Failed to delete archive: ${errorData.error || res.statusText}`);
+				await modal.error(`Failed to delete archive: ${errorData.error || res.statusText}`);
 			}
 		} catch (err) {
-			alert(`Error: ${err instanceof Error ? err.message : 'Unknown error'}`);
+			await modal.error(`Error: ${err instanceof Error ? err.message : 'Unknown error'}`);
 		} finally {
 			delete actionLoading[filename];
 			actionLoading = { ...actionLoading };

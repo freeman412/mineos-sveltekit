@@ -3,6 +3,7 @@
 	import type { PageData } from './$types';
 	import type { LayoutData } from '../$layout';
 	import type { CurseForgeModSummary, CurseForgeMod, InstalledMod } from '$lib/api/types';
+	import { modal } from '$lib/stores/modal';
 
 	let { data }: { data: PageData & { server: LayoutData['server'] } } = $props();
 
@@ -72,7 +73,7 @@
 	async function uploadModFile(file: File) {
 		if (!data.server) return;
 		if (!file.name.toLowerCase().endsWith('.jar') && !file.name.toLowerCase().endsWith('.zip')) {
-			alert('Only .jar or .zip files are supported.');
+			await modal.error('Only .jar or .zip files are supported.');
 			return;
 		}
 
@@ -86,12 +87,12 @@
 			});
 			if (!res.ok) {
 				const payload = await res.json().catch(() => ({}));
-				alert(payload.error || 'Failed to upload mod');
+				await modal.error(payload.error || 'Failed to upload mod');
 			} else {
 				await loadMods();
 			}
 		} catch (err) {
-			alert(err instanceof Error ? err.message : 'Upload failed');
+			await modal.error(err instanceof Error ? err.message : 'Upload failed');
 		} finally {
 			uploading = false;
 		}
@@ -115,7 +116,8 @@
 
 	async function deleteMod(fileName: string) {
 		if (!data.server) return;
-		if (!confirm(`Delete ${fileName}?`)) return;
+		const confirmed = await modal.confirm(`Delete ${fileName}?`, 'Delete Mod');
+		if (!confirmed) return;
 
 		try {
 			const res = await fetch(`/api/servers/${data.server.name}/mods/${encodeURIComponent(fileName)}`, {
@@ -123,12 +125,12 @@
 			});
 			if (!res.ok) {
 				const payload = await res.json().catch(() => ({}));
-				alert(payload.error || 'Failed to delete mod');
+				await modal.error(payload.error || 'Failed to delete mod');
 			} else {
 				await loadMods();
 			}
 		} catch (err) {
-			alert(err instanceof Error ? err.message : 'Delete failed');
+			await modal.error(err instanceof Error ? err.message : 'Delete failed');
 		}
 	}
 
@@ -249,10 +251,10 @@
 				}
 			} else {
 				const payload = await res.json().catch(() => ({}));
-				alert(payload.error || 'Install failed');
+				await modal.error(payload.error || 'Install failed');
 			}
 		} catch (err) {
-			alert(err instanceof Error ? err.message : 'Install failed');
+			await modal.error(err instanceof Error ? err.message : 'Install failed');
 		} finally {
 			delete installLoading[key];
 			installLoading = { ...installLoading };
@@ -287,10 +289,10 @@
 				}
 			} else {
 				const payload = await res.json().catch(() => ({}));
-				alert(payload.error || 'Install failed');
+				await modal.error(payload.error || 'Install failed');
 			}
 		} catch (err) {
-			alert(err instanceof Error ? err.message : 'Install failed');
+			await modal.error(err instanceof Error ? err.message : 'Install failed');
 		} finally {
 			delete installLoading[key];
 			installLoading = { ...installLoading };

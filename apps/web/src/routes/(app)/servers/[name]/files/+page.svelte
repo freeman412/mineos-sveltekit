@@ -1,6 +1,7 @@
 <script lang="ts">
 	import type { PageData } from './$types';
 	import type { LayoutData } from '../$layout';
+	import { modal } from '$lib/stores/modal';
 
 	let { data }: { data: PageData & { server: LayoutData['server'] } } = $props();
 
@@ -34,7 +35,7 @@
 				files = result.entries ?? [];
 			} else {
 				const error = await res.json().catch(() => ({ error: 'Failed to load files' }));
-				alert(error.error || 'Failed to load files');
+				await modal.error(error.error || 'Failed to load files');
 			}
 		} finally {
 			loading = false;
@@ -81,11 +82,11 @@
 					selectedFile = name;
 					editMode = false;
 				} else {
-					alert('Selected path is not a file');
+					await modal.error('Selected path is not a file');
 				}
 			} else {
 				const error = await res.json().catch(() => ({ error: 'Failed to read file' }));
-				alert(error.error || 'Failed to read file');
+				await modal.error(error.error || 'Failed to read file');
 			}
 		} finally {
 			loading = false;
@@ -103,11 +104,11 @@
 				body: JSON.stringify({ content: fileContent })
 			});
 			if (res.ok) {
-				alert('File saved successfully');
+				await modal.success('File saved successfully');
 				editMode = false;
 			} else {
 				const error = await res.json().catch(() => ({ error: 'Failed to save file' }));
-				alert(error.error || 'Failed to save file');
+				await modal.error(error.error || 'Failed to save file');
 			}
 		} finally {
 			loading = false;
@@ -116,7 +117,8 @@
 
 	async function deleteFile(name: string) {
 		if (!data.server) return;
-		if (!confirm(`Are you sure you want to delete "${name}"?`)) return;
+		const confirmed = await modal.confirm(`Are you sure you want to delete "${name}"?`, 'Delete File');
+		if (!confirmed) return;
 
 		loading = true;
 		try {
@@ -133,7 +135,7 @@
 				}
 			} else {
 				const error = await res.json().catch(() => ({ error: 'Failed to delete' }));
-				alert(error.error || 'Failed to delete');
+				await modal.error(error.error || 'Failed to delete');
 			}
 		} finally {
 			loading = false;
@@ -319,8 +321,7 @@
 		overflow: hidden;
 	}
 
-	.file-list,
-	.file-viewer {
+	.file-list {
 		background: #1a1a1a;
 		border-radius: 8px;
 		padding: 1rem;
@@ -329,25 +330,30 @@
 		scrollbar-color: rgba(106, 176, 76, 0.35) transparent;
 	}
 
-	.file-list::-webkit-scrollbar,
-	.file-viewer::-webkit-scrollbar {
+	.file-viewer {
+		background: #1a1a1a;
+		border-radius: 8px;
+		padding: 1rem;
+		overflow: hidden;
+		display: flex;
+		flex-direction: column;
+	}
+
+	.file-list::-webkit-scrollbar {
 		width: 8px;
 		height: 8px;
 	}
 
-	.file-list::-webkit-scrollbar-track,
-	.file-viewer::-webkit-scrollbar-track {
+	.file-list::-webkit-scrollbar-track {
 		background: transparent;
 	}
 
-	.file-list::-webkit-scrollbar-thumb,
-	.file-viewer::-webkit-scrollbar-thumb {
+	.file-list::-webkit-scrollbar-thumb {
 		background: rgba(106, 176, 76, 0.35);
 		border-radius: 999px;
 	}
 
-	.file-list::-webkit-scrollbar-thumb:hover,
-	.file-viewer::-webkit-scrollbar-thumb:hover {
+	.file-list::-webkit-scrollbar-thumb:hover {
 		background: rgba(106, 176, 76, 0.6);
 	}
 
@@ -419,11 +425,13 @@
 		justify-content: space-between;
 		align-items: center;
 		margin-bottom: 1rem;
+		flex-shrink: 0;
 	}
 
 	.file-content {
 		width: 100%;
-		height: calc(100% - 60px);
+		flex: 1;
+		min-height: 0;
 		background: #0d1117;
 		color: #c9d1d9;
 		border: 1px solid #333;
@@ -433,7 +441,7 @@
 		font-size: 0.9rem;
 		resize: none;
 		scrollbar-width: thin;
-		scrollbar-color: rgba(106, 176, 76, 0.6) transparent;
+		scrollbar-color: #3a3f5a #1a1e2f;
 	}
 
 	.file-content::-webkit-scrollbar {
@@ -442,16 +450,17 @@
 	}
 
 	.file-content::-webkit-scrollbar-track {
-		background: transparent;
+		background: #1a1e2f;
+		border-radius: 4px;
 	}
 
 	.file-content::-webkit-scrollbar-thumb {
-		background: rgba(106, 176, 76, 0.35);
-		border-radius: 999px;
+		background: #3a3f5a;
+		border-radius: 4px;
 	}
 
 	.file-content::-webkit-scrollbar-thumb:hover {
-		background: rgba(106, 176, 76, 0.6);
+		background: #4a5070;
 	}
 
 	.file-content.editable {

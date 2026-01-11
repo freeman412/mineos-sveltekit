@@ -3,6 +3,7 @@
 	import { invalidateAll } from '$app/navigation';
 	import '@xterm/xterm/css/xterm.css';
 	import * as api from '$lib/api/client';
+	import { modal } from '$lib/stores/modal';
 	import type { PageData } from './$types';
 	import type { LayoutData } from './$types';
 
@@ -53,7 +54,7 @@
 			}
 
 			if (result.error) {
-				alert(`Failed to ${action} server: ${result.error}`);
+				await modal.error(`Failed to ${action} server: ${result.error}`);
 			} else {
 				// Wait for the action to complete, then refresh
 				setTimeout(() => invalidateAll(), 2000);
@@ -70,9 +71,9 @@
 		try {
 			const result = await api.acceptEula(fetch, data.server.name);
 			if (result.error) {
-				alert(`Failed to accept EULA: ${result.error}`);
+				await modal.error(`Failed to accept EULA: ${result.error}`);
 			} else {
-				alert('EULA accepted successfully! You can now start the server.');
+				await modal.success('EULA accepted successfully! You can now start the server.');
 				await invalidateAll();
 			}
 		} finally {
@@ -114,6 +115,22 @@
 		const date = new Date(dateStr);
 		return date.toLocaleDateString() + ' ' + date.toLocaleTimeString();
 	};
+
+	function formatJarFile(jarFile: string | null): string {
+		if (!jarFile) return 'N/A';
+
+		// Check if it's Forge argfile syntax
+		if (jarFile.trim().startsWith('@')) {
+			// Extract version from path like "@user_jvm_args.txt @libraries/net/minecraftforge/forge/1.21.10-60.1.0/unix_args.txt"
+			const match = jarFile.match(/forge\/(\d+\.\d+(?:\.\d+)?-[\d.]+)\//);
+			if (match) {
+				return `Forge ${match[1]}`;
+			}
+			return 'Forge (argfile)';
+		}
+
+		return jarFile;
+	}
 
 	onMount(() => {
 		if (!data.server) return;
@@ -381,7 +398,7 @@
 					</div>
 					<div class="info-row">
 						<span class="label">JAR File</span>
-						<span class="value">{data.server.config.java.jarFile || 'N/A'}</span>
+						<span class="value">{formatJarFile(data.server.config.java.jarFile)}</span>
 					</div>
 					<div class="info-row">
 						<span class="label">Profile</span>

@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { invalidateAll } from '$app/navigation';
 	import * as api from '$lib/api/client';
+	import { modal } from '$lib/stores/modal';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
@@ -27,7 +28,7 @@
 		try {
 			await api.downloadWorld(fetch, data.server.name, worldName);
 		} catch (err) {
-			alert(err instanceof Error ? err.message : 'Failed to download world');
+			await modal.error(err instanceof Error ? err.message : 'Failed to download world');
 		} finally {
 			downloading = null;
 		}
@@ -43,12 +44,12 @@
 		try {
 			const result = await api.deleteWorld(fetch, data.server.name, worldName);
 			if (result.error) {
-				alert(result.error);
+				await modal.error(result.error);
 			} else {
 				await invalidateAll();
 			}
 		} catch (err) {
-			alert(err instanceof Error ? err.message : 'Failed to delete world');
+			await modal.error(err instanceof Error ? err.message : 'Failed to delete world');
 		} finally {
 			deleting = null;
 			confirmDelete = null;

@@ -2,6 +2,7 @@
 	import { invalidateAll } from '$app/navigation';
 	import type { PageData } from './$types';
 	import type { LayoutData } from '../$types';
+	import { modal } from '$lib/stores/modal';
 
 	let { data }: { data: PageData & { server: LayoutData['server'] } } = $props();
 
@@ -50,10 +51,10 @@
 				}
 			} else {
 				const errorData = await res.json().catch(() => ({}));
-				alert(`Failed to create backup: ${errorData.error || res.statusText}`);
+				await modal.error(`Failed to create backup: ${errorData.error || res.statusText}`);
 			}
 		} catch (err) {
-			alert(`Error: ${err instanceof Error ? err.message : 'Unknown error'}`);
+			await modal.error(`Error: ${err instanceof Error ? err.message : 'Unknown error'}`);
 		} finally {
 			loading = false;
 		}
@@ -61,9 +62,8 @@
 
 	async function restoreBackup(timestamp: string) {
 		if (!data.server) return;
-		if (!confirm(`Are you sure you want to restore from ${formatDate(timestamp)}? This will overwrite current server files.`)) {
-			return;
-		}
+		const confirmed = await modal.confirm(`Are you sure you want to restore from ${formatDate(timestamp)}? This will overwrite current server files.`, 'Restore Backup');
+		if (!confirmed) return;
 
 		actionLoading[timestamp] = true;
 		try {
@@ -74,14 +74,14 @@
 			});
 
 			if (res.ok) {
-				alert('Server restored successfully');
+				await modal.success('Server restored successfully');
 				await loadBackups();
 			} else {
 				const errorData = await res.json().catch(() => ({}));
-				alert(`Failed to restore backup: ${errorData.error || res.statusText}`);
+				await modal.error(`Failed to restore backup: ${errorData.error || res.statusText}`);
 			}
 		} catch (err) {
-			alert(`Error: ${err instanceof Error ? err.message : 'Unknown error'}`);
+			await modal.error(`Error: ${err instanceof Error ? err.message : 'Unknown error'}`);
 		} finally {
 			delete actionLoading[timestamp];
 			actionLoading = { ...actionLoading };
@@ -103,10 +103,10 @@
 				await loadBackups();
 			} else {
 				const errorData = await res.json().catch(() => ({}));
-				alert(`Failed to prune backups: ${errorData.error || res.statusText}`);
+				await modal.error(`Failed to prune backups: ${errorData.error || res.statusText}`);
 			}
 		} catch (err) {
-			alert(`Error: ${err instanceof Error ? err.message : 'Unknown error'}`);
+			await modal.error(`Error: ${err instanceof Error ? err.message : 'Unknown error'}`);
 		} finally {
 			loading = false;
 		}

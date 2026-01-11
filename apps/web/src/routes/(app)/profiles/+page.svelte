@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { invalidateAll } from '$app/navigation';
+	import { modal } from '$lib/stores/modal';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
@@ -60,7 +61,7 @@
 			const res = await fetch(`/api/host/profiles/${profileId}/download`, { method: 'POST' });
 			if (!res.ok) {
 				const error = await res.json().catch(() => ({ error: 'Failed to download profile' }));
-				alert(error.error || 'Failed to download profile');
+				await modal.error(error.error || 'Failed to download profile');
 			} else {
 				await invalidateAll();
 			}
@@ -73,7 +74,7 @@
 	async function handleCopy(profileId: string) {
 		const target = copyTargets[profileId];
 		if (!target) {
-			alert('Select a server to copy this profile to.');
+			await modal.alert('Select a server to copy this profile to.', 'Select Server');
 			return;
 		}
 
@@ -86,7 +87,7 @@
 			});
 			if (!res.ok) {
 				const error = await res.json().catch(() => ({ error: 'Failed to copy profile' }));
-				alert(error.error || 'Failed to copy profile');
+				await modal.error(error.error || 'Failed to copy profile');
 			} else {
 				await invalidateAll();
 			}
@@ -97,7 +98,8 @@
 	}
 
 	async function handleDelete(profileId: string) {
-		if (!confirm(`Delete BuildTools profile "${profileId}"?`)) {
+		const confirmed = await modal.confirm(`Delete BuildTools profile "${profileId}"?`, 'Delete Profile');
+		if (!confirmed) {
 			return;
 		}
 
@@ -108,7 +110,7 @@
 			});
 			if (!res.ok) {
 				const error = await res.json().catch(() => ({ error: 'Failed to delete profile' }));
-				alert(error.error || 'Failed to delete profile');
+				await modal.error(error.error || 'Failed to delete profile');
 			} else {
 				await invalidateAll();
 			}

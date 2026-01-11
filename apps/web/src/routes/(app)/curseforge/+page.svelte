@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount, tick } from 'svelte';
+	import { modal } from '$lib/stores/modal';
 	import type { PageData } from './$types';
 	import type { CurseForgeModSummary, CurseForgeMod, ServerSummary } from '$lib/api/types';
 
@@ -143,7 +144,7 @@
 
 	async function installFromCurseForge(modId: number) {
 		if (!selectedServer) {
-			alert('Select a server to install to');
+			await modal.alert('Select a server to install to', 'Select Server');
 			return;
 		}
 
@@ -169,10 +170,10 @@
 				}
 			} else {
 				const payload = await res.json().catch(() => ({}));
-				alert(payload.error || 'Install failed');
+				await modal.error(payload.error || 'Install failed');
 			}
 		} catch (err) {
-			alert(err instanceof Error ? err.message : 'Install failed');
+			await modal.error(err instanceof Error ? err.message : 'Install failed');
 		} finally {
 			delete installLoading[key];
 			installLoading = { ...installLoading };
@@ -181,7 +182,7 @@
 
 	async function installFromCurseForgeFile(modId: number, fileId: number) {
 		if (!selectedServer) {
-			alert('Select a server to install to');
+			await modal.alert('Select a server to install to', 'Select Server');
 			return;
 		}
 
@@ -210,10 +211,10 @@
 				}
 			} else {
 				const payload = await res.json().catch(() => ({}));
-				alert(payload.error || 'Install failed');
+				await modal.error(payload.error || 'Install failed');
 			}
 		} catch (err) {
-			alert(err instanceof Error ? err.message : 'Install failed');
+			await modal.error(err instanceof Error ? err.message : 'Install failed');
 		} finally {
 			delete installLoading[key];
 			installLoading = { ...installLoading };

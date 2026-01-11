@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { invalidateAll } from '$app/navigation';
+	import { modal } from '$lib/stores/modal';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
@@ -51,7 +52,7 @@
 	async function handleCreate(filename: string) {
 		const serverName = (serverNames[filename] || '').trim();
 		if (!serverName) {
-			alert('Server name is required');
+			await modal.alert('Server name is required', 'Required Field');
 			return;
 		}
 
@@ -68,7 +69,7 @@
 
 			if (!res.ok) {
 				const error = await res.json().catch(() => ({ error: 'Failed to import server' }));
-				alert(error.error || 'Failed to import server');
+				await modal.error(error.error || 'Failed to import server');
 			} else {
 				serverNames[filename] = '';
 				serverNames = { ...serverNames };

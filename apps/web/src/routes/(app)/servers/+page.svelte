@@ -2,6 +2,7 @@
 	import { onMount } from 'svelte';
 	import { goto, invalidateAll } from '$app/navigation';
 	import * as api from '$lib/api/client';
+	import { modal } from '$lib/stores/modal';
 	import type { PageData } from './$types';
 	import type { ServerSummary } from '$lib/api/types';
 
@@ -89,7 +90,7 @@
 			}
 
 			if (result.error) {
-				alert(`Failed to ${action} server: ${result.error}`);
+				await modal.error(`Failed to ${action} server: ${result.error}`);
 			} else {
 				// Wait a bit for the action to complete, then refresh
 				setTimeout(() => invalidateAll(), 1000);
@@ -104,15 +105,14 @@
 		event?.stopPropagation();
 		event?.preventDefault();
 
-		if (!confirm(`Are you sure you want to delete server "${serverName}"?`)) {
-			return;
-		}
+		const confirmed = await modal.confirm(`Are you sure you want to delete server "${serverName}"?`, 'Delete Server');
+		if (!confirmed) return;
 
 		actionLoading[serverName] = true;
 		try {
 			const result = await api.deleteServer(fetch, serverName);
 			if (result.error) {
-				alert(`Failed to delete server: ${result.error}`);
+				await modal.error(`Failed to delete server: ${result.error}`);
 			} else {
 				await invalidateAll();
 			}
