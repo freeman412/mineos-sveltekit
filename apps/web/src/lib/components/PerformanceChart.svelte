@@ -17,7 +17,7 @@
 		minValue
 	}: Props = $props();
 
-	const normalized = $derived(() => {
+	const normalized = $derived.by(() => {
 		if (!points || points.length === 0) {
 			return { path: '', latest: 0, min: 0, max: 1 };
 		}

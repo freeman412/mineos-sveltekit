@@ -7,20 +7,18 @@
 
 	let { data }: { data: PageData & { server: LayoutData['server'] } } = $props();
 
-	let samples = $state<PerformanceSample[]>(data.history.data ?? []);
+	let samples = $state<PerformanceSample[]>(
+		data.history.data?.length ? data.history.data : data.realtime.data ? [data.realtime.data] : []
+	);
 	let streamStatus = $state<'connecting' | 'live' | 'stopped'>('connecting');
 	let streamSource: EventSource | null = null;
 	let streamRetry: ReturnType<typeof setTimeout> | null = null;
 
-	if (samples.length === 0 && data.realtime.data) {
-		samples = [data.realtime.data];
-	}
-
-	const latest = $derived(() => samples[samples.length - 1] ?? data.realtime.data ?? null);
-	const cpuSeries = $derived(() => samples.map((sample) => sample.cpuPercent));
-	const ramSeries = $derived(() => samples.map((sample) => sample.ramUsedMb));
-	const tpsSeries = $derived(() => samples.map((sample) => sample.tps ?? 0));
-	const playerSeries = $derived(() => samples.map((sample) => sample.playerCount));
+	const latest = $derived(samples[samples.length - 1] ?? data.realtime.data ?? null);
+	const cpuSeries = $derived(samples.map((sample) => sample.cpuPercent));
+	const ramSeries = $derived(samples.map((sample) => sample.ramUsedMb));
+	const tpsSeries = $derived(samples.map((sample) => sample.tps ?? 0));
+	const playerSeries = $derived(samples.map((sample) => sample.playerCount));
 
 	function formatMemory(usedMb: number, totalMb: number) {
 		const used = usedMb >= 1024 ? `${(usedMb / 1024).toFixed(1)} GB` : `${usedMb} MB`;
@@ -42,7 +40,7 @@
 
 	function connectStream() {
 		streamSource?.close();
-		streamSource = new EventSource(`/api/servers/${data.server.name}/performance/stream`);
+		streamSource = new EventSource(`/api/servers/${data.server.name}/performance/streaming`);
 		streamStatus = 'connecting';
 
 		streamSource.onmessage = (event) => {

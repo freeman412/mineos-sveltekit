@@ -13,6 +13,28 @@ public static class PerformanceEndpoints
     public static IEndpointRouteBuilder MapPerformanceEndpoints(this IEndpointRouteBuilder api)
     {
         var performance = api.MapGroup("/servers/{name}/performance");
+        static async Task StreamAsync(
+            HttpContext context,
+            string name,
+            IPerformanceService performanceService,
+            CancellationToken cancellationToken)
+        {
+            context.Response.Headers.ContentType = "text/event-stream";
+            context.Response.Headers.CacheControl = "no-cache";
+            context.Response.Headers.Connection = "keep-alive";
+
+            await context.Response.StartAsync(cancellationToken);
+
+            await foreach (var sample in performanceService.StreamRealtimeAsync(
+                               name,
+                               TimeSpan.FromSeconds(2),
+                               cancellationToken))
+            {
+                var json = JsonSerializer.Serialize(sample, JsonOptions);
+                await context.Response.WriteAsync($"data: {json}\n\n", cancellationToken);
+                await context.Response.Body.FlushAsync(cancellationToken);
+            }
+        }
 
         performance.MapGet("/realtime", async (
             string name,
@@ -60,28 +82,8 @@ public static class PerformanceEndpoints
             }
         });
 
-        performance.MapGet("/stream", async (
-            HttpContext context,
-            string name,
-            IPerformanceService performanceService,
-            CancellationToken cancellationToken) =>
-        {
-            context.Response.Headers.ContentType = "text/event-stream";
-            context.Response.Headers.CacheControl = "no-cache";
-            context.Response.Headers.Connection = "keep-alive";
-
-            await context.Response.StartAsync(cancellationToken);
-
-            await foreach (var sample in performanceService.StreamRealtimeAsync(
-                               name,
-                               TimeSpan.FromSeconds(2),
-                               cancellationToken))
-            {
-                var json = JsonSerializer.Serialize(sample, JsonOptions);
-                await context.Response.WriteAsync($"data: {json}\n\n", cancellationToken);
-                await context.Response.Body.FlushAsync(cancellationToken);
-            }
-        });
+        performance.MapGet("/stream", StreamAsync);
+        performance.MapGet("/streaming", StreamAsync);
 
         return api;
     }
