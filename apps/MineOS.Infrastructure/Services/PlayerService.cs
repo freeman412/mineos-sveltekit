@@ -301,6 +301,32 @@ public sealed class PlayerService : IPlayerService
         await SaveJsonListAsync(GetBannedPlayersPath(serverName), entries, cancellationToken);
     }
 
+    public async Task UnbanPlayerAsync(string serverName, string uuid, CancellationToken cancellationToken)
+    {
+        var serverPath = GetServerPath(serverName);
+        if (!Directory.Exists(serverPath))
+        {
+            throw new DirectoryNotFoundException($"Server '{serverName}' not found");
+        }
+
+        var entries = await LoadJsonListAsync<BanEntry>(GetBannedPlayersPath(serverName), cancellationToken);
+        entries.RemoveAll(e => string.Equals(e.Uuid, uuid, StringComparison.OrdinalIgnoreCase));
+        await SaveJsonListAsync(GetBannedPlayersPath(serverName), entries, cancellationToken);
+    }
+
+    public async Task DeopPlayerAsync(string serverName, string uuid, CancellationToken cancellationToken)
+    {
+        var serverPath = GetServerPath(serverName);
+        if (!Directory.Exists(serverPath))
+        {
+            throw new DirectoryNotFoundException($"Server '{serverName}' not found");
+        }
+
+        var entries = await LoadJsonListAsync<OpEntry>(GetOpsPath(serverName), cancellationToken);
+        entries.RemoveAll(e => string.Equals(e.Uuid, uuid, StringComparison.OrdinalIgnoreCase));
+        await SaveJsonListAsync(GetOpsPath(serverName), entries, cancellationToken);
+    }
+
     private string GetServerPath(string serverName) =>
         Path.Combine(_hostOptions.BaseDirectory, _hostOptions.ServersPathSegment, serverName);
 

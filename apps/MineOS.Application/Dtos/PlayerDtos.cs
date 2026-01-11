@@ -17,3 +17,11 @@ public record PlayerStatsDto(
     string Uuid,
     string RawJson,
     DateTimeOffset? LastModified);
+
+/// <summary>
+/// Player profile from Mojang API lookup.
+/// </summary>
+public record MojangProfileDto(
+    string Uuid,
+    string Name,
+    string AvatarUrl);

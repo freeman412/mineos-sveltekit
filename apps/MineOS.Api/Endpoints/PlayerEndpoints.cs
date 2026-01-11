@@ -7,7 +7,7 @@ public static class PlayerEndpoints
 {
     public static IEndpointRouteBuilder MapPlayerEndpoints(this IEndpointRouteBuilder api)
     {
-        var players = api.MapGroup("/api/servers/{serverName}/players")
+        var players = api.MapGroup("/servers/{serverName}/players")
             .WithTags("Players")
             .RequireAuthorization();
 
@@ -128,6 +128,42 @@ public static class PlayerEndpoints
         }).WithName("BanPlayer")
           .WithSummary("Ban a player");
 
+        players.MapDelete("/{uuid}/op", async (
+            string serverName,
+            string uuid,
+            IPlayerService playerService,
+            CancellationToken cancellationToken) =>
+        {
+            try
+            {
+                await playerService.DeopPlayerAsync(serverName, uuid, cancellationToken);
+                return Results.Ok(new { message = $"Player '{uuid}' deopped" });
+            }
+            catch (DirectoryNotFoundException ex)
+            {
+                return Results.NotFound(new { error = ex.Message });
+            }
+        }).WithName("DeopPlayer")
+          .WithSummary("Remove OP from a player");
+
+        players.MapDelete("/{uuid}/ban", async (
+            string serverName,
+            string uuid,
+            IPlayerService playerService,
+            CancellationToken cancellationToken) =>
+        {
+            try
+            {
+                await playerService.UnbanPlayerAsync(serverName, uuid, cancellationToken);
+                return Results.Ok(new { message = $"Player '{uuid}' unbanned" });
+            }
+            catch (DirectoryNotFoundException ex)
+            {
+                return Results.NotFound(new { error = ex.Message });
+            }
+        }).WithName("UnbanPlayer")
+          .WithSummary("Unban a player");
+
         players.MapGet("/{uuid}/stats", async (
             string serverName,
             string uuid,
@@ -149,6 +185,25 @@ public static class PlayerEndpoints
             }
         }).WithName("GetPlayerStats")
           .WithSummary("Get player stats");
+
+        // Mojang API lookup endpoint (not server-specific)
+        var mojang = api.MapGroup("/mojang")
+            .WithTags("Mojang")
+            .RequireAuthorization();
+
+        mojang.MapGet("/lookup/{username}", async (
+            string username,
+            IMojangApiService mojangService,
+            CancellationToken cancellationToken) =>
+        {
+            var profile = await mojangService.LookupByUsernameAsync(username, cancellationToken);
+            if (profile == null)
+            {
+                return Results.NotFound(new { error = $"Player '{username}' not found" });
+            }
+            return Results.Ok(new { data = profile });
+        }).WithName("LookupMojangPlayer")
+          .WithSummary("Look up a Minecraft player by username from Mojang API");
 
         return api;
     }

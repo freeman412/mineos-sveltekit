@@ -15,6 +15,7 @@ public interface IPlayerService
         int level,
         bool bypassesPlayerLimit,
         CancellationToken cancellationToken);
+    Task DeopPlayerAsync(string serverName, string uuid, CancellationToken cancellationToken);
     Task BanPlayerAsync(
         string serverName,
         string uuid,
@@ -23,4 +24,5 @@ public interface IPlayerService
         string? bannedBy,
         DateTimeOffset? expiresAt,
         CancellationToken cancellationToken);
+    Task UnbanPlayerAsync(string serverName, string uuid, CancellationToken cancellationToken);
 }
