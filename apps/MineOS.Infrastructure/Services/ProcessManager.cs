@@ -14,10 +14,12 @@ public partial class ProcessManager : IProcessManager
     [GeneratedRegex(@"screen[^S]+S mc-([^\s]+)", RegexOptions.IgnoreCase)]
     private static partial Regex ScreenRegex();
 
-    [GeneratedRegex(@"-Dmineos\.server=([^\s]+)", RegexOptions.IgnoreCase)]
+    // Matches the full argument when cmdline is split by \0
+    [GeneratedRegex(@"^-Dmineos\.server=(.+)$", RegexOptions.IgnoreCase)]
     private static partial Regex JavaRegex();
 
-    [GeneratedRegex(@"MINEOS_SERVER=([^\s]+)", RegexOptions.IgnoreCase)]
+    // Matches environment variable when environ is split by \0
+    [GeneratedRegex(@"^MINEOS_SERVER=(.+)$", RegexOptions.IgnoreCase)]
     private static partial Regex EnvServerRegex();
 
     public ProcessManager(ILogger<ProcessManager> _logger)
@@ -48,10 +50,14 @@ public partial class ProcessManager : IProcessManager
                 if (!File.Exists(cmdlinePath))
                     continue;
 
-                var cmdline = File.ReadAllText(cmdlinePath).Replace("\0", " ");
+                var cmdlineRaw = File.ReadAllText(cmdlinePath);
+                // Split by null bytes to get individual arguments
+                var cmdlineArgs = cmdlineRaw.Split('\0', StringSplitOptions.RemoveEmptyEntries);
+                // Also create joined version for screen regex (which matches across args)
+                var cmdlineJoined = string.Join(" ", cmdlineArgs);
 
-                // Check for screen session
-                var screenMatch = ScreenRegex().Match(cmdline);
+                // Check for screen session (uses joined cmdline)
+                var screenMatch = ScreenRegex().Match(cmdlineJoined);
                 if (screenMatch.Success)
                 {
                     var serverName = screenMatch.Groups[1].Value;
@@ -63,15 +69,19 @@ public partial class ProcessManager : IProcessManager
                 }
 
                 // Check for Java process with MineOS identifier in cmdline
-                var javaMatch = JavaRegex().Match(cmdline);
-                if (javaMatch.Success)
+                // Check each argument individually to handle server names with spaces
+                foreach (var arg in cmdlineArgs)
                 {
-                    var serverName = javaMatch.Groups[1].Value;
-                    if (!servers.ContainsKey(serverName))
-                        servers[serverName] = new ServerProcessInfo(null, null);
+                    var javaMatch = JavaRegex().Match(arg);
+                    if (javaMatch.Success)
+                    {
+                        var serverName = javaMatch.Groups[1].Value;
+                        if (!servers.ContainsKey(serverName))
+                            servers[serverName] = new ServerProcessInfo(null, null);
 
-                    servers[serverName] = servers[serverName] with { JavaPid = int.Parse(pidStr) };
-                    continue;
+                        servers[serverName] = servers[serverName] with { JavaPid = int.Parse(pidStr) };
+                        break;
+                    }
                 }
 
                 // Check for environment variable identifier
@@ -79,15 +89,20 @@ public partial class ProcessManager : IProcessManager
                 if (!File.Exists(environPath))
                     continue;
 
-                var environ = File.ReadAllText(environPath).Replace("\0", " ");
-                var envMatch = EnvServerRegex().Match(environ);
-                if (envMatch.Success)
+                var environRaw = File.ReadAllText(environPath);
+                var environVars = environRaw.Split('\0', StringSplitOptions.RemoveEmptyEntries);
+                foreach (var envVar in environVars)
                 {
-                    var serverName = envMatch.Groups[1].Value;
-                    if (!servers.ContainsKey(serverName))
-                        servers[serverName] = new ServerProcessInfo(null, null);
+                    var envMatch = EnvServerRegex().Match(envVar);
+                    if (envMatch.Success)
+                    {
+                        var serverName = envMatch.Groups[1].Value;
+                        if (!servers.ContainsKey(serverName))
+                            servers[serverName] = new ServerProcessInfo(null, null);
 
-                    servers[serverName] = servers[serverName] with { JavaPid = int.Parse(pidStr) };
+                        servers[serverName] = servers[serverName] with { JavaPid = int.Parse(pidStr) };
+                        break;
+                    }
                 }
             }
             catch (Exception ex)
