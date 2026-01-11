@@ -523,6 +523,10 @@ public class ServerService : IServerService
         }
 
         await File.WriteAllLinesAsync(eulaPath, lines, cancellationToken);
+
+        // Change ownership so minecraft user can read the eula.txt file
+        await ChangeOwnershipAsync(eulaPath, _options.RunAsUid, _options.RunAsGid, cancellationToken);
+
         _logger.LogInformation("Accepted EULA for server {ServerName}", name);
     }
 
