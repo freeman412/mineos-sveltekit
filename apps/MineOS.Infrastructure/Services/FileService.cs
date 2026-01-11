@@ -3,6 +3,7 @@ using Microsoft.Extensions.Options;
 using MineOS.Application.Dtos;
 using MineOS.Application.Interfaces;
 using MineOS.Application.Options;
+using MineOS.Infrastructure.Utilities;
 
 namespace MineOS.Infrastructure.Services;
 
@@ -109,9 +110,11 @@ public sealed class FileService : IFileService
         if (!string.IsNullOrEmpty(directory))
         {
             Directory.CreateDirectory(directory);
+            await OwnershipHelper.ChangeOwnershipAsync(directory, _hostOptions.RunAsUid, _hostOptions.RunAsGid, _logger, cancellationToken);
         }
 
         await File.WriteAllTextAsync(fullPath, content, cancellationToken);
+        await OwnershipHelper.ChangeOwnershipAsync(fullPath, _hostOptions.RunAsUid, _hostOptions.RunAsGid, _logger, cancellationToken);
         _logger.LogInformation("Wrote file {Path} for server {ServerName}", path, serverName);
     }
 
@@ -123,9 +126,11 @@ public sealed class FileService : IFileService
         if (!string.IsNullOrEmpty(directory))
         {
             Directory.CreateDirectory(directory);
+            await OwnershipHelper.ChangeOwnershipAsync(directory, _hostOptions.RunAsUid, _hostOptions.RunAsGid, _logger, cancellationToken);
         }
 
         await File.WriteAllBytesAsync(fullPath, content, cancellationToken);
+        await OwnershipHelper.ChangeOwnershipAsync(fullPath, _hostOptions.RunAsUid, _hostOptions.RunAsGid, _logger, cancellationToken);
         _logger.LogInformation("Wrote binary file {Path} for server {ServerName}", path, serverName);
     }
 
@@ -150,4 +155,5 @@ public sealed class FileService : IFileService
 
         return Task.CompletedTask;
     }
+
 }

@@ -176,8 +176,14 @@ public sealed class ProfileService : IProfileService
         var targetJarPath = Path.Combine(serverPath, jarFilename);
 
         File.Copy(profileJarPath, targetJarPath, overwrite: true);
+        await OwnershipHelper.ChangeOwnershipAsync(
+            targetJarPath,
+            _hostOptions.RunAsUid,
+            _hostOptions.RunAsGid,
+            _logger,
+            cancellationToken);
         await UpdateServerConfigJarAsync(serverPath, jarFilename, cancellationToken);
-        MarkRestartRequired(serverPath);
+        await MarkRestartRequiredAsync(serverPath, cancellationToken);
 
         _logger.LogInformation("Copied profile {ProfileId} to server {ServerName}", profileId, serverName);
     }
@@ -558,6 +564,12 @@ public sealed class ProfileService : IProfileService
 
         var updated = IniParser.WriteWithSections(sections);
         await File.WriteAllTextAsync(configPath, updated, cancellationToken);
+        await OwnershipHelper.ChangeOwnershipAsync(
+            configPath,
+            _hostOptions.RunAsUid,
+            _hostOptions.RunAsGid,
+            _logger,
+            cancellationToken);
     }
 
     private async Task<List<ProfileDto>> LoadProfilesAsync(CancellationToken cancellationToken)
@@ -1021,12 +1033,18 @@ public sealed class ProfileService : IProfileService
     private record MojangVersionInfo(string Id, string Url, string ReleaseTime, DateTimeOffset? ReleaseTimeParsed);
     private record PaperBuildInfo(int Build, string Time, string FileName);
 
-    private void MarkRestartRequired(string serverPath)
+    private async Task MarkRestartRequiredAsync(string serverPath, CancellationToken cancellationToken)
     {
         try
         {
             var flagPath = Path.Combine(serverPath, RestartFlagFile);
-            File.WriteAllText(flagPath, DateTimeOffset.UtcNow.ToString("O"));
+            await File.WriteAllTextAsync(flagPath, DateTimeOffset.UtcNow.ToString("O"), cancellationToken);
+            await OwnershipHelper.ChangeOwnershipAsync(
+                flagPath,
+                _hostOptions.RunAsUid,
+                _hostOptions.RunAsGid,
+                _logger,
+                cancellationToken);
         }
         catch (Exception ex)
         {

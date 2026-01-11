@@ -5,6 +5,7 @@ using Microsoft.Extensions.Options;
 using MineOS.Application.Dtos;
 using MineOS.Application.Interfaces;
 using MineOS.Application.Options;
+using MineOS.Infrastructure.Utilities;
 
 namespace MineOS.Infrastructure.Services;
 
@@ -78,6 +79,12 @@ public sealed class ModService : IModService
 
         await using var target = new FileStream(targetPath, FileMode.Create, FileAccess.Write, FileShare.None);
         await content.CopyToAsync(target, cancellationToken);
+        await OwnershipHelper.ChangeOwnershipAsync(
+            targetPath,
+            _hostOptions.RunAsUid,
+            _hostOptions.RunAsGid,
+            _logger,
+            cancellationToken);
         MarkRestartRequired(serverPath);
         _logger.LogInformation("Uploaded mod {FileName} for server {ServerName}", safeName, serverName);
     }
@@ -246,6 +253,7 @@ public sealed class ModService : IModService
             if (entry.FullName.EndsWith("/", StringComparison.Ordinal))
             {
                 Directory.CreateDirectory(destination);
+                OwnershipHelper.TrySetOwnership(destination, _hostOptions.RunAsUid, _hostOptions.RunAsGid, _logger);
                 continue;
             }
 
@@ -253,11 +261,13 @@ public sealed class ModService : IModService
             if (!string.IsNullOrWhiteSpace(directory))
             {
                 Directory.CreateDirectory(directory);
+                OwnershipHelper.TrySetOwnership(directory, _hostOptions.RunAsUid, _hostOptions.RunAsGid, _logger);
             }
 
             using var entryStream = entry.Open();
             using var fileStream = new FileStream(destination, FileMode.Create, FileAccess.Write, FileShare.None);
             entryStream.CopyTo(fileStream);
+            OwnershipHelper.TrySetOwnership(destination, _hostOptions.RunAsUid, _hostOptions.RunAsGid, _logger);
         }
     }
 
@@ -317,6 +327,13 @@ public sealed class ModService : IModService
                     DateTimeOffset.UtcNow));
             }
         }
+
+        await OwnershipHelper.ChangeOwnershipAsync(
+            targetPath,
+            _hostOptions.RunAsUid,
+            _hostOptions.RunAsGid,
+            _logger,
+            cancellationToken);
     }
 
     private async Task<int> ResolveFileIdAsync(int modId, int? fileId, CancellationToken cancellationToken)
@@ -346,6 +363,7 @@ public sealed class ModService : IModService
     {
         var path = GetModsPath(serverName);
         Directory.CreateDirectory(path);
+        OwnershipHelper.TrySetOwnership(path, _hostOptions.RunAsUid, _hostOptions.RunAsGid, _logger);
         return path;
     }
 
@@ -353,6 +371,7 @@ public sealed class ModService : IModService
     {
         var path = Path.Combine(GetServerPath(serverName), "modpacks");
         Directory.CreateDirectory(path);
+        OwnershipHelper.TrySetOwnership(path, _hostOptions.RunAsUid, _hostOptions.RunAsGid, _logger);
         return path;
     }
 
@@ -362,6 +381,7 @@ public sealed class ModService : IModService
         {
             var flagPath = Path.Combine(serverPath, RestartFlagFile);
             File.WriteAllText(flagPath, DateTimeOffset.UtcNow.ToString("O"));
+            OwnershipHelper.TrySetOwnership(flagPath, _hostOptions.RunAsUid, _hostOptions.RunAsGid, _logger);
         }
         catch (Exception ex)
         {

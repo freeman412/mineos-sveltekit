@@ -149,9 +149,9 @@ public class ServerService : IServerService
 
         await File.WriteAllTextAsync(configPath, IniParser.WriteWithSections(defaultConfig), cancellationToken);
 
-        TrySetOwnership(serverPath, _options.RunAsUid, _options.RunAsGid);
-        TrySetOwnership(backupPath, _options.RunAsUid, _options.RunAsGid);
-        TrySetOwnership(archivePath, _options.RunAsUid, _options.RunAsGid);
+        OwnershipHelper.TrySetOwnership(serverPath, _options.RunAsUid, _options.RunAsGid, _logger, recursive: true);
+        OwnershipHelper.TrySetOwnership(backupPath, _options.RunAsUid, _options.RunAsGid, _logger, recursive: true);
+        OwnershipHelper.TrySetOwnership(archivePath, _options.RunAsUid, _options.RunAsGid, _logger, recursive: true);
 
         _logger.LogInformation("Created server {ServerName} at {ServerPath}", request.Name, serverPath);
 
@@ -258,7 +258,7 @@ public class ServerService : IServerService
         // Change ownership of logs directory to minecraft user so it can write logs
         var uid = _options.RunAsUid;
         var gid = _options.RunAsGid;
-        await ChangeOwnershipAsync(logDir, uid, gid, cancellationToken);
+        await OwnershipHelper.ChangeOwnershipAsync(logDir, uid, gid, _logger, cancellationToken);
 
         var startupLogPath = Path.Combine(logDir, "startup.log");
 
@@ -296,7 +296,8 @@ public class ServerService : IServerService
         var startupStamp = $"[{startTime:O}] Launching {name}";
         var javaCommand = string.Join(" ", javaArgs.Select(EscapeBashArgument));
         var startupLogArg = EscapeBashArgument(startupLogPath);
-        var shellCommand = $"echo {EscapeBashArgument(startupStamp)} >> {startupLogArg}; exec {javaCommand} >> {startupLogArg} 2>&1";
+        var escapedServerPath = EscapeBashArgument(serverPath);
+        var shellCommand = $"cd {escapedServerPath} && echo {EscapeBashArgument(startupStamp)} >> {startupLogArg}; exec {javaCommand} >> {startupLogArg} 2>&1";
 
         var args = new List<string>
         {
@@ -406,6 +407,7 @@ public class ServerService : IServerService
         var propertiesPath = GetPropertiesPath(name);
         var content = IniParser.WriteSimple(properties);
         await File.WriteAllTextAsync(propertiesPath, content, cancellationToken);
+        await OwnershipHelper.ChangeOwnershipAsync(propertiesPath, _options.RunAsUid, _options.RunAsGid, _logger, cancellationToken);
 
         _logger.LogInformation("Updated server.properties for {ServerName}", name);
     }
@@ -479,6 +481,7 @@ public class ServerService : IServerService
         var content = IniParser.WriteWithSections(sections);
         var configPath = GetConfigPath(name);
         await File.WriteAllTextAsync(configPath, content, cancellationToken);
+        await OwnershipHelper.ChangeOwnershipAsync(configPath, _options.RunAsUid, _options.RunAsGid, _logger, cancellationToken);
 
         var jarChanged = !string.Equals(existing.Java.JarFile ?? string.Empty, config.Java.JarFile ?? string.Empty, StringComparison.OrdinalIgnoreCase);
         var profileChanged = !string.Equals(existing.Minecraft.Profile ?? string.Empty, config.Minecraft.Profile ?? string.Empty, StringComparison.OrdinalIgnoreCase);
@@ -525,7 +528,7 @@ public class ServerService : IServerService
         await File.WriteAllLinesAsync(eulaPath, lines, cancellationToken);
 
         // Change ownership so minecraft user can read the eula.txt file
-        await ChangeOwnershipAsync(eulaPath, _options.RunAsUid, _options.RunAsGid, cancellationToken);
+        await OwnershipHelper.ChangeOwnershipAsync(eulaPath, _options.RunAsUid, _options.RunAsGid, _logger, cancellationToken);
 
         _logger.LogInformation("Accepted EULA for server {ServerName}", name);
     }
@@ -623,6 +626,7 @@ public class ServerService : IServerService
         try
         {
             File.WriteAllText(flagPath, DateTimeOffset.UtcNow.ToString("O"));
+            OwnershipHelper.TrySetOwnership(flagPath, _options.RunAsUid, _options.RunAsGid, _logger);
         }
         catch (Exception ex)
         {
@@ -643,46 +647,6 @@ public class ServerService : IServerService
             {
                 _logger.LogWarning(ex, "Failed to clear restart flag for {ServerName}", name);
             }
-        }
-    }
-
-    private void TrySetOwnership(string path, int uid, int gid)
-    {
-        if (!OperatingSystem.IsLinux())
-        {
-            return;
-        }
-
-        var chownPath = "/bin/chown";
-        if (!File.Exists(chownPath))
-        {
-            chownPath = "/usr/bin/chown";
-        }
-
-        if (!File.Exists(chownPath))
-        {
-            _logger.LogWarning("chown not available; skipping ownership set for {Path}", path);
-            return;
-        }
-
-        try
-        {
-            var psi = new ProcessStartInfo
-            {
-                FileName = chownPath,
-                Arguments = $"-R {uid}:{gid} \"{path}\"",
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false,
-                CreateNoWindow = true
-            };
-
-            using var process = Process.Start(psi);
-            process?.WaitForExit();
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Failed to set ownership for {Path}", path);
         }
     }
 
@@ -779,36 +743,6 @@ public class ServerService : IServerService
         catch (Exception ex)
         {
             return $"Failed to read log output: {ex.Message}";
-        }
-    }
-
-    private async Task ChangeOwnershipAsync(string path, int uid, int gid, CancellationToken cancellationToken)
-    {
-        if (!OperatingSystem.IsLinux())
-        {
-            return;
-        }
-
-        // Use chown to change ownership
-        var process = new System.Diagnostics.Process
-        {
-            StartInfo = new System.Diagnostics.ProcessStartInfo
-            {
-                FileName = "/bin/chown",
-                ArgumentList = { $"{uid}:{gid}", path },
-                UseShellExecute = false,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true
-            }
-        };
-
-        process.Start();
-        await process.WaitForExitAsync(cancellationToken);
-
-        if (process.ExitCode != 0)
-        {
-            var error = await process.StandardError.ReadToEndAsync(cancellationToken);
-            _logger.LogWarning("Failed to change ownership of {Path} to {Uid}:{Gid}: {Error}", path, uid, gid, error);
         }
     }
 
