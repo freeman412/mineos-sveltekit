@@ -7,7 +7,7 @@
 
 	let step = $state<'name' | 'profile' | 'creating'>('name');
 	let serverName = $state('');
-	let selectedProfileId = $state<string | null>(null);
+	let selectedProfileId = $state('');
 	let createError = $state('');
 	let downloadingProfile = $state(false);
 
@@ -22,6 +22,21 @@
 		}
 		return groups;
 	});
+
+	function formatGroupLabel(group: string) {
+		switch (group) {
+			case 'vanilla':
+				return 'Vanilla';
+			case 'paper':
+				return 'Paper';
+			case 'spigot':
+				return 'Spigot';
+			case 'craftbukkit':
+				return 'CraftBukkit';
+			default:
+				return group;
+		}
+	}
 
 	function validateServerName(): boolean {
 		if (!serverName.trim()) {
@@ -106,7 +121,7 @@
 	}
 
 	function handleSkipProfile() {
-		selectedProfileId = null;
+		selectedProfileId = '';
 		createServer();
 	}
 </script>
@@ -168,44 +183,20 @@
 					{#if data.profiles.error}
 						<div class="error-box">Failed to load profiles: {data.profiles.error}</div>
 					{:else if data.profiles.data}
-						<div class="profile-groups">
-							{#each Object.entries(profileGroups) as [groupName, profiles]}
-								<div class="profile-group">
-									<h3 class="group-name">
-										{groupName === 'vanilla'
-											? '☕ Vanilla'
-											: groupName === 'paper'
-												? '📄 Paper'
-												: groupName === 'spigot'
-													? '🔌 Spigot'
-													: groupName === 'craftbukkit'
-														? '🛠️ CraftBukkit'
-														: groupName}
-									</h3>
-									<div class="profile-list">
+						<div class="profile-select">
+							<label for="profile-select">Profile</label>
+							<select id="profile-select" bind:value={selectedProfileId}>
+								<option value="">Select profile</option>
+								{#each Object.entries(profileGroups) as [groupName, profiles]}
+									<optgroup label={formatGroupLabel(groupName)}>
 										{#each profiles as profile}
-											<button
-												class="profile-option"
-												class:selected={selectedProfileId === profile.id}
-												onclick={() => (selectedProfileId = profile.id)}
-											>
-												<div class="profile-info">
-													<div class="profile-version">{profile.version}</div>
-													<div class="profile-meta">
-														{profile.type}
-														{#if !profile.downloaded}
-															<span class="download-badge">Will download</span>
-														{/if}
-													</div>
-												</div>
-												{#if selectedProfileId === profile.id}
-													<span class="checkmark">✓</span>
-												{/if}
-											</button>
+											<option value={profile.id}>
+												{profile.version} ({profile.type}{profile.downloaded ? '' : ' - will download'})
+											</option>
 										{/each}
-									</div>
-								</div>
-							{/each}
+									</optgroup>
+								{/each}
+							</select>
 						</div>
 					{/if}
 
@@ -404,6 +395,29 @@
 		padding: 16px 20px;
 		color: #ff9f9f;
 		margin-top: 16px;
+	}
+
+	.profile-select {
+		display: flex;
+		flex-direction: column;
+		gap: 8px;
+		max-width: 420px;
+	}
+
+	.profile-select label {
+		font-size: 14px;
+		font-weight: 500;
+		color: #aab2d3;
+	}
+
+	.profile-select select {
+		background: #141827;
+		border: 1px solid #2a2f47;
+		border-radius: 8px;
+		padding: 12px 14px;
+		color: #eef0f8;
+		font-family: inherit;
+		font-size: 15px;
 	}
 
 	.profile-groups {

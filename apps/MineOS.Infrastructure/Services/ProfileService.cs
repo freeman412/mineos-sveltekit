@@ -16,11 +16,16 @@ public sealed class ProfileService : IProfileService
     private const string BuildToolsUrl =
         "https://hub.spigotmc.org/jenkins/job/BuildTools/lastSuccessfulBuild/artifact/target/BuildTools.jar";
     private const string PaperProjectUrl = "https://api.papermc.io/v2/projects/paper";
-    private const int PaperVersionLimit = 8;
+    private const string MojangVersionManifestUrl = "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json";
+    private const int PaperVersionLimit = 20;
     private static readonly TimeSpan PaperCacheTtl = TimeSpan.FromMinutes(10);
     private static readonly SemaphoreSlim PaperCacheLock = new(1, 1);
     private static DateTimeOffset? _paperLastFetch;
     private static List<ProfileDto> _paperCache = new();
+    private static readonly TimeSpan VanillaCacheTtl = TimeSpan.FromMinutes(10);
+    private static readonly SemaphoreSlim VanillaCacheLock = new(1, 1);
+    private static DateTimeOffset? _vanillaLastFetch;
+    private static List<ProfileDto> _vanillaCache = new();
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -63,10 +68,16 @@ public sealed class ProfileService : IProfileService
     public async Task<IReadOnlyList<ProfileDto>> ListProfilesAsync(CancellationToken cancellationToken)
     {
         var profiles = await LoadProfilesAsync(cancellationToken);
+        var vanillaProfiles = await GetVanillaProfilesAsync(cancellationToken);
         var paperProfiles = await GetPaperProfilesAsync(cancellationToken);
         var combined = new Dictionary<string, ProfileDto>(StringComparer.OrdinalIgnoreCase);
 
         foreach (var profile in profiles)
+        {
+            combined[profile.Id] = profile;
+        }
+
+        foreach (var profile in vanillaProfiles)
         {
             combined[profile.Id] = profile;
         }
@@ -380,6 +391,140 @@ public sealed class ProfileService : IProfileService
         return profiles;
     }
 
+    private async Task<IReadOnlyList<ProfileDto>> GetVanillaProfilesAsync(CancellationToken cancellationToken)
+    {
+        var now = DateTimeOffset.UtcNow;
+        if (_vanillaLastFetch.HasValue &&
+            now - _vanillaLastFetch.Value < VanillaCacheTtl &&
+            _vanillaCache.Count > 0)
+        {
+            return _vanillaCache;
+        }
+
+        await VanillaCacheLock.WaitAsync(cancellationToken);
+        try
+        {
+            if (_vanillaLastFetch.HasValue &&
+                now - _vanillaLastFetch.Value < VanillaCacheTtl &&
+                _vanillaCache.Count > 0)
+            {
+                return _vanillaCache;
+            }
+
+            var fetched = await FetchVanillaProfilesAsync(cancellationToken);
+            if (fetched.Count > 0)
+            {
+                _vanillaCache = fetched.ToList();
+                _vanillaLastFetch = DateTimeOffset.UtcNow;
+            }
+            else if (_vanillaCache.Count == 0)
+            {
+                _vanillaLastFetch = DateTimeOffset.UtcNow;
+            }
+
+            return _vanillaCache;
+        }
+        finally
+        {
+            VanillaCacheLock.Release();
+        }
+    }
+
+    private async Task<IReadOnlyList<ProfileDto>> FetchVanillaProfilesAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            var json = await _httpClient.GetStringAsync(MojangVersionManifestUrl, cancellationToken);
+            using var doc = JsonDocument.Parse(json);
+
+            if (!doc.RootElement.TryGetProperty("versions", out var versionsElement) ||
+                versionsElement.ValueKind != JsonValueKind.Array)
+            {
+                return Array.Empty<ProfileDto>();
+            }
+
+            var versions = new List<MojangVersionInfo>();
+            foreach (var element in versionsElement.EnumerateArray())
+            {
+                var type = element.TryGetProperty("type", out var typeElement) ? typeElement.GetString() : null;
+                if (!string.Equals(type, "release", StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                var id = element.TryGetProperty("id", out var idElement) ? idElement.GetString() : null;
+                var url = element.TryGetProperty("url", out var urlElement) ? urlElement.GetString() : null;
+                var releaseTime = element.TryGetProperty("releaseTime", out var rtElement)
+                    ? rtElement.GetString()
+                    : element.TryGetProperty("time", out var timeElement) ? timeElement.GetString() : null;
+
+                if (string.IsNullOrWhiteSpace(id) || string.IsNullOrWhiteSpace(url))
+                {
+                    continue;
+                }
+
+                var parsedTime = TryParseReleaseTime(releaseTime);
+                versions.Add(new MojangVersionInfo(
+                    id,
+                    url,
+                    releaseTime ?? DateTimeOffset.UtcNow.ToString("O"),
+                    parsedTime));
+            }
+
+            var ordered = versions
+                .OrderByDescending(v => v.ReleaseTimeParsed ?? DateTimeOffset.MinValue)
+                .ToList();
+
+            var results = new List<ProfileDto>();
+            foreach (var version in ordered)
+            {
+                try
+                {
+                    var versionJson = await _httpClient.GetStringAsync(version.Url, cancellationToken);
+                    using var versionDoc = JsonDocument.Parse(versionJson);
+
+                    if (!versionDoc.RootElement.TryGetProperty("downloads", out var downloadsElement) ||
+                        downloadsElement.ValueKind != JsonValueKind.Object ||
+                        !downloadsElement.TryGetProperty("server", out var serverElement))
+                    {
+                        continue;
+                    }
+
+                    var serverUrl = serverElement.TryGetProperty("url", out var urlElement)
+                        ? urlElement.GetString()
+                        : null;
+                    if (string.IsNullOrWhiteSpace(serverUrl))
+                    {
+                        continue;
+                    }
+
+                    var filename = $"vanilla-{version.Id}.jar";
+                    results.Add(new ProfileDto(
+                        $"vanilla-{version.Id}",
+                        "vanilla",
+                        "release",
+                        version.Id,
+                        version.ReleaseTime,
+                        serverUrl,
+                        filename,
+                        false,
+                        null));
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to load vanilla version {Version}", version.Id);
+                }
+            }
+
+            return results;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to fetch vanilla profiles");
+            return Array.Empty<ProfileDto>();
+        }
+    }
+
     private async Task<IReadOnlyList<ProfileDto>> GetPaperProfilesAsync(CancellationToken cancellationToken)
     {
         var now = DateTimeOffset.UtcNow;
@@ -555,6 +700,16 @@ public sealed class ProfileService : IProfileService
         return Version.TryParse(version, out var parsed) ? parsed : null;
     }
 
+    private static DateTimeOffset? TryParseReleaseTime(string? releaseTime)
+    {
+        if (string.IsNullOrWhiteSpace(releaseTime))
+        {
+            return null;
+        }
+
+        return DateTimeOffset.TryParse(releaseTime, out var parsed) ? parsed : null;
+    }
+
     private async Task SaveProfilesAsync(List<ProfileDto> profiles, CancellationToken cancellationToken)
     {
         var profilesPath = GetProfilesPath();
@@ -605,5 +760,6 @@ public sealed class ProfileService : IProfileService
         };
     }
 
+    private record MojangVersionInfo(string Id, string Url, string ReleaseTime, DateTimeOffset? ReleaseTimeParsed);
     private record PaperBuildInfo(int Build, string Time, string FileName);
 }

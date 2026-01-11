@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
 	import type { PageData, ActionData } from './$types';
-	import type { ServerConfig } from '$lib/api/types';
+	import type { ServerConfig, Profile } from '$lib/api/types';
 
 	let { data, form }: { data: PageData; form: ActionData } = $props();
 
@@ -26,6 +26,42 @@
 	);
 
 	let loading = $state(false);
+	let selectedProfile = $state(config.minecraft.profile ?? '');
+
+	const profiles = (data.profiles?.data ?? []) as Profile[];
+	const profileGroups = $derived.by(() => {
+		const groups: Record<string, Profile[]> = {};
+		for (const profile of profiles) {
+			if (!groups[profile.group]) {
+				groups[profile.group] = [];
+			}
+			groups[profile.group].push(profile);
+		}
+		return groups;
+	});
+	const selectedProfileMissing = $derived.by(() => {
+		if (!selectedProfile) return false;
+		return !profiles.some((profile) => profile.id === selectedProfile);
+	});
+
+	function formatGroupLabel(group: string) {
+		switch (group) {
+			case 'vanilla':
+				return 'Vanilla';
+			case 'paper':
+				return 'Paper';
+			case 'spigot':
+				return 'Spigot';
+			case 'craftbukkit':
+				return 'CraftBukkit';
+			default:
+				return group;
+		}
+	}
+
+	$effect(() => {
+		config.minecraft.profile = selectedProfile.trim() ? selectedProfile : null;
+	});
 </script>
 
 <div class="page">
@@ -136,15 +172,27 @@
 				<div class="section">
 					<h3>Minecraft Settings</h3>
 					<div class="form-grid">
-						<div class="form-field">
-							<label for="profile">Profile (optional)</label>
-							<input
-								type="text"
-								id="profile"
-								bind:value={config.minecraft.profile}
-								placeholder="vanilla_1.20.1"
-							/>
-						</div>
+					<div class="form-field">
+						<label for="profile">Profile (optional)</label>
+						<select id="profile" bind:value={selectedProfile}>
+							<option value="">None</option>
+							{#if selectedProfileMissing}
+								<option value={selectedProfile}>{selectedProfile} (custom)</option>
+							{/if}
+							{#each Object.entries(profileGroups) as [groupName, items]}
+								<optgroup label={formatGroupLabel(groupName)}>
+									{#each items as profile}
+										<option value={profile.id}>
+											{profile.version} ({profile.type}{profile.downloaded ? '' : ' - will download'})
+										</option>
+									{/each}
+								</optgroup>
+							{/each}
+						</select>
+						{#if data.profiles?.error}
+							<p class="error-text">Failed to load profiles: {data.profiles.error}</p>
+						{/if}
+					</div>
 
 						<div class="form-field">
 							<label class="checkbox-label">
@@ -268,7 +316,8 @@
 	}
 
 	.form-field input[type='text'],
-	.form-field input[type='number'] {
+	.form-field input[type='number'],
+	.form-field select {
 		background: #141827;
 		border: 1px solid #2a2f47;
 		border-radius: 8px;

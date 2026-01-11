@@ -1,11 +1,13 @@
 import type { PageServerLoad, Actions } from './$types';
-import { getServerConfig, updateServerConfig } from '$lib/api/client';
+import { getHostProfiles, getServerConfig, updateServerConfig } from '$lib/api/client';
 import { fail } from '@sveltejs/kit';
 
 export const load: PageServerLoad = async ({ params, fetch }) => {
 	const config = await getServerConfig(fetch, params.name);
+	const profiles = await getHostProfiles(fetch);
 	return {
-		config
+		config,
+		profiles
 	};
 };
 
