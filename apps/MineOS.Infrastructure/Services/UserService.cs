@@ -54,7 +54,6 @@ public sealed class UserService : IUserService
 
         var user = new User
         {
-            Id = Guid.NewGuid(),
             Username = normalized,
             PasswordHash = _passwordHasher.Hash(request.Password),
             Role = string.IsNullOrWhiteSpace(request.Role) ? "user" : request.Role.Trim().ToLowerInvariant(),
@@ -69,7 +68,7 @@ public sealed class UserService : IUserService
         return ToDto(user);
     }
 
-    public async Task<UserDto> UpdateUserAsync(Guid id, UpdateUserRequestDto request, CancellationToken cancellationToken)
+    public async Task<UserDto> UpdateUserAsync(int id, UpdateUserRequestDto request, CancellationToken cancellationToken)
     {
         var user = await _db.Users.FirstOrDefaultAsync(u => u.Id == id, cancellationToken);
         if (user == null)

@@ -1,7 +1,7 @@
 namespace MineOS.Application.Dtos;
 
 public record UserDto(
-    Guid Id,
+    int Id,
     string Username,
     string Role,
     bool IsActive,

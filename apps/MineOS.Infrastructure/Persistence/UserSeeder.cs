@@ -43,7 +43,6 @@ public sealed class UserSeeder
 
         var user = new User
         {
-            Id = Guid.NewGuid(),
             Username = seedUsername.Trim(),
             PasswordHash = _passwordHasher.Hash(seedPassword),
             Role = "admin",

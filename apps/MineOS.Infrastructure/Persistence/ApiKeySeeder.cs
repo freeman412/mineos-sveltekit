@@ -41,11 +41,12 @@ public sealed class ApiKeySeeder
 
         var apiKey = new ApiKey
         {
-            Id = Guid.NewGuid(),
+            UserId = 1, // Will be associated with first user
             Key = seedKey.Trim(),
             Name = "default",
+            Permissions = """["*"]""", // Full permissions
             CreatedAt = DateTimeOffset.UtcNow,
-            IsActive = true
+            Revoked = false
         };
 
         _db.ApiKeys.Add(apiKey);

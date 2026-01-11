@@ -25,6 +25,6 @@ public sealed class ApiKeyValidator : IApiKeyValidator
             return Task.FromResult(true);
         }
 
-        return _db.ApiKeys.AnyAsync(k => k.IsActive && k.Key == apiKey, cancellationToken);
+        return _db.ApiKeys.AnyAsync(k => !k.Revoked && k.Key == apiKey, cancellationToken);
     }
 }

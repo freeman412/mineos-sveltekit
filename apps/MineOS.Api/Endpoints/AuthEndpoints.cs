@@ -57,8 +57,8 @@ public static class AuthEndpoints
             }
         }).RequireAuthorization(new AuthorizeAttribute { Roles = "admin" });
 
-        auth.MapPatch("/users/{id:guid}", async (
-            Guid id,
+        auth.MapPatch("/users/{id:int}", async (
+            int id,
             UpdateUserRequestDto request,
             IUserService userService,
             CancellationToken cancellationToken) =>

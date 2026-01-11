@@ -6,5 +6,5 @@ public interface IUserService
 {
     Task<IReadOnlyList<UserDto>> ListUsersAsync(CancellationToken cancellationToken);
     Task<UserDto> CreateUserAsync(CreateUserRequestDto request, CancellationToken cancellationToken);
-    Task<UserDto> UpdateUserAsync(Guid id, UpdateUserRequestDto request, CancellationToken cancellationToken);
+    Task<UserDto> UpdateUserAsync(int id, UpdateUserRequestDto request, CancellationToken cancellationToken);
 }
