@@ -1,0 +1,305 @@
+using System.IO.Compression;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
+using MineOS.Application.Dtos;
+using MineOS.Application.Interfaces;
+using MineOS.Application.Options;
+
+namespace MineOS.Infrastructure.Services;
+
+public sealed class WorldService : IWorldService
+{
+    private readonly ILogger<WorldService> _logger;
+    private readonly HostOptions _hostOptions;
+
+    private static readonly string[] WorldFolders = { "world", "world_nether", "world_the_end" };
+
+    public WorldService(
+        ILogger<WorldService> logger,
+        IOptions<HostOptions> hostOptions)
+    {
+        _logger = logger;
+        _hostOptions = hostOptions.Value;
+    }
+
+    private string GetServerPath(string serverName) =>
+        Path.Combine(_hostOptions.BaseDirectory, _hostOptions.ServersPathSegment, serverName);
+
+    private string GetWorldPath(string serverName, string worldName)
+    {
+        var serverPath = GetServerPath(serverName);
+        var worldPath = Path.Combine(serverPath, worldName);
+
+        // Security check: prevent directory traversal
+        var normalizedPath = Path.GetFullPath(worldPath);
+        if (!normalizedPath.StartsWith(serverPath, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new ArgumentException("Invalid world name - directory traversal detected");
+        }
+
+        return worldPath;
+    }
+
+    public async Task<IReadOnlyList<WorldDto>> ListWorldsAsync(string serverName, CancellationToken cancellationToken)
+    {
+        var serverPath = GetServerPath(serverName);
+        if (!Directory.Exists(serverPath))
+        {
+            return Array.Empty<WorldDto>();
+        }
+
+        var worlds = new List<WorldDto>();
+
+        foreach (var worldName in WorldFolders)
+        {
+            var worldPath = Path.Combine(serverPath, worldName);
+            if (!Directory.Exists(worldPath))
+            {
+                continue;
+            }
+
+            var type = worldName switch
+            {
+                "world" => "Overworld",
+                "world_nether" => "Nether",
+                "world_the_end" => "The End",
+                _ => "Unknown"
+            };
+
+            var size = await GetWorldSizeAsync(serverName, worldName, cancellationToken);
+            var lastModified = Directory.GetLastWriteTimeUtc(worldPath);
+
+            worlds.Add(new WorldDto(
+                worldName,
+                type,
+                size,
+                lastModified));
+        }
+
+        return worlds;
+    }
+
+    public async Task<WorldInfoDto> GetWorldInfoAsync(string serverName, string worldName, CancellationToken cancellationToken)
+    {
+        var worldPath = GetWorldPath(serverName, worldName);
+        if (!Directory.Exists(worldPath))
+        {
+            throw new FileNotFoundException($"World '{worldName}' not found for server '{serverName}'");
+        }
+
+        var type = worldName switch
+        {
+            "world" => "Overworld",
+            "world_nether" => "Nether",
+            "world_the_end" => "The End",
+            _ => "Custom"
+        };
+
+        var size = await GetWorldSizeAsync(serverName, worldName, cancellationToken);
+        var lastModified = Directory.GetLastWriteTimeUtc(worldPath);
+
+        // Try to read level.dat for world properties
+        var levelDatPath = Path.Combine(worldPath, "level.dat");
+        string? seed = null;
+        string? levelName = null;
+        string? gameMode = null;
+        string? difficulty = null;
+        bool? hardcore = null;
+
+        if (File.Exists(levelDatPath))
+        {
+            // Note: Reading NBT data would require an NBT parser library
+            // For now, we'll leave these as null
+            // TODO: Add fNbt or similar library to parse level.dat
+        }
+
+        var fileCount = Directory.GetFiles(worldPath, "*", SearchOption.AllDirectories).Length;
+        var directoryCount = Directory.GetDirectories(worldPath, "*", SearchOption.AllDirectories).Length;
+
+        return new WorldInfoDto(
+            worldName,
+            type,
+            size,
+            seed,
+            levelName,
+            gameMode,
+            difficulty,
+            hardcore,
+            lastModified,
+            fileCount,
+            directoryCount);
+    }
+
+    public async Task<Stream> DownloadWorldAsync(string serverName, string worldName, CancellationToken cancellationToken)
+    {
+        var worldPath = GetWorldPath(serverName, worldName);
+        if (!Directory.Exists(worldPath))
+        {
+            throw new FileNotFoundException($"World '{worldName}' not found for server '{serverName}'");
+        }
+
+        _logger.LogInformation("Creating ZIP archive for world {WorldName} on server {ServerName}", worldName, serverName);
+
+        // Create a temporary file for the ZIP
+        var tempFile = Path.GetTempFileName();
+
+        try
+        {
+            // Create ZIP archive
+            await Task.Run(() =>
+            {
+                ZipFile.CreateFromDirectory(worldPath, tempFile, CompressionLevel.Fastest, false);
+            }, cancellationToken);
+
+            // Read the ZIP file into a MemoryStream
+            var memoryStream = new MemoryStream();
+            using (var fileStream = File.OpenRead(tempFile))
+            {
+                await fileStream.CopyToAsync(memoryStream, cancellationToken);
+            }
+
+            // Delete temp file
+            File.Delete(tempFile);
+
+            memoryStream.Position = 0;
+            _logger.LogInformation("Created ZIP archive for world {WorldName} ({Size} bytes)", worldName, memoryStream.Length);
+            return memoryStream;
+        }
+        catch
+        {
+            // Clean up temp file on error
+            if (File.Exists(tempFile))
+            {
+                File.Delete(tempFile);
+            }
+            throw;
+        }
+    }
+
+    public async Task UploadWorldAsync(string serverName, string worldName, Stream zipStream, CancellationToken cancellationToken)
+    {
+        var worldPath = GetWorldPath(serverName, worldName);
+        var serverPath = GetServerPath(serverName);
+
+        if (!Directory.Exists(serverPath))
+        {
+            throw new DirectoryNotFoundException($"Server '{serverName}' not found");
+        }
+
+        _logger.LogInformation("Uploading world {WorldName} to server {ServerName}", worldName, serverName);
+
+        // Create a temporary directory for extraction
+        var tempDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
+        Directory.CreateDirectory(tempDir);
+
+        try
+        {
+            // Save ZIP to temp file
+            var tempZipFile = Path.Combine(tempDir, "world.zip");
+            using (var fileStream = File.Create(tempZipFile))
+            {
+                await zipStream.CopyToAsync(fileStream, cancellationToken);
+            }
+
+            // Extract ZIP
+            await Task.Run(() =>
+            {
+                ZipFile.ExtractToDirectory(tempZipFile, tempDir);
+            }, cancellationToken);
+
+            // Delete the ZIP file
+            File.Delete(tempZipFile);
+
+            // Delete existing world if it exists
+            if (Directory.Exists(worldPath))
+            {
+                _logger.LogInformation("Deleting existing world {WorldName}", worldName);
+                Directory.Delete(worldPath, true);
+            }
+
+            // Move extracted files to world path
+            var extractedDirs = Directory.GetDirectories(tempDir);
+            if (extractedDirs.Length == 1)
+            {
+                // ZIP contains a single folder - use its contents
+                Directory.Move(extractedDirs[0], worldPath);
+            }
+            else
+            {
+                // ZIP contains multiple items at root - move the entire temp dir
+                Directory.Move(tempDir, worldPath);
+                tempDir = null; // Prevent cleanup
+            }
+
+            _logger.LogInformation("Successfully uploaded world {WorldName}", worldName);
+        }
+        finally
+        {
+            // Clean up temp directory if it still exists
+            if (tempDir != null && Directory.Exists(tempDir))
+            {
+                try
+                {
+                    Directory.Delete(tempDir, true);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to clean up temporary directory {TempDir}", tempDir);
+                }
+            }
+        }
+    }
+
+    public Task DeleteWorldAsync(string serverName, string worldName, CancellationToken cancellationToken)
+    {
+        var worldPath = GetWorldPath(serverName, worldName);
+        if (!Directory.Exists(worldPath))
+        {
+            throw new FileNotFoundException($"World '{worldName}' not found for server '{serverName}'");
+        }
+
+        _logger.LogInformation("Deleting world {WorldName} on server {ServerName}", worldName, serverName);
+        Directory.Delete(worldPath, true);
+        _logger.LogInformation("Successfully deleted world {WorldName}", worldName);
+
+        return Task.CompletedTask;
+    }
+
+    public Task<long> GetWorldSizeAsync(string serverName, string worldName, CancellationToken cancellationToken)
+    {
+        var worldPath = GetWorldPath(serverName, worldName);
+        if (!Directory.Exists(worldPath))
+        {
+            return Task.FromResult(0L);
+        }
+
+        var size = CalculateDirectorySize(worldPath);
+        return Task.FromResult(size);
+    }
+
+    private static long CalculateDirectorySize(string path)
+    {
+        var directory = new DirectoryInfo(path);
+        if (!directory.Exists)
+        {
+            return 0;
+        }
+
+        long size = 0;
+
+        // Add file sizes
+        foreach (var file in directory.GetFiles("*", SearchOption.AllDirectories))
+        {
+            try
+            {
+                size += file.Length;
+            }
+            catch
+            {
+                // Skip files we can't access
+            }
+        }
+
+        return size;
+    }
+}

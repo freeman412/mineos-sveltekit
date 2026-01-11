@@ -149,6 +149,7 @@ builder.Services.AddScoped<IFileService, FileService>();
 builder.Services.AddScoped<IProfileService, ProfileService>();
 builder.Services.AddScoped<IImportService, ImportService>();
 builder.Services.AddScoped<ICurseForgeService, CurseForgeService>();
+builder.Services.AddScoped<IWorldService, WorldService>();
 builder.Services.AddScoped<IAdminShellSession, AdminShellService>();
 builder.Services.AddSingleton<IProcessManager, ProcessManager>();
 builder.Services.AddSingleton<IPasswordHasher, Argon2PasswordHasher>();

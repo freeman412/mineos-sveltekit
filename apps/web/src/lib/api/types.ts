@@ -159,3 +159,25 @@ export type CurseForgeSearchResult = {
 	totalCount: number;
 	results: CurseForgeModSummary[];
 };
+
+// World Management
+export type World = {
+	name: string;
+	type: string;
+	sizeBytes: number;
+	lastModified: string | null;
+};
+
+export type WorldInfo = {
+	name: string;
+	type: string;
+	sizeBytes: number;
+	seed: string | null;
+	levelName: string | null;
+	gameMode: string | null;
+	difficulty: string | null;
+	hardcore: boolean | null;
+	lastModified: string | null;
+	fileCount: number;
+	directoryCount: number;
+};

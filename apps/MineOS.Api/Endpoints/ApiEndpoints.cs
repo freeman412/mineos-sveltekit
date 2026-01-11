@@ -10,6 +10,7 @@ public static class ApiEndpoints
         api.MapAuthEndpoints();
         api.MapHostEndpoints();
         api.MapServerEndpoints();
+        api.MapWorldEndpoints();
         api.MapProfileEndpoints();
         api.MapJobEndpoints();
         api.MapCurseForgeEndpoints();

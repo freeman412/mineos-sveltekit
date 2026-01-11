@@ -208,3 +208,58 @@ export async function acceptEula(fetcher: Fetcher, name: string): Promise<ApiRes
 		return { data: null, error: message };
 	}
 }
+
+// World Management
+export async function getServerWorlds(
+	fetcher: Fetcher,
+	serverName: string
+): Promise<ApiResult<import('./types').World[]>> {
+	return apiFetch(fetcher, `/api/servers/${serverName}/worlds`);
+}
+
+export async function getWorldInfo(
+	fetcher: Fetcher,
+	serverName: string,
+	worldName: string
+): Promise<ApiResult<import('./types').WorldInfo>> {
+	return apiFetch(fetcher, `/api/servers/${serverName}/worlds/${worldName}`);
+}
+
+export async function downloadWorld(
+	fetcher: Fetcher,
+	serverName: string,
+	worldName: string
+): Promise<void> {
+	const res = await fetcher(`/api/servers/${serverName}/worlds/${worldName}/download`);
+	if (!res.ok) {
+		throw new Error(`Failed to download world: ${res.statusText}`);
+	}
+	const blob = await res.blob();
+	const url = URL.createObjectURL(blob);
+	const a = document.createElement('a');
+	a.href = url;
+	a.download = `${serverName}-${worldName}.zip`;
+	a.click();
+	URL.revokeObjectURL(url);
+}
+
+export async function deleteWorld(
+	fetcher: Fetcher,
+	serverName: string,
+	worldName: string
+): Promise<ApiResult<void>> {
+	try {
+		const res = await fetcher(`/api/servers/${serverName}/worlds/${worldName}`, {
+			method: 'DELETE'
+		});
+		if (!res.ok) {
+			const errorData = await res.json().catch(() => ({}));
+			const errorMsg = errorData.error || `Request failed with ${res.status}`;
+			return { data: null, error: errorMsg };
+		}
+		return { data: undefined, error: null };
+	} catch (err) {
+		const message = err instanceof Error ? err.message : 'Unknown error';
+		return { data: null, error: message };
+	}
+}
