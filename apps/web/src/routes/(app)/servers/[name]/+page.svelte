@@ -1,22 +1,32 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { invalidateAll } from '$app/navigation';
-	import { Terminal } from '@xterm/xterm';
-	import { FitAddon } from '@xterm/addon-fit';
 	import '@xterm/xterm/css/xterm.css';
 	import * as api from '$lib/api/client';
 	import type { PageData } from './$types';
 	import type { LayoutData } from './$types';
 
+	type TerminalType = import('@xterm/xterm').Terminal;
+	type FitAddonType = import('@xterm/addon-fit').FitAddon;
+
 	let { data }: { data: PageData & { server: LayoutData['server'] } } = $props();
 
 	let actionLoading = $state(false);
 	let terminalContainer: HTMLDivElement;
-	let terminal: Terminal | null = $state(null);
-	let fitAddon: FitAddon | null = null;
+	let terminal: TerminalType | null = $state(null);
+	let fitAddon: FitAddonType | null = null;
+	let resizeObserver: ResizeObserver | null = null;
 	let eventSource: EventSource | null = null;
 	let command = $state('');
 	let sending = $state(false);
+	let heartbeat = $state(data.heartbeat.data ?? null);
+	let heartbeatError = $state<string | null>(data.heartbeat.error);
+	let heartbeatSource: EventSource | null = null;
+	let heartbeatStatus = $derived((heartbeat?.status ?? '').toLowerCase());
+	let isRunning = $derived(heartbeatStatus === 'up' || heartbeatStatus === 'running');
+
+	const resolveModule = <T>(module: T | { default: T }): T =>
+		(module as { default?: T }).default ?? (module as T);
 
 	async function handleAction(action: 'start' | 'stop' | 'restart' | 'kill') {
 		if (!data.server) return;
@@ -81,42 +91,62 @@
 	onMount(() => {
 		if (!data.server) return;
 
-		// Create terminal
-		terminal = new Terminal({
-			cursorBlink: true,
-			theme: {
-				background: '#0d1117',
-				foreground: '#c9d1d9',
-				cursor: '#4299e1'
-			},
-			fontFamily: '"Cascadia Code", "Fira Code", "Consolas", monospace',
-			fontSize: 13,
-			lineHeight: 1.2,
-			scrollback: 10000
-		});
+		let disposed = false;
 
-		fitAddon = new FitAddon();
-		terminal.loadAddon(fitAddon);
-		terminal.open(terminalContainer);
-		fitAddon.fit();
+		const initTerminal = async () => {
+			const xtermModule = resolveModule(await import('@xterm/xterm'));
+			const fitModule = resolveModule(await import('@xterm/addon-fit'));
+			const TerminalCtor = (xtermModule as typeof import('@xterm/xterm')).Terminal;
+			const FitAddonCtor = (fitModule as typeof import('@xterm/addon-fit')).FitAddon;
 
-		terminal.writeln('\x1b[1;36m=== MineOS Console ===\x1b[0m');
-		terminal.writeln('\x1b[90mConnecting to server logs...\x1b[0m');
-		terminal.writeln('');
+			if (disposed) {
+				return;
+			}
 
-		// Connect to SSE stream
-		connectToLogs();
+			if (!TerminalCtor || !FitAddonCtor) {
+				console.error('Failed to load xterm modules');
+				return;
+			}
 
-		// Handle resize
-		const resizeObserver = new ResizeObserver(() => {
-			fitAddon?.fit();
-		});
-		resizeObserver.observe(terminalContainer);
+			terminal = new TerminalCtor({
+				cursorBlink: true,
+				theme: {
+					background: '#0d1117',
+					foreground: '#c9d1d9',
+					cursor: '#4299e1'
+				},
+				fontFamily: '"Cascadia Code", "Fira Code", "Consolas", monospace',
+				fontSize: 13,
+				lineHeight: 1.2,
+				scrollback: 10000
+			});
+
+			fitAddon = new FitAddonCtor();
+			terminal.loadAddon(fitAddon);
+			terminal.open(terminalContainer);
+			fitAddon.fit();
+
+			terminal.writeln('\x1b[1;36m=== MineOS Console ===\x1b[0m');
+			terminal.writeln('\x1b[90mConnecting to server logs...\x1b[0m');
+			terminal.writeln('');
+
+			connectToLogs();
+			connectToHeartbeat();
+
+			resizeObserver = new ResizeObserver(() => {
+				fitAddon?.fit();
+			});
+			resizeObserver.observe(terminalContainer);
+		};
+
+		initTerminal();
 
 		return () => {
+			disposed = true;
 			terminal?.dispose();
 			eventSource?.close();
-			resizeObserver.disconnect();
+			heartbeatSource?.close();
+			resizeObserver?.disconnect();
 		};
 	});
 
@@ -138,6 +168,25 @@
 			terminal?.writeln('\x1b[31mConnection lost. Reconnecting...\x1b[0m');
 			eventSource?.close();
 			setTimeout(connectToLogs, 2000);
+		};
+	}
+
+	function connectToHeartbeat() {
+		if (!data.server) return;
+
+		heartbeatSource = new EventSource(`/api/servers/${data.server.name}/heartbeat/stream`);
+		heartbeatSource.onmessage = (event) => {
+			try {
+				heartbeat = JSON.parse(event.data);
+				heartbeatError = null;
+			} catch (err) {
+				console.error('Failed to parse heartbeat:', err);
+			}
+		};
+		heartbeatSource.onerror = () => {
+			heartbeatSource?.close();
+			heartbeatSource = null;
+			setTimeout(connectToHeartbeat, 2000);
 		};
 	}
 
@@ -168,22 +217,22 @@
 	<section class="section">
 		<h2>Quick Actions</h2>
 		<div class="action-buttons">
-			{#if data.heartbeat.data?.status?.toLowerCase() === 'running'}
+			{#if isRunning}
 				<button class="btn btn-warning" onclick={() => handleAction('stop')} disabled={actionLoading}>
-					⏹️ Stop Server
+					Stop Server
 				</button>
 				<button class="btn btn-primary" onclick={() => handleAction('restart')} disabled={actionLoading}>
-					🔄 Restart Server
+					Restart Server
 				</button>
 				<button class="btn btn-danger" onclick={() => handleAction('kill')} disabled={actionLoading}>
-					💀 Kill Server
+					Kill Server
 				</button>
 			{:else}
 				<button class="btn btn-success" onclick={() => handleAction('start')} disabled={actionLoading}>
-					▶️ Start Server
+					Start Server
 				</button>
 				<button class="btn btn-secondary" onclick={handleAcceptEula} disabled={actionLoading}>
-					📜 Accept EULA
+					Accept EULA
 				</button>
 			{/if}
 		</div>
@@ -217,43 +266,43 @@
 			<div class="info-grid">
 				<div class="info-row">
 					<span class="label">Status</span>
-					<span class="value">{data.heartbeat.data?.status || 'Unknown'}</span>
+					<span class="value">{heartbeat ? (isRunning ? 'Running' : 'Stopped') : 'Unknown'}</span>
 				</div>
 				<div class="info-row">
 					<span class="label">Java PID</span>
-					<span class="value">{data.heartbeat.data?.javaPid || 'N/A'}</span>
+					<span class="value">{heartbeat?.javaPid || 'N/A'}</span>
 				</div>
 				<div class="info-row">
 					<span class="label">Screen PID</span>
-					<span class="value">{data.heartbeat.data?.screenPid || 'N/A'}</span>
+					<span class="value">{heartbeat?.screenPid || 'N/A'}</span>
 				</div>
 				<div class="info-row">
 					<span class="label">Memory</span>
-					<span class="value">{formatBytes(data.heartbeat.data?.memoryBytes || null)}</span>
+					<span class="value">{formatBytes(heartbeat?.memoryBytes || null)}</span>
 				</div>
 			</div>
 		</div>
 
-		{#if data.heartbeat.data?.ping}
+		{#if heartbeat?.ping}
 			<div class="card">
 				<h3>Ping Information</h3>
 				<div class="info-grid">
 					<div class="info-row">
 						<span class="label">Version</span>
-						<span class="value">{data.heartbeat.data.ping.serverVersion}</span>
+						<span class="value">{heartbeat.ping.serverVersion}</span>
 					</div>
 					<div class="info-row">
 						<span class="label">Protocol</span>
-						<span class="value">{data.heartbeat.data.ping.protocol}</span>
+						<span class="value">{heartbeat.ping.protocol}</span>
 					</div>
 					<div class="info-row">
 						<span class="label">MOTD</span>
-						<span class="value">{data.heartbeat.data.ping.motd}</span>
+						<span class="value">{heartbeat.ping.motd}</span>
 					</div>
 					<div class="info-row">
 						<span class="label">Players</span>
 						<span class="value">
-							{data.heartbeat.data.ping.playersOnline} / {data.heartbeat.data.ping.playersMax}
+							{heartbeat.ping.playersOnline} / {heartbeat.ping.playersMax}
 						</span>
 					</div>
 				</div>
@@ -297,13 +346,13 @@
 					type="text"
 					bind:value={command}
 					placeholder="Enter command..."
-					disabled={sending || data.heartbeat.data?.status?.toLowerCase() !== 'running'}
+					disabled={sending || !isRunning}
 					onkeydown={(e) => e.key === 'Enter' && sendCommand()}
 				/>
 				<button
 					class="btn btn-primary"
 					onclick={sendCommand}
-					disabled={sending || !command.trim() || data.heartbeat.data?.status?.toLowerCase() !== 'running'}
+					disabled={sending || !command.trim() || !isRunning}
 				>
 					{sending ? 'Sending...' : 'Send'}
 				</button>
@@ -358,42 +407,42 @@
 	}
 
 	.btn-primary {
-		background: #5865f2;
+		background: var(--mc-grass);
 		color: white;
 	}
 
 	.btn-primary:hover:not(:disabled) {
-		background: #4752c4;
+		background: var(--mc-grass-dark);
 	}
 
 	.btn-success {
-		background: rgba(122, 230, 141, 0.15);
-		color: #7ae68d;
-		border: 1px solid rgba(122, 230, 141, 0.3);
+		background: rgba(106, 176, 76, 0.18);
+		color: #b7f5a2;
+		border: 1px solid rgba(106, 176, 76, 0.35);
 	}
 
 	.btn-success:hover:not(:disabled) {
-		background: rgba(122, 230, 141, 0.25);
+		background: rgba(106, 176, 76, 0.28);
 	}
 
 	.btn-warning {
-		background: rgba(255, 200, 87, 0.15);
-		color: #ffc857;
-		border: 1px solid rgba(255, 200, 87, 0.3);
+		background: rgba(139, 90, 43, 0.2);
+		color: #f4c08e;
+		border: 1px solid rgba(139, 90, 43, 0.4);
 	}
 
 	.btn-warning:hover:not(:disabled) {
-		background: rgba(255, 200, 87, 0.25);
+		background: rgba(139, 90, 43, 0.3);
 	}
 
 	.btn-danger {
-		background: rgba(255, 92, 92, 0.15);
-		color: #ff9f9f;
-		border: 1px solid rgba(255, 92, 92, 0.3);
+		background: rgba(210, 94, 72, 0.2);
+		color: #ffb6a6;
+		border: 1px solid rgba(210, 94, 72, 0.4);
 	}
 
 	.btn-danger:hover:not(:disabled) {
-		background: rgba(255, 92, 92, 0.25);
+		background: rgba(210, 94, 72, 0.3);
 	}
 
 	.btn-secondary {

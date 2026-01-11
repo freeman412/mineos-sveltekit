@@ -1,10 +1,13 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { Terminal } from '@xterm/xterm';
-	import { FitAddon } from '@xterm/addon-fit';
 	import '@xterm/xterm/css/xterm.css';
 	import type { PageData } from './$types';
 	import type { LayoutData } from '../$layout';
+
+	type TerminalType = import('@xterm/xterm').Terminal;
+	type FitAddonType = import('@xterm/addon-fit').FitAddon;
+	type TerminalCtor = typeof import('@xterm/xterm').Terminal;
+	type FitAddonCtor = typeof import('@xterm/addon-fit').FitAddon;
 
 	type LogTab = 'server' | 'java';
 
@@ -14,16 +17,22 @@
 	let serverTerminalContainer: HTMLDivElement;
 	let javaTerminalContainer: HTMLDivElement;
 
-	let serverTerminal: Terminal | null = null;
-	let javaTerminal: Terminal | null = null;
-	let serverFitAddon: FitAddon | null = null;
-	let javaFitAddon: FitAddon | null = null;
+	let serverTerminal: TerminalType | null = null;
+	let javaTerminal: TerminalType | null = null;
+	let serverFitAddon: FitAddonType | null = null;
+	let javaFitAddon: FitAddonType | null = null;
 	let serverEventSource: EventSource | null = null;
 	let javaEventSource: EventSource | null = null;
+	let resizeObserver: ResizeObserver | null = null;
+	let terminalCtor: TerminalCtor | null = null;
+	let fitAddonCtor: FitAddonCtor | null = null;
 
 	let activeTab = $state<LogTab>('server');
 	let command = $state('');
 	let sending = $state(false);
+
+	const resolveModule = <T>(module: T | { default: T }): T =>
+		(module as { default?: T }).default ?? (module as T);
 
 	const terminalTheme = {
 		background: '#0d1117',
@@ -50,38 +59,63 @@
 	onMount(() => {
 		if (!data.server) return;
 
-		const serverSetup = initTerminal(
-			serverTerminalContainer,
-			'MineOS Server Logs',
-			'Connecting to server logs...'
-		);
-		serverTerminal = serverSetup.terminal;
-		serverFitAddon = serverSetup.fitAddon;
+		let disposed = false;
 
-		const javaSetup = initTerminal(javaTerminalContainer, 'MineOS Java Logs', 'Connecting to Java logs...');
-		javaTerminal = javaSetup.terminal;
-		javaFitAddon = javaSetup.fitAddon;
+		const initTerminals = async () => {
+			const xtermModule = resolveModule(await import('@xterm/xterm'));
+			const fitModule = resolveModule(await import('@xterm/addon-fit'));
+			terminalCtor = (xtermModule as typeof import('@xterm/xterm')).Terminal;
+			fitAddonCtor = (fitModule as typeof import('@xterm/addon-fit')).FitAddon;
 
-		connectToLogs('server');
-		connectToLogs('java');
+			if (disposed) {
+				return;
+			}
 
-		const resizeObserver = new ResizeObserver(() => {
-			fitActiveTerminal();
-		});
+			if (!terminalCtor || !fitAddonCtor) {
+				console.error('Failed to load xterm modules');
+				return;
+			}
 
-		resizeObserver.observe(terminalWrapper);
+			const serverSetup = initTerminal(
+				serverTerminalContainer,
+				'MineOS Server Logs',
+				'Connecting to server logs...'
+			);
+			serverTerminal = serverSetup.terminal;
+			serverFitAddon = serverSetup.fitAddon;
+
+			const javaSetup = initTerminal(javaTerminalContainer, 'MineOS Java Logs', 'Connecting to Java logs...');
+			javaTerminal = javaSetup.terminal;
+			javaFitAddon = javaSetup.fitAddon;
+
+			connectToLogs('server');
+			connectToLogs('java');
+
+			resizeObserver = new ResizeObserver(() => {
+				fitActiveTerminal();
+			});
+
+			resizeObserver.observe(terminalWrapper);
+		};
+
+		initTerminals();
 
 		return () => {
+			disposed = true;
 			serverTerminal?.dispose();
 			javaTerminal?.dispose();
 			serverEventSource?.close();
 			javaEventSource?.close();
-			resizeObserver.disconnect();
+			resizeObserver?.disconnect();
 		};
 	});
 
 	function initTerminal(container: HTMLDivElement, title: string, subtitle: string) {
-		const terminal = new Terminal({
+		if (!terminalCtor || !fitAddonCtor) {
+			throw new Error('Terminal modules not initialized');
+		}
+
+		const terminal = new terminalCtor({
 			cursorBlink: true,
 			theme: terminalTheme,
 			fontFamily: '"Cascadia Code", "Fira Code", "Consolas", monospace',
@@ -90,7 +124,7 @@
 			scrollback: 10000
 		});
 
-		const fitAddon = new FitAddon();
+		const fitAddon = new fitAddonCtor();
 		terminal.loadAddon(fitAddon);
 		terminal.open(container);
 		fitAddon.fit();
