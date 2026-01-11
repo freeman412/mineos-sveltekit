@@ -39,7 +39,9 @@ public record ServerDetailDto(
     string Status,
     int? JavaPid,
     int? ScreenPid,
-    ServerConfigDto? Config);
+    ServerConfigDto? Config,
+    bool EulaAccepted,
+    bool NeedsRestart);
 
 public record ServerConfigDto(
     JavaConfigDto Java,

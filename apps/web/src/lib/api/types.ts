@@ -19,6 +19,7 @@ export type ServerSummary = {
 	playersOnline?: number | null;
 	playersMax?: number | null;
 	memoryBytes?: number | null;
+	needsRestart: boolean;
 };
 
 export type Profile = {
@@ -56,6 +57,8 @@ export type ServerDetail = {
 	javaPid: number | null;
 	screenPid: number | null;
 	config: ServerConfig | null;
+	eulaAccepted: boolean;
+	needsRestart: boolean;
 };
 
 export type ServerConfig = {

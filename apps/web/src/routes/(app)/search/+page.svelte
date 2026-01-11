@@ -13,12 +13,12 @@
 	const profiles = $derived((data.profiles.data ?? []) as Profile[]);
 	const normalizedQuery = $derived(query.trim().toLowerCase());
 
-	const filteredServers = $derived(() => {
+	const filteredServers = $derived.by(() => {
 		if (normalizedQuery.length < minQueryLength) return [];
 		return servers.filter((server) => server.name.toLowerCase().includes(normalizedQuery));
 	});
 
-	const filteredProfiles = $derived(() => {
+	const filteredProfiles = $derived.by(() => {
 		if (normalizedQuery.length < minQueryLength) return [];
 		return profiles.filter((profile) => {
 			const haystack = `${profile.id} ${profile.group} ${profile.version}`.toLowerCase();

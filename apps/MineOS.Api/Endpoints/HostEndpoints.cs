@@ -1,4 +1,6 @@
 using System.Text.Json;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.Json;
 using Microsoft.Extensions.Options;
 using Microsoft.AspNetCore.Mvc;
@@ -132,8 +134,8 @@ public static class HostEndpoints
         {
             try
             {
-                var profile = await profileService.BuildToolsAsync(request.Group, request.Version, cancellationToken);
-                return Results.Ok(profile);
+                var run = await profileService.StartBuildToolsAsync(request.Group, request.Version, cancellationToken);
+                return Results.Accepted($"/api/v1/host/profiles/buildtools/runs/{run.RunId}", run);
             }
             catch (ArgumentException ex)
             {
@@ -144,6 +146,54 @@ public static class HostEndpoints
                 return Results.Conflict(new { error = ex.Message });
             }
         });
+
+        host.MapGet("/profiles/buildtools/runs", async (
+            IProfileService profileService,
+            CancellationToken cancellationToken) =>
+        {
+            var runs = await profileService.ListBuildToolsRunsAsync(cancellationToken);
+            return Results.Ok(runs);
+        });
+
+        host.MapGet("/profiles/buildtools/runs/{runId}", async (
+            string runId,
+            IProfileService profileService,
+            CancellationToken cancellationToken) =>
+        {
+            var run = await profileService.GetBuildToolsRunAsync(runId, cancellationToken);
+            return run == null ? Results.NotFound(new { error = "BuildTools run not found" }) : Results.Ok(run);
+        });
+
+        host.MapGet("/profiles/buildtools/runs/{runId}/stream",
+            async (HttpContext context,
+                string runId,
+                IProfileService profileService,
+                IOptions<Microsoft.AspNetCore.Http.Json.JsonOptions> jsonOptions,
+                CancellationToken cancellationToken) =>
+            {
+                var run = await profileService.GetBuildToolsRunAsync(runId, cancellationToken);
+                if (run == null)
+                {
+                    context.Response.StatusCode = StatusCodes.Status404NotFound;
+                    await context.Response.WriteAsJsonAsync(new { error = "BuildTools run not found" }, cancellationToken);
+                    return;
+                }
+
+                context.Response.ContentType = "text/event-stream";
+                context.Response.Headers["Cache-Control"] = "no-cache";
+                context.Response.Headers["Connection"] = "keep-alive";
+                context.Response.Headers["X-Accel-Buffering"] = "no";
+                context.Response.Headers.Remove("Content-Length");
+
+                await context.Response.StartAsync(cancellationToken);
+
+                await foreach (var entry in profileService.StreamBuildToolsLogAsync(runId, cancellationToken))
+                {
+                    var payload = JsonSerializer.Serialize(entry, jsonOptions.Value.SerializerOptions);
+                    await context.Response.WriteAsync($"data: {payload}\n\n", cancellationToken);
+                    await context.Response.Body.FlushAsync(cancellationToken);
+                }
+            });
 
         host.MapDelete("/profiles/buildtools/{id}", async (
             string id,

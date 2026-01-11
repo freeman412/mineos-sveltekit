@@ -17,8 +17,11 @@
 		{ href: '/search', label: 'Search', icon: '[F]' },
 		{ href: '/servers', label: 'Servers', icon: '[S]' },
 		{ href: '/profiles', label: 'Profiles', icon: '[P]' },
+		{ href: '/profiles/buildtools', label: 'BuildTools', icon: '[B]' },
 		{ href: '/import', label: 'Import', icon: '[I]' },
-		{ href: '/curseforge', label: 'CurseForge', icon: '[C]' }
+		{ href: '/curseforge', label: 'CurseForge', icon: '[C]' },
+		{ href: '/admin/access', label: 'Access', icon: '[A]', requiresAdmin: true },
+		{ href: '/admin/shell', label: 'Admin Shell', icon: '[T]', requiresAdmin: true }
 	];
 
 	function isActive(href: string) {
@@ -53,7 +56,7 @@
 		</div>
 
 		<ul class="nav-list">
-			{#each navItems as item}
+			{#each navItems.filter((item) => !item.requiresAdmin || data.user?.role === 'admin') as item}
 				<li>
 					<a href={item.href} class:active={isActive(item.href)}>
 						<span class="icon">{item.icon}</span>
@@ -63,12 +66,21 @@
 			{/each}
 		</ul>
 
-		<div class="sidebar-footer">
-			<button class="logout-btn" onclick={handleLogout}>
-				<span class="icon">[X]</span>
-				<span>Logout</span>
-			</button>
-		</div>
+	<div class="sidebar-footer">
+		<a
+			class="coffee-btn"
+			href="https://buymeacoffee.com/freemancraft"
+			target="_blank"
+			rel="noreferrer"
+		>
+			<span class="icon">[☕]</span>
+			<span>Buy Me a Coffee</span>
+		</a>
+		<button class="logout-btn" onclick={handleLogout}>
+			<span class="icon">[X]</span>
+			<span>Logout</span>
+		</button>
+	</div>
 	</nav>
 
 	<main class="main-content">
@@ -198,6 +210,30 @@
 	.sidebar-footer {
 		padding: 12px 8px;
 		border-top: 1px solid #2a2f47;
+		display: flex;
+		flex-direction: column;
+		gap: 8px;
+	}
+
+	.coffee-btn {
+		width: 100%;
+		display: flex;
+		align-items: center;
+		gap: 12px;
+		padding: 12px 16px;
+		border-radius: 8px;
+		background: rgba(255, 200, 87, 0.12);
+		border: 1px solid rgba(255, 200, 87, 0.35);
+		color: #f4c08e;
+		text-decoration: none;
+		transition: all 0.2s;
+		font-size: 14px;
+		box-sizing: border-box;
+		white-space: normal;
+	}
+
+	.coffee-btn:hover {
+		background: rgba(255, 200, 87, 0.2);
 	}
 
 	.logout-btn {

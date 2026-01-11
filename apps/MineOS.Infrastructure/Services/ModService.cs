@@ -10,6 +10,7 @@ namespace MineOS.Infrastructure.Services;
 
 public sealed class ModService : IModService
 {
+    private const string RestartFlagFile = ".mineos-restart-required";
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         PropertyNameCaseInsensitive = true
@@ -77,6 +78,7 @@ public sealed class ModService : IModService
 
         await using var target = new FileStream(targetPath, FileMode.Create, FileAccess.Write, FileShare.None);
         await content.CopyToAsync(target, cancellationToken);
+        MarkRestartRequired(serverPath);
         _logger.LogInformation("Uploaded mod {FileName} for server {ServerName}", safeName, serverName);
     }
 
@@ -98,6 +100,7 @@ public sealed class ModService : IModService
         }
 
         File.Delete(targetPath);
+        MarkRestartRequired(serverPath);
         _logger.LogInformation("Deleted mod {FileName} for server {ServerName}", safeName, serverName);
         return Task.CompletedTask;
     }
@@ -144,6 +147,7 @@ public sealed class ModService : IModService
         var targetPath = Path.Combine(modsPath, ValidateFileName(modFile.FileName));
 
         await DownloadFileAsync(downloadUrl, targetPath, progress, serverName, "mod-install", cancellationToken);
+        MarkRestartRequired(GetServerPath(serverName));
         _logger.LogInformation("Installed mod {ModId} ({FileName}) for server {ServerName}", modId, modFile.FileName, serverName);
     }
 
@@ -171,6 +175,7 @@ public sealed class ModService : IModService
         await DownloadFileAsync(downloadUrl, modpackPath, progress, serverName, "modpack-install", cancellationToken);
 
         await ApplyModpackAsync(serverName, modpackPath, progress, cancellationToken);
+        MarkRestartRequired(GetServerPath(serverName));
         _logger.LogInformation("Installed modpack {ModpackId} ({FileName}) for server {ServerName}", modpackId, modpackFile.FileName, serverName);
     }
 
@@ -349,6 +354,19 @@ public sealed class ModService : IModService
         var path = Path.Combine(GetServerPath(serverName), "modpacks");
         Directory.CreateDirectory(path);
         return path;
+    }
+
+    private void MarkRestartRequired(string serverPath)
+    {
+        try
+        {
+            var flagPath = Path.Combine(serverPath, RestartFlagFile);
+            File.WriteAllText(flagPath, DateTimeOffset.UtcNow.ToString("O"));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to mark restart required for {ServerPath}", serverPath);
+        }
     }
 
     private static string ValidateFileName(string fileName)

@@ -5,6 +5,9 @@
 	let { data }: { data: PageData } = $props();
 	let actionLoading = $state<Record<string, boolean>>({});
 	let serverNames = $state<Record<string, string>>({});
+	let dragActive = $state(false);
+	let uploadError = $state('');
+	let uploadBusy = $state(false);
 
 	function formatSize(bytes: number): string {
 		if (bytes === 0) return '0 B';
@@ -16,6 +19,33 @@
 
 	function formatDate(date: string): string {
 		return new Date(date).toLocaleString();
+	}
+
+	async function uploadArchives(files: FileList | File[]) {
+		if (!files || files.length === 0) return;
+		uploadError = '';
+		uploadBusy = true;
+		try {
+			const formData = new FormData();
+			for (const file of Array.from(files)) {
+				formData.append('files', file, file.name);
+			}
+
+			const res = await fetch('/api/host/imports/upload', {
+				method: 'POST',
+				body: formData
+			});
+
+			if (!res.ok) {
+				const error = await res.json().catch(() => ({ error: 'Upload failed' }));
+				uploadError = error.error || 'Upload failed';
+			} else {
+				await invalidateAll();
+			}
+		} finally {
+			uploadBusy = false;
+			dragActive = false;
+		}
 	}
 
 	async function handleCreate(filename: string) {
@@ -56,6 +86,47 @@
 		<h1>Import Servers</h1>
 		<p class="subtitle">Create servers from uploaded archives</p>
 	</div>
+</div>
+
+<div
+	class="upload-zone"
+	class:active={dragActive}
+	ondragover={(event) => {
+		event.preventDefault();
+		dragActive = true;
+	}}
+	ondragleave={() => {
+		dragActive = false;
+	}}
+	ondrop={(event) => {
+		event.preventDefault();
+		dragActive = false;
+		if (event.dataTransfer?.files?.length) {
+			uploadArchives(event.dataTransfer.files);
+		}
+	}}
+>
+	<div>
+		<h2>Drag & drop an archive</h2>
+		<p>.zip, .tar.gz, or .tgz files supported</p>
+	</div>
+	<label class="btn-action">
+		<input
+			type="file"
+			accept=".zip,.tar.gz,.tgz"
+			multiple
+			onchange={(event) => {
+				const input = event.currentTarget as HTMLInputElement;
+				if (input.files) uploadArchives(input.files);
+				input.value = '';
+			}}
+			hidden
+		/>
+		{uploadBusy ? 'Uploading...' : 'Choose files'}
+	</label>
+	{#if uploadError}
+		<p class="error">{uploadError}</p>
+	{/if}
 </div>
 
 {#if data.imports.error}
@@ -204,5 +275,34 @@
 		text-align: center;
 		padding: 60px 20px;
 		color: #8e96bb;
+	}
+
+	.upload-zone {
+		background: #1a1e2f;
+		border-radius: 16px;
+		padding: 24px;
+		border: 2px dashed rgba(106, 176, 76, 0.2);
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		gap: 16px;
+		margin-bottom: 24px;
+		box-shadow: 0 20px 40px rgba(0, 0, 0, 0.35);
+	}
+
+	.upload-zone.active {
+		border-color: rgba(106, 176, 76, 0.6);
+		background: rgba(106, 176, 76, 0.08);
+	}
+
+	.upload-zone h2 {
+		margin: 0 0 6px;
+		font-size: 20px;
+	}
+
+	.upload-zone p {
+		margin: 0;
+		color: #aab2d3;
+		font-size: 13px;
 	}
 </style>

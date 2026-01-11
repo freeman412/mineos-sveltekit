@@ -124,7 +124,7 @@ public static class ServerEndpoints
             {
                 return Results.Conflict(new { error = ex.Message });
             }
-            catch (TimeoutException ex)
+            catch (TimeoutException)
             {
                 return Results.StatusCode(408); // Request Timeout
             }

@@ -73,6 +73,7 @@
 				alert(`Failed to accept EULA: ${result.error}`);
 			} else {
 				alert('EULA accepted successfully! You can now start the server.');
+				await invalidateAll();
 			}
 		} finally {
 			actionLoading = false;
@@ -245,6 +246,11 @@
 <div class="dashboard">
 	<section class="section">
 		<h2>Quick Actions</h2>
+		{#if data.server?.needsRestart}
+			<div class="alert alert-warning">
+				Server files changed. Restart required to apply updates.
+			</div>
+		{/if}
 		<div class="action-buttons">
 			{#if isRunning}
 				<button class="btn btn-warning" onclick={() => handleAction('stop')} disabled={actionLoading}>
@@ -260,8 +266,12 @@
 				<button class="btn btn-success" onclick={() => handleAction('start')} disabled={actionLoading}>
 					Start Server
 				</button>
-				<button class="btn btn-secondary" onclick={handleAcceptEula} disabled={actionLoading}>
-					Accept EULA
+				<button
+					class="btn btn-secondary"
+					onclick={handleAcceptEula}
+					disabled={actionLoading || data.server?.eulaAccepted}
+				>
+					{data.server?.eulaAccepted ? 'EULA Accepted' : 'Accept EULA'}
 				</button>
 			{/if}
 		</div>
@@ -514,6 +524,19 @@
 		border-radius: 16px;
 		padding: 20px;
 		box-shadow: 0 20px 40px rgba(0, 0, 0, 0.35);
+	}
+
+	.alert {
+		padding: 12px 16px;
+		border-radius: 10px;
+		font-size: 13px;
+		margin-bottom: 16px;
+	}
+
+	.alert-warning {
+		background: rgba(255, 200, 87, 0.15);
+		border: 1px solid rgba(255, 200, 87, 0.3);
+		color: #f4c08e;
 	}
 
 	.card h3 {

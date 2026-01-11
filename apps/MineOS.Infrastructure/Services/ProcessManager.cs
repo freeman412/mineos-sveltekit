@@ -9,6 +9,7 @@ public partial class ProcessManager : IProcessManager
 {
     private readonly ILogger<ProcessManager> _logger;
     private const string PROC_PATH = "/proc";
+    private const string ScreenCommand = "screen";
 
     [GeneratedRegex(@"screen[^S]+S mc-([^\s]+)", RegexOptions.IgnoreCase)]
     private static partial Regex ScreenRegex();
@@ -113,20 +114,8 @@ public partial class ProcessManager : IProcessManager
         string workingDirectory,
         CancellationToken cancellationToken)
     {
-        var startInfo = new ProcessStartInfo
-        {
-            FileName = "screen",
-            WorkingDirectory = workingDirectory,
-            UseShellExecute = false,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true
-        };
-
-        // Add all arguments
-        foreach (var arg in args)
-        {
-            startInfo.ArgumentList.Add(arg);
-        }
+        var startInfo = BuildProcessStartInfo(ScreenCommand, args, uid, gid);
+        startInfo.WorkingDirectory = workingDirectory;
 
         _logger.LogInformation("Starting screen session for {ServerName} as uid={Uid} gid={Gid}",
             serverName, uid, gid);
@@ -168,23 +157,30 @@ public partial class ProcessManager : IProcessManager
         int gid,
         CancellationToken cancellationToken)
     {
-        var startInfo = new ProcessStartInfo
+        await SendScreenCommandAsync($"mc-{serverName}", command, uid, gid, cancellationToken);
+    }
+
+    public async Task SendScreenCommandAsync(
+        string sessionName,
+        string command,
+        int uid,
+        int gid,
+        CancellationToken cancellationToken)
+    {
+        var args = new[]
         {
-            FileName = "screen",
-            UseShellExecute = false,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true
+            "-S",
+            sessionName,
+            "-p",
+            "0",
+            "-X",
+            "eval",
+            $"stuff \"{command}\\012\""
         };
 
-        startInfo.ArgumentList.Add("-S");
-        startInfo.ArgumentList.Add($"mc-{serverName}");
-        startInfo.ArgumentList.Add("-p");
-        startInfo.ArgumentList.Add("0");
-        startInfo.ArgumentList.Add("-X");
-        startInfo.ArgumentList.Add("eval");
-        startInfo.ArgumentList.Add($"stuff \"{command}\\012\"");
+        var startInfo = BuildProcessStartInfo(ScreenCommand, args, uid, gid);
 
-        _logger.LogDebug("Sending command to {ServerName}: {Command}", serverName, command);
+        _logger.LogDebug("Sending command to screen session {Session}: {Command}", sessionName, command);
 
         var process = new Process { StartInfo = startInfo };
         process.Start();
@@ -194,7 +190,7 @@ public partial class ProcessManager : IProcessManager
         if (process.ExitCode != 0)
         {
             var error = await process.StandardError.ReadToEndAsync(cancellationToken);
-            throw new InvalidOperationException($"Failed to send command to server: {error}");
+            throw new InvalidOperationException($"Failed to send command to screen session: {error}");
         }
     }
 
@@ -219,5 +215,109 @@ public partial class ProcessManager : IProcessManager
             // Process doesn't exist
             _logger.LogWarning("Process {Pid} not found", pid);
         }
+    }
+
+    private ProcessStartInfo BuildProcessStartInfo(string command, string[] args, int uid, int gid)
+    {
+        var useSetpriv = ShouldUseSetpriv(uid, gid);
+        var startInfo = new ProcessStartInfo
+        {
+            UseShellExecute = false,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true
+        };
+
+        if (useSetpriv)
+        {
+            var setprivPath = ResolveSetprivPath();
+            if (setprivPath == null)
+            {
+                _logger.LogWarning("setpriv not found; running {Command} as current user instead of uid={Uid} gid={Gid}", command, uid, gid);
+                useSetpriv = false;
+            }
+            else
+            {
+                startInfo.FileName = setprivPath;
+                startInfo.ArgumentList.Add("--reuid");
+                startInfo.ArgumentList.Add(uid.ToString());
+                startInfo.ArgumentList.Add("--regid");
+                startInfo.ArgumentList.Add(gid.ToString());
+                startInfo.ArgumentList.Add("--clear-groups");
+                startInfo.ArgumentList.Add("--");
+                startInfo.ArgumentList.Add(command);
+            }
+        }
+
+        if (!useSetpriv)
+        {
+            startInfo.FileName = command;
+        }
+
+        foreach (var arg in args)
+        {
+            startInfo.ArgumentList.Add(arg);
+        }
+
+        return startInfo;
+    }
+
+    private static bool ShouldUseSetpriv(int uid, int gid)
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            return false;
+        }
+
+        var effectiveUid = TryGetEffectiveUid();
+        if (effectiveUid != 0)
+        {
+            return false;
+        }
+
+        return uid > 0 || gid > 0;
+    }
+
+    private static int? TryGetEffectiveUid()
+    {
+        const string statusPath = "/proc/self/status";
+        if (!File.Exists(statusPath))
+        {
+            return null;
+        }
+
+        foreach (var line in File.ReadLines(statusPath))
+        {
+            if (!line.StartsWith("Uid:", StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            var parts = line.Split('\t', StringSplitOptions.RemoveEmptyEntries);
+            if (parts.Length >= 2 && int.TryParse(parts[1], out var uid))
+            {
+                return uid;
+            }
+        }
+
+        return null;
+    }
+
+    private static string? ResolveSetprivPath()
+    {
+        var candidates = new[]
+        {
+            "/usr/bin/setpriv",
+            "/bin/setpriv"
+        };
+
+        foreach (var candidate in candidates)
+        {
+            if (File.Exists(candidate))
+            {
+                return candidate;
+            }
+        }
+
+        return null;
     }
 }

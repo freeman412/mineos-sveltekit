@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Data.Sqlite;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Http.Features;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi;
 using System.Text;
@@ -35,6 +36,16 @@ builder.Host.UseSerilog((context, services, config) =>
 });
 
 builder.Services.AddEndpointsApiExplorer();
+
+builder.WebHost.ConfigureKestrel(options =>
+{
+    options.Limits.MaxRequestBodySize = null;
+});
+
+builder.Services.Configure<FormOptions>(options =>
+{
+    options.MultipartBodyLengthLimit = long.MaxValue;
+});
 
 // Configure JSON serialization to use camelCase for JavaScript/TypeScript interop
 builder.Services.ConfigureHttpJsonOptions(options =>
@@ -101,6 +112,21 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             ValidAudience = resolved.Audience,
             IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(resolved.SigningKey))
         };
+
+        options.Events = new JwtBearerEvents
+        {
+            OnMessageReceived = context =>
+            {
+                if (string.IsNullOrWhiteSpace(context.Token)
+                    && context.Request.Cookies.TryGetValue("auth_token", out var token)
+                    && !string.IsNullOrWhiteSpace(token))
+                {
+                    context.Token = token;
+                }
+
+                return Task.CompletedTask;
+            }
+        };
     });
 
 builder.Services.AddAuthorization();
@@ -113,6 +139,7 @@ builder.Services.AddDbContext<AppDbContext>(options =>
 builder.Services.AddScoped<IApiKeyValidator, ApiKeyValidator>();
 builder.Services.AddScoped<IHostService, HostService>();
 builder.Services.AddScoped<IAuthService, AuthService>();
+builder.Services.AddScoped<IUserService, UserService>();
 builder.Services.AddScoped<IServerService, ServerService>();
 builder.Services.AddScoped<IBackupService, BackupService>();
 builder.Services.AddScoped<IArchiveService, ArchiveService>();
@@ -122,6 +149,7 @@ builder.Services.AddScoped<IFileService, FileService>();
 builder.Services.AddScoped<IProfileService, ProfileService>();
 builder.Services.AddScoped<IImportService, ImportService>();
 builder.Services.AddScoped<ICurseForgeService, CurseForgeService>();
+builder.Services.AddScoped<IAdminShellSession, AdminShellService>();
 builder.Services.AddSingleton<IProcessManager, ProcessManager>();
 builder.Services.AddSingleton<IPasswordHasher, Argon2PasswordHasher>();
 builder.Services.AddSingleton<IJwtTokenService, JwtTokenService>();
@@ -149,6 +177,7 @@ var app = builder.Build();
 
 
 app.UseCors("DevCors");
+app.UseWebSockets();
 app.UseSwagger();
 app.UseSwaggerUI();
 
@@ -199,21 +228,3 @@ using (var scope = app.Services.CreateScope())
 app.MapApiEndpoints();
 
 app.Run();
-
-        options.Events = new JwtBearerEvents
-        {
-            OnMessageReceived = context =>
-            {
-                if (string.IsNullOrWhiteSpace(context.Token)
-                    && context.Request.Cookies.TryGetValue("auth_token", out var token)
-                    && !string.IsNullOrWhiteSpace(token))
-                {
-                    context.Token = token;
-                }
-
-                return Task.CompletedTask;
-            }
-        };
-builder.Services.AddScoped<IAdminShellSession, AdminShellService>();
-app.UseWebSockets();
-builder.Services.AddScoped<IUserService, UserService>();

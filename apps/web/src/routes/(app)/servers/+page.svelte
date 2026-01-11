@@ -187,6 +187,9 @@
 					{#if server.port}
 						<span class="badge badge-muted">Port: {server.port}</span>
 					{/if}
+					{#if server.needsRestart}
+						<span class="badge badge-warning">Restart required</span>
+					{/if}
 				</div>
 
 				<div class="card-metrics">
@@ -432,6 +435,12 @@
 		background: rgba(88, 101, 242, 0.08);
 		color: #c7cbe0;
 		border-color: rgba(88, 101, 242, 0.25);
+	}
+
+	.badge-warning {
+		background: rgba(255, 200, 87, 0.15);
+		color: #f4c08e;
+		border-color: rgba(255, 200, 87, 0.35);
 	}
 
 	.card-metrics {

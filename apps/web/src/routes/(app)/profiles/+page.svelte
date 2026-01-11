@@ -4,9 +4,6 @@
 
 	let { data }: { data: PageData } = $props();
 
-	let buildGroup = $state('spigot');
-	let buildVersion = $state('');
-	let buildError = $state('');
 	let actionLoading = $state<Record<string, boolean>>({});
 	let copyTargets = $state<Record<string, string>>({});
 	let searchQuery = $state('');
@@ -17,7 +14,7 @@
 	const profiles = $derived(data.profiles.data ?? []);
 	const servers = $derived(data.servers.data ?? []);
 
-	const profileGroups = $derived(() => {
+	const profileGroups = $derived.by(() => {
 		const groups = new Set<string>();
 		for (const profile of profiles) {
 			if (profile.group) {
@@ -27,7 +24,7 @@
 		return ['all', ...Array.from(groups).sort()];
 	});
 
-	const filteredProfiles = $derived(() => {
+	const filteredProfiles = $derived.by(() => {
 		const query = searchQuery.trim().toLowerCase();
 		const list = profiles.filter((profile) => {
 			if (query) {
@@ -95,34 +92,6 @@
 			}
 		} finally {
 			delete actionLoading[profileId];
-			actionLoading = { ...actionLoading };
-		}
-	}
-
-	async function handleBuildTools() {
-		if (!buildVersion.trim()) {
-			buildError = 'Version is required';
-			return;
-		}
-		buildError = '';
-
-		actionLoading.buildtools = true;
-		try {
-			const res = await fetch('/api/host/profiles/buildtools', {
-				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ group: buildGroup, version: buildVersion.trim() })
-			});
-
-			if (!res.ok) {
-				const error = await res.json().catch(() => ({ error: 'Failed to run BuildTools' }));
-				buildError = error.error || 'Failed to run BuildTools';
-			} else {
-				buildVersion = '';
-				await invalidateAll();
-			}
-		} finally {
-			delete actionLoading.buildtools;
 			actionLoading = { ...actionLoading };
 		}
 	}
@@ -208,26 +177,8 @@
 
 		<div class="buildtools-card">
 			<h2>BuildTools</h2>
-			<p>Compile Spigot or CraftBukkit jars directly on the host.</p>
-			<div class="buildtools-form">
-				<label>
-					Group
-					<select bind:value={buildGroup}>
-						<option value="spigot">Spigot</option>
-						<option value="craftbukkit">CraftBukkit</option>
-					</select>
-				</label>
-				<label>
-					Version
-					<input type="text" bind:value={buildVersion} placeholder="1.20.4" />
-				</label>
-				<button class="btn-primary" onclick={handleBuildTools} disabled={actionLoading.buildtools}>
-					{actionLoading.buildtools ? 'Building...' : 'Run BuildTools'}
-				</button>
-			</div>
-			{#if buildError}
-				<p class="error">{buildError}</p>
-			{/if}
+			<p>Compile Spigot or CraftBukkit jars with live terminal output.</p>
+			<a class="btn-primary" href="/profiles/buildtools">Open BuildTools Console</a>
 		</div>
 	</aside>
 
@@ -437,11 +388,6 @@
 		color: #eef0f8;
 	}
 
-	.buildtools-form {
-		display: flex;
-		flex-direction: column;
-		gap: 12px;
-	}
 
 	.btn-primary {
 		background: var(--mc-grass);
@@ -452,6 +398,10 @@
 		font-size: 14px;
 		font-weight: 600;
 		cursor: pointer;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		text-decoration: none;
 	}
 
 	.btn-primary:disabled {

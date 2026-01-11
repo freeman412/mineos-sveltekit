@@ -242,14 +242,17 @@
 					<a href="/servers/{server.name}" class="server-item">
 						<div class="server-info">
 							<div class="server-name">{server.name}</div>
-							<div class="server-meta">
-								{#if server.profile}
-									<span class="profile-badge">{server.profile}</span>
-								{/if}
-								{#if server.port}
-									<span class="port-badge">:{server.port}</span>
-								{/if}
-							</div>
+						<div class="server-meta">
+							{#if server.profile}
+								<span class="profile-badge">{server.profile}</span>
+							{/if}
+							{#if server.port}
+								<span class="port-badge">:{server.port}</span>
+							{/if}
+							{#if server.needsRestart}
+								<span class="restart-badge">Restart required</span>
+							{/if}
+						</div>
 						</div>
 						<div class="server-status">
 							{#if server.up}
@@ -532,6 +535,15 @@
 		font-size: 12px;
 		color: #9aa2c5;
 		font-family: 'Courier New', monospace;
+	}
+
+	.restart-badge {
+		font-size: 11px;
+		color: #f4c08e;
+		background: rgba(255, 200, 87, 0.15);
+		padding: 2px 6px;
+		border-radius: 6px;
+		border: 1px solid rgba(255, 200, 87, 0.3);
 	}
 
 	.server-status {

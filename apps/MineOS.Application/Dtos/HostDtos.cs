@@ -11,7 +11,8 @@ public record ServerSummaryDto(
     int? Port,
     int? PlayersOnline,
     int? PlayersMax,
-    long? MemoryBytes);
+    long? MemoryBytes,
+    bool NeedsRestart);
 
 public record ProfileDto(
     string Id,
@@ -23,6 +24,26 @@ public record ProfileDto(
     string Filename,
     bool Downloaded,
     object? Progress);
+
+public record BuildToolsRunDto(
+    string RunId,
+    string ProfileId,
+    string Group,
+    string Version,
+    string Status,
+    DateTimeOffset StartedAt,
+    DateTimeOffset? CompletedAt,
+    string? Error);
+
+public record BuildToolsLogEntryDto(
+    DateTimeOffset Timestamp,
+    string Message,
+    string Status);
+
+public record AdminShellStatusDto(
+    string Status,
+    string SessionName,
+    string LogPath);
 
 public record ArchiveEntryDto(DateTimeOffset Time, long Size, string Filename);
 

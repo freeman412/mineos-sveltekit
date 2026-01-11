@@ -91,6 +91,7 @@ public sealed class HostService : IHostService
             var up = processInfo?.JavaPid != null || processInfo?.ScreenPid != null;
             PingInfoDto? ping = null;
             long? memoryBytes = null;
+            var needsRestart = File.Exists(Path.Combine(dir, ".mineos-restart-required"));
 
             if (up)
             {
@@ -112,7 +113,8 @@ public sealed class HostService : IHostService
                 Port: port,
                 PlayersOnline: playersOnline,
                 PlayersMax: playersMax,
-                MemoryBytes: memoryBytes));
+                MemoryBytes: memoryBytes,
+                NeedsRestart: needsRestart));
         }
 
         return results;

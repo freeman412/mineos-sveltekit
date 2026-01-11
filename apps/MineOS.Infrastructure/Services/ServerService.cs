@@ -12,6 +12,7 @@ namespace MineOS.Infrastructure.Services;
 
 public class ServerService : IServerService
 {
+    private const string RestartFlagFile = ".mineos-restart-required";
     private readonly IProcessManager _processManager;
     private readonly HostOptions _options;
     private readonly ILogger<ServerService> _logger;
@@ -41,6 +42,9 @@ public class ServerService : IServerService
     private string GetConfigPath(string name) =>
         Path.Combine(GetServerPath(name), "server.config");
 
+    private string GetRestartFlagPath(string name) =>
+        Path.Combine(GetServerPath(name), RestartFlagFile);
+
     public async Task<ServerDetailDto> GetServerAsync(string name, CancellationToken cancellationToken)
     {
         var serverPath = GetServerPath(name);
@@ -56,6 +60,8 @@ public class ServerService : IServerService
         var config = await GetServerConfigAsync(name, cancellationToken);
 
         var status = processInfo?.JavaPid != null ? "running" : "stopped";
+        var eulaAccepted = IsEulaAccepted(serverPath);
+        var needsRestart = File.Exists(GetRestartFlagPath(name));
 
         // Get owner info from directory
         // On Linux, we'd use syscalls or a library to get uid/gid
@@ -75,7 +81,9 @@ public class ServerService : IServerService
             status,
             processInfo?.JavaPid,
             processInfo?.ScreenPid,
-            config
+            config,
+            eulaAccepted,
+            needsRestart
         );
     }
 
@@ -130,8 +138,8 @@ public class ServerService : IServerService
             ["java"] = new()
             {
                 ["java_binary"] = "",
-                ["java_xmx"] = "256",
-                ["java_xms"] = "256"
+                ["java_xmx"] = "4096",
+                ["java_xms"] = "4096"
             },
             ["onreboot"] = new()
             {
@@ -140,6 +148,10 @@ public class ServerService : IServerService
         };
 
         await File.WriteAllTextAsync(configPath, IniParser.WriteWithSections(defaultConfig), cancellationToken);
+
+        TrySetOwnership(serverPath, _options.RunAsUid, _options.RunAsGid);
+        TrySetOwnership(backupPath, _options.RunAsUid, _options.RunAsGid);
+        TrySetOwnership(archivePath, _options.RunAsUid, _options.RunAsGid);
 
         _logger.LogInformation("Created server {ServerName} at {ServerPath}", request.Name, serverPath);
 
@@ -274,9 +286,8 @@ public class ServerService : IServerService
             javaArgs.Add("nogui");
         }
 
-        // TODO: Get actual owner uid/gid
-        var uid = 1000;
-        var gid = 1000;
+        var uid = _options.RunAsUid;
+        var gid = _options.RunAsGid;
 
         var startTime = DateTimeOffset.UtcNow;
         var startupStamp = $"[{startTime:O}] Launching {name}";
@@ -303,6 +314,7 @@ public class ServerService : IServerService
         await _processManager.StartScreenSessionAsync(name, args.ToArray(), uid, gid, serverPath, cancellationToken);
 
         await VerifyServerStartedAsync(name, serverPath, startTime, startupLogPath, cancellationToken);
+        ClearRestartRequired(name);
         _logger.LogInformation("Started server {ServerName}", name);
     }
 
@@ -314,9 +326,8 @@ public class ServerService : IServerService
             throw new InvalidOperationException($"Server '{name}' is not running");
         }
 
-        // TODO: Get actual owner uid/gid
-        var uid = 1000;
-        var gid = 1000;
+        var uid = _options.RunAsUid;
+        var gid = _options.RunAsGid;
 
         // Send stop command
         await _processManager.SendCommandAsync(name, "stop", uid, gid, cancellationToken);
@@ -403,7 +414,7 @@ public class ServerService : IServerService
         {
             // Return defaults
             return new ServerConfigDto(
-                new JavaConfigDto("", 256, 256, null, null, null),
+                new JavaConfigDto("", 4096, 4096, null, null, null),
                 new MinecraftConfigDto(null, false),
                 new OnRebootConfigDto(false)
             );
@@ -418,8 +429,8 @@ public class ServerService : IServerService
 
         var java = new JavaConfigDto(
             javaSection.GetValueOrDefault("java_binary", ""),
-            int.TryParse(javaSection.GetValueOrDefault("java_xmx", "256"), out var xmx) ? xmx : 256,
-            int.TryParse(javaSection.GetValueOrDefault("java_xms", "256"), out var xms) ? xms : 256,
+            int.TryParse(javaSection.GetValueOrDefault("java_xmx", "4096"), out var xmx) ? xmx : 4096,
+            int.TryParse(javaSection.GetValueOrDefault("java_xms", "4096"), out var xms) ? xms : 4096,
             javaSection.GetValueOrDefault("java_tweaks", null),
             javaSection.GetValueOrDefault("jarfile", null),
             javaSection.GetValueOrDefault("jar_args", null)
@@ -439,6 +450,7 @@ public class ServerService : IServerService
 
     public async Task UpdateServerConfigAsync(string name, ServerConfigDto config, CancellationToken cancellationToken)
     {
+        var existing = await GetServerConfigAsync(name, cancellationToken);
         var sections = new Dictionary<string, Dictionary<string, string>>
         {
             ["java"] = new()
@@ -464,6 +476,13 @@ public class ServerService : IServerService
         var content = IniParser.WriteWithSections(sections);
         var configPath = GetConfigPath(name);
         await File.WriteAllTextAsync(configPath, content, cancellationToken);
+
+        var jarChanged = !string.Equals(existing.Java.JarFile ?? string.Empty, config.Java.JarFile ?? string.Empty, StringComparison.OrdinalIgnoreCase);
+        var profileChanged = !string.Equals(existing.Minecraft.Profile ?? string.Empty, config.Minecraft.Profile ?? string.Empty, StringComparison.OrdinalIgnoreCase);
+        if (jarChanged || profileChanged)
+        {
+            MarkRestartRequired(name);
+        }
 
         _logger.LogInformation("Updated server.config for {ServerName}", name);
     }
@@ -575,6 +594,88 @@ public class ServerService : IServerService
         if (eulaLine == null || !eulaLine.Trim().Equals("eula=true", StringComparison.OrdinalIgnoreCase))
         {
             throw new InvalidOperationException("EULA has not been accepted yet. Call /servers/{name}/eula first.");
+        }
+    }
+
+    private static bool IsEulaAccepted(string serverPath)
+    {
+        var eulaPath = Path.Combine(serverPath, "eula.txt");
+        if (!File.Exists(eulaPath))
+        {
+            return false;
+        }
+
+        var lines = File.ReadAllLines(eulaPath);
+        var eulaLine = lines.FirstOrDefault(line => line.TrimStart().StartsWith("eula=", StringComparison.OrdinalIgnoreCase));
+        return eulaLine != null && eulaLine.Trim().Equals("eula=true", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private void MarkRestartRequired(string name)
+    {
+        var flagPath = GetRestartFlagPath(name);
+        try
+        {
+            File.WriteAllText(flagPath, DateTimeOffset.UtcNow.ToString("O"));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to mark restart required for {ServerName}", name);
+        }
+    }
+
+    private void ClearRestartRequired(string name)
+    {
+        var flagPath = GetRestartFlagPath(name);
+        if (File.Exists(flagPath))
+        {
+            try
+            {
+                File.Delete(flagPath);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to clear restart flag for {ServerName}", name);
+            }
+        }
+    }
+
+    private void TrySetOwnership(string path, int uid, int gid)
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
+        var chownPath = "/bin/chown";
+        if (!File.Exists(chownPath))
+        {
+            chownPath = "/usr/bin/chown";
+        }
+
+        if (!File.Exists(chownPath))
+        {
+            _logger.LogWarning("chown not available; skipping ownership set for {Path}", path);
+            return;
+        }
+
+        try
+        {
+            var psi = new ProcessStartInfo
+            {
+                FileName = chownPath,
+                Arguments = $"-R {uid}:{gid} \"{path}\"",
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true
+            };
+
+            using var process = Process.Start(psi);
+            process?.WaitForExit();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to set ownership for {Path}", path);
         }
     }
 

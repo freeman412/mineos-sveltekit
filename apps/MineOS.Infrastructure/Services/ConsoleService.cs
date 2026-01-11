@@ -34,8 +34,12 @@ public sealed class ConsoleService : IConsoleService
 
     public async Task SendCommandAsync(string serverName, string command, CancellationToken cancellationToken)
     {
-        // TODO: Get UID/GID from server ownership
-        await _processManager.SendCommandAsync(serverName, command, 1000, 1000, cancellationToken);
+        await _processManager.SendCommandAsync(
+            serverName,
+            command,
+            _hostOptions.RunAsUid,
+            _hostOptions.RunAsGid,
+            cancellationToken);
         _logger.LogInformation("Sent command '{Command}' to server {ServerName}", command, serverName);
     }
 

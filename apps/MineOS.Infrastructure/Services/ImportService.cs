@@ -24,6 +24,37 @@ public sealed class ImportService : IImportService
     private string GetServersPath() =>
         Path.Combine(_options.BaseDirectory, _options.ServersPathSegment);
 
+    public async Task<string> SaveImportAsync(string filename, Stream content, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(filename))
+        {
+            throw new ArgumentException("Filename is required");
+        }
+
+        var safeName = Path.GetFileName(filename);
+        if (!string.Equals(safeName, filename, StringComparison.Ordinal))
+        {
+            throw new ArgumentException("Invalid filename");
+        }
+
+        if (!safeName.EndsWith(".zip", StringComparison.OrdinalIgnoreCase) &&
+            !safeName.EndsWith(".tar.gz", StringComparison.OrdinalIgnoreCase) &&
+            !safeName.EndsWith(".tgz", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new ArgumentException("Only .zip, .tar.gz, or .tgz files are supported");
+        }
+
+        var importPath = GetImportPath();
+        Directory.CreateDirectory(importPath);
+
+        var targetPath = Path.Combine(importPath, safeName);
+        await using var target = new FileStream(targetPath, FileMode.Create, FileAccess.Write, FileShare.None);
+        await content.CopyToAsync(target, cancellationToken);
+
+        _logger.LogInformation("Uploaded import archive {Filename}", safeName);
+        return targetPath;
+    }
+
     public async Task<string> CreateServerFromImportAsync(string filename, string serverName, CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(serverName))

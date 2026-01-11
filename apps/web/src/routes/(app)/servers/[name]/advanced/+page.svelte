@@ -9,8 +9,8 @@
 		data.config.data || {
 			java: {
 				javaBinary: '',
-				javaXmx: 256,
-				javaXms: 256,
+				javaXmx: 4096,
+				javaXms: 4096,
 				javaTweaks: null,
 				jarFile: null,
 				jarArgs: null

@@ -408,6 +408,26 @@
 		font-family: 'Courier New', monospace;
 		font-size: 0.9rem;
 		resize: none;
+		scrollbar-width: thin;
+		scrollbar-color: rgba(106, 176, 76, 0.6) transparent;
+	}
+
+	.file-content::-webkit-scrollbar {
+		width: 8px;
+		height: 8px;
+	}
+
+	.file-content::-webkit-scrollbar-track {
+		background: transparent;
+	}
+
+	.file-content::-webkit-scrollbar-thumb {
+		background: rgba(106, 176, 76, 0.35);
+		border-radius: 999px;
+	}
+
+	.file-content::-webkit-scrollbar-thumb:hover {
+		background: rgba(106, 176, 76, 0.6);
 	}
 
 	.file-content.editable {
