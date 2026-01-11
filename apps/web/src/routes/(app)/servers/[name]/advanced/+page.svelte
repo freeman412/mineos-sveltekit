@@ -64,8 +64,18 @@
 								type="text"
 								id="java-binary"
 								bind:value={config.java.javaBinary}
-								placeholder="/usr/bin/java"
+								placeholder="java (default)"
+								list="java-binary-options"
 							/>
+							<datalist id="java-binary-options">
+								<option value="java"></option>
+								<option value="/usr/lib/jvm/temurin-8-jre/bin/java"></option>
+								<option value="/usr/lib/jvm/java-17-openjdk-amd64/bin/java"></option>
+								<option value="/usr/lib/jvm/temurin-21-jre/bin/java"></option>
+							</datalist>
+							<p class="field-hint">
+								Use <code>java</code> for the default runtime or set a full path to target Java 8/17/21.
+							</p>
 						</div>
 
 						<div class="form-field">

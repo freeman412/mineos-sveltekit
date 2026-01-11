@@ -29,6 +29,9 @@ public sealed class ConsoleService : IConsoleService
     private string GetLogPath(string serverName) =>
         Path.Combine(GetServerPath(serverName), "logs", "latest.log");
 
+    private string GetStartupLogPath(string serverName) =>
+        Path.Combine(GetServerPath(serverName), "logs", "startup.log");
+
     public async Task SendCommandAsync(string serverName, string command, CancellationToken cancellationToken)
     {
         // TODO: Get UID/GID from server ownership
@@ -38,40 +41,246 @@ public sealed class ConsoleService : IConsoleService
 
     public async IAsyncEnumerable<LogEntryDto> StreamLogsAsync(
         string serverName,
+        ConsoleLogSource source,
         [EnumeratorCancellation] CancellationToken cancellationToken)
     {
         var logPath = GetLogPath(serverName);
+        var startupLogPath = GetStartupLogPath(serverName);
 
-        // If log file doesn't exist yet, wait for it
-        while (!File.Exists(logPath) && !cancellationToken.IsCancellationRequested)
+        if (source == ConsoleLogSource.Server)
         {
-            await Task.Delay(1000, cancellationToken);
-        }
+            await foreach (var entry in StreamSingleLogAsync(
+                               logPath,
+                               "Waiting for server logs (latest.log not found yet). Start the server to create logs.",
+                               null,
+                               cancellationToken))
+            {
+                yield return entry;
+            }
 
-        if (!File.Exists(logPath))
-        {
             yield break;
         }
 
-        using var fileStream = new FileStream(logPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
-        using var reader = new StreamReader(fileStream);
+        if (source == ConsoleLogSource.Java)
+        {
+            await foreach (var entry in StreamSingleLogAsync(
+                               startupLogPath,
+                               "Waiting for Java logs (startup.log not found yet). Start the server to create logs.",
+                               null,
+                               cancellationToken))
+            {
+                yield return entry;
+            }
 
-        // Seek to end to only get new lines
-        reader.BaseStream.Seek(0, SeekOrigin.End);
+            yield break;
+        }
+
+        var waitingNotified = false;
+        FileStream? startupStream = null;
+        StreamReader? startupReader = null;
+        FileStream? serverStream = null;
+        StreamReader? serverReader = null;
+
+        try
+        {
+            while (!cancellationToken.IsCancellationRequested)
+            {
+                if (startupReader == null && File.Exists(startupLogPath))
+                {
+                    foreach (var line in ReadLogTail(startupLogPath, 200))
+                    {
+                        yield return new LogEntryDto(DateTimeOffset.UtcNow, FormatLogLine("java", line));
+                    }
+
+                    startupStream = new FileStream(startupLogPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+                    startupReader = new StreamReader(startupStream);
+                    startupReader.BaseStream.Seek(0, SeekOrigin.End);
+                }
+
+                if (serverReader == null && File.Exists(logPath))
+                {
+                    foreach (var line in ReadLogTail(logPath, 200))
+                    {
+                        yield return new LogEntryDto(DateTimeOffset.UtcNow, FormatLogLine("server", line));
+                    }
+
+                    serverStream = new FileStream(logPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+                    serverReader = new StreamReader(serverStream);
+                    serverReader.BaseStream.Seek(0, SeekOrigin.End);
+                }
+
+                if (startupReader == null && serverReader == null)
+                {
+                    if (!waitingNotified)
+                    {
+                        waitingNotified = true;
+                        yield return new LogEntryDto(
+                            DateTimeOffset.UtcNow,
+                            "Waiting for server logs (startup.log/latest.log not found yet). Start the server to create logs.");
+                    }
+
+                    await Task.Delay(1000, cancellationToken);
+                    continue;
+                }
+
+                var hadLine = false;
+
+                if (startupReader != null)
+                {
+                    var line = await TryReadLineAsync(startupReader, cancellationToken);
+                    if (line != null)
+                    {
+                        hadLine = true;
+                        yield return new LogEntryDto(DateTimeOffset.UtcNow, FormatLogLine("java", line));
+                    }
+                }
+
+                if (serverReader != null)
+                {
+                    var line = await TryReadLineAsync(serverReader, cancellationToken);
+                    if (line != null)
+                    {
+                        hadLine = true;
+                        yield return new LogEntryDto(DateTimeOffset.UtcNow, FormatLogLine("server", line));
+                    }
+                }
+
+                if (!hadLine)
+                {
+                    await Task.Delay(100, cancellationToken);
+                }
+            }
+        }
+        finally
+        {
+            startupReader?.Dispose();
+            startupStream?.Dispose();
+            serverReader?.Dispose();
+            serverStream?.Dispose();
+        }
+    }
+
+    private async IAsyncEnumerable<LogEntryDto> StreamSingleLogAsync(
+        string logPath,
+        string waitingMessage,
+        string? prefix,
+        [EnumeratorCancellation] CancellationToken cancellationToken)
+    {
+        var waitingNotified = false;
 
         while (!cancellationToken.IsCancellationRequested)
         {
-            var line = await reader.ReadLineAsync(cancellationToken);
+            if (!File.Exists(logPath))
+            {
+                if (!waitingNotified)
+                {
+                    waitingNotified = true;
+                    yield return new LogEntryDto(DateTimeOffset.UtcNow, waitingMessage);
+                }
 
-            if (line != null)
-            {
-                yield return new LogEntryDto(DateTimeOffset.UtcNow, line);
+                await Task.Delay(1000, cancellationToken);
+                continue;
             }
-            else
+
+            foreach (var line in ReadLogTail(logPath, 200))
             {
-                // No new data, wait before checking again
-                await Task.Delay(100, cancellationToken);
+                yield return new LogEntryDto(DateTimeOffset.UtcNow, FormatLogLine(prefix, line));
             }
+
+            FileStream? stream = null;
+            StreamReader? reader = null;
+
+            try
+            {
+                stream = new FileStream(logPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+                reader = new StreamReader(stream);
+                reader.BaseStream.Seek(0, SeekOrigin.End);
+            }
+            catch (IOException)
+            {
+                // Log file might rotate; loop will retry.
+                stream?.Dispose();
+                reader?.Dispose();
+                waitingNotified = false;
+                continue;
+            }
+            catch (UnauthorizedAccessException)
+            {
+                // Log file may be temporarily locked; loop will retry.
+                stream?.Dispose();
+                reader?.Dispose();
+                waitingNotified = false;
+                continue;
+            }
+
+            try
+            {
+                while (!cancellationToken.IsCancellationRequested)
+                {
+                    var line = await TryReadLineAsync(reader, cancellationToken);
+                    if (line != null)
+                    {
+                        yield return new LogEntryDto(DateTimeOffset.UtcNow, FormatLogLine(prefix, line));
+                        continue;
+                    }
+
+                    if (!File.Exists(logPath))
+                    {
+                        break;
+                    }
+
+                    await Task.Delay(100, cancellationToken);
+                }
+            }
+            finally
+            {
+                reader?.Dispose();
+                stream?.Dispose();
+            }
+
+            waitingNotified = false;
+        }
+    }
+
+    private static string FormatLogLine(string? prefix, string line)
+    {
+        if (string.IsNullOrWhiteSpace(prefix))
+        {
+            return line;
+        }
+
+        return $"[{prefix}] {line}";
+    }
+
+    private static async Task<string?> TryReadLineAsync(StreamReader reader, CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await reader.ReadLineAsync(cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+            return null;
+        }
+        catch (IOException)
+        {
+            return null;
+        }
+        catch (ObjectDisposedException)
+        {
+            return null;
+        }
+    }
+
+    private static IEnumerable<string> ReadLogTail(string path, int maxLines)
+    {
+        try
+        {
+            return File.ReadLines(path).Reverse().Take(maxLines).Reverse().ToList();
+        }
+        catch
+        {
+            return Array.Empty<string>();
         }
     }
 }

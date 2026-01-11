@@ -30,6 +30,9 @@ dotnet watch --project apps/MineOS.Api run
 
 The API listens on `http://localhost:5078` (forwarded from the container).
 
+Minecraft servers started inside the API container are reachable on `localhost:25565-25568`
+(TCP/UDP). If you need a different range, update `.devcontainer/docker-compose.yml`.
+
 ## Run the frontend
 
 In the web container terminal:
@@ -60,9 +63,12 @@ The API container includes the following Minecraft server management dependencie
 - **screen**: For managing server processes
 - **rsync**: For file synchronization (used in Phase 4 profiles)
 - **openjdk-17-jre-headless**: Default Java runtime
+- **temurin-21-jre**: Modern Java runtime (Paper 1.21+)
 - **temurin-8-jre**: Legacy Java 8 support
 
 ## Tips
 
 - Need a shell in the other service? Use `Dev Containers: Attach to Running Container...`
 - If port 5173 or 5078 is in use, update `.devcontainer/docker-compose.yml` and re-open.
+- To target a specific runtime, set `java_binary` in the server config (or the Advanced page) to a full path
+  like `/usr/lib/jvm/temurin-21-jre/bin/java` or `/usr/lib/jvm/temurin-8-jre/bin/java`.

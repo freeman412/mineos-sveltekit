@@ -13,6 +13,14 @@ services:
       DOTNET_USE_POLLING_FILE_WATCHER: "1"
     ports:
       - "5078:5078"
+      - "25565:25565"
+      - "25565:25565/udp"
+      - "25566:25566"
+      - "25566:25566/udp"
+      - "25567:25567"
+      - "25567:25567/udp"
+      - "25568:25568"
+      - "25568:25568/udp"
     command: sleep infinity
 
   web:

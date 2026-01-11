@@ -13,8 +13,11 @@ public partial class ProcessManager : IProcessManager
     [GeneratedRegex(@"screen[^S]+S mc-([^\s]+)", RegexOptions.IgnoreCase)]
     private static partial Regex ScreenRegex();
 
-    [GeneratedRegex(@"\.mc-([^\s]+)", RegexOptions.IgnoreCase)]
+    [GeneratedRegex(@"-Dmineos\.server=([^\s]+)", RegexOptions.IgnoreCase)]
     private static partial Regex JavaRegex();
+
+    [GeneratedRegex(@"MINEOS_SERVER=([^\s]+)", RegexOptions.IgnoreCase)]
+    private static partial Regex EnvServerRegex();
 
     public ProcessManager(ILogger<ProcessManager> _logger)
     {
@@ -58,16 +61,28 @@ public partial class ProcessManager : IProcessManager
                     continue;
                 }
 
-                // Check for Java process with mc- environment variable
+                // Check for Java process with MineOS identifier in cmdline
+                var javaMatch = JavaRegex().Match(cmdline);
+                if (javaMatch.Success)
+                {
+                    var serverName = javaMatch.Groups[1].Value;
+                    if (!servers.ContainsKey(serverName))
+                        servers[serverName] = new ServerProcessInfo(null, null);
+
+                    servers[serverName] = servers[serverName] with { JavaPid = int.Parse(pidStr) };
+                    continue;
+                }
+
+                // Check for environment variable identifier
                 var environPath = Path.Combine(PROC_PATH, pidStr, "environ");
                 if (!File.Exists(environPath))
                     continue;
 
                 var environ = File.ReadAllText(environPath).Replace("\0", " ");
-                var javaMatch = JavaRegex().Match(environ);
-                if (javaMatch.Success)
+                var envMatch = EnvServerRegex().Match(environ);
+                if (envMatch.Success)
                 {
-                    var serverName = javaMatch.Groups[1].Value;
+                    var serverName = envMatch.Groups[1].Value;
                     if (!servers.ContainsKey(serverName))
                         servers[serverName] = new ServerProcessInfo(null, null);
 
@@ -115,16 +130,30 @@ public partial class ProcessManager : IProcessManager
 
         _logger.LogInformation("Starting screen session for {ServerName} as uid={Uid} gid={Gid}",
             serverName, uid, gid);
-        _logger.LogDebug("Command: screen {Args}", string.Join(" ", args));
+        _logger.LogInformation("screen command args: {Args}", string.Join(" ", args));
 
         var process = new Process { StartInfo = startInfo };
-        process.Start();
+        try
+        {
+            process.Start();
+        }
+        catch (System.ComponentModel.Win32Exception ex)
+        {
+            throw new InvalidOperationException("Failed to start screen: 'screen' is not available on PATH.", ex);
+        }
 
         await process.WaitForExitAsync(cancellationToken);
 
         if (process.ExitCode != 0)
         {
             var error = await process.StandardError.ReadToEndAsync(cancellationToken);
+            var output = await process.StandardOutput.ReadToEndAsync(cancellationToken);
+            _logger.LogWarning(
+                "screen exited with code {ExitCode} for {ServerName}. stdout={Stdout} stderr={Stderr}",
+                process.ExitCode,
+                serverName,
+                output,
+                error);
             throw new InvalidOperationException($"Failed to start screen session: {error}");
         }
 

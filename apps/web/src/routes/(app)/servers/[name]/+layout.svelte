@@ -8,7 +8,6 @@
 		{ href: `/servers/${data.server?.name}`, label: 'Dashboard', exact: true },
 		{ href: `/servers/${data.server?.name}/config`, label: 'Properties' },
 		{ href: `/servers/${data.server?.name}/advanced`, label: 'Config' },
-		{ href: `/servers/${data.server?.name}/console`, label: 'Console' },
 		{ href: `/servers/${data.server?.name}/backups`, label: 'Backups' },
 		{ href: `/servers/${data.server?.name}/archives`, label: 'Archives' },
 		{ href: `/servers/${data.server?.name}/files`, label: 'Files' },

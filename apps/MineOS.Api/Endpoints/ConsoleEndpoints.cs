@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Microsoft.AspNetCore.Mvc;
+using MineOS.Application.Dtos;
 using MineOS.Application.Interfaces;
 
 namespace MineOS.Api.Endpoints;
@@ -35,6 +36,7 @@ public static class ConsoleEndpoints
         servers.MapGet("/{name}/console/stream", async (
             HttpContext context,
             string name,
+            [FromQuery] string? source,
             IConsoleService consoleService,
             CancellationToken cancellationToken) =>
         {
@@ -44,15 +46,40 @@ public static class ConsoleEndpoints
 
             await context.Response.StartAsync(cancellationToken);
 
-            await foreach (var log in consoleService.StreamLogsAsync(name, cancellationToken))
+            try
             {
-                var json = JsonSerializer.Serialize(log, JsonOptions);
-                await context.Response.WriteAsync($"data: {json}\n\n", cancellationToken);
-                await context.Response.Body.FlushAsync(cancellationToken);
+                var logSource = ParseLogSource(source);
+                await foreach (var log in consoleService.StreamLogsAsync(name, logSource, cancellationToken))
+                {
+                    var json = JsonSerializer.Serialize(log, JsonOptions);
+                    await context.Response.WriteAsync($"data: {json}\n\n", cancellationToken);
+                    await context.Response.Body.FlushAsync(cancellationToken);
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                // Client disconnected or request aborted.
             }
         });
 
         return servers;
+    }
+
+    private static ConsoleLogSource ParseLogSource(string? source)
+    {
+        if (string.IsNullOrWhiteSpace(source))
+        {
+            return ConsoleLogSource.Combined;
+        }
+
+        return source.Trim().ToLowerInvariant() switch
+        {
+            "java" => ConsoleLogSource.Java,
+            "combined" => ConsoleLogSource.Combined,
+            "all" => ConsoleLogSource.Combined,
+            "server" => ConsoleLogSource.Server,
+            _ => ConsoleLogSource.Server
+        };
     }
 }
 

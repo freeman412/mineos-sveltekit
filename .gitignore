@@ -39,3 +39,4 @@ obj
 *.db-shm
 *.db-wal
 apps/MineOS.Api/data/
+.claude/settings.local.json

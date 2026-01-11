@@ -173,3 +173,18 @@ export async function updateServerConfig(
 		return { data: null, error: message };
 	}
 }
+
+export async function acceptEula(fetcher: Fetcher, name: string): Promise<ApiResult<void>> {
+	try {
+		const res = await fetcher(`/api/servers/${name}/eula`, { method: 'POST' });
+		if (!res.ok) {
+			const errorData = await res.json().catch(() => ({}));
+			const errorMsg = errorData.error || `Request failed with ${res.status}`;
+			return { data: null, error: errorMsg };
+		}
+		return { data: undefined, error: null };
+	} catch (err) {
+		const message = err instanceof Error ? err.message : 'Unknown error';
+		return { data: null, error: message };
+	}
+}

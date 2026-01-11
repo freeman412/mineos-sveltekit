@@ -12,11 +12,16 @@ public sealed class HostService : IHostService
 {
     private readonly HostOptions _options;
     private readonly ILogger<HostService> _logger;
+    private readonly IProcessManager _processManager;
 
-    public HostService(IOptions<HostOptions> options, ILogger<HostService> logger)
+    public HostService(
+        IOptions<HostOptions> options,
+        ILogger<HostService> logger,
+        IProcessManager processManager)
     {
         _options = options.Value;
         _logger = logger;
+        _processManager = processManager;
     }
 
     public Task<HostMetricsDto> GetMetricsAsync(CancellationToken cancellationToken)
@@ -79,10 +84,12 @@ public sealed class HostService : IHostService
             var maxPlayers = props.TryGetValue("max-players", out var maxValue) && int.TryParse(maxValue, out var maxInt)
                 ? maxInt
                 : (int?)null;
+            var processInfo = _processManager.GetServerProcess(name);
+            var up = processInfo?.JavaPid != null || processInfo?.ScreenPid != null;
 
             results.Add(new ServerSummaryDto(
                 Name: name,
-                Up: false,
+                Up: up,
                 Profile: null,
                 Port: port,
                 PlayersOnline: null,

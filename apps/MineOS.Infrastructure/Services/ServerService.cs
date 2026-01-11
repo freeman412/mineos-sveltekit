@@ -195,6 +195,7 @@ public class ServerService : IServerService
 
     public async Task StartServerAsync(string name, CancellationToken cancellationToken)
     {
+        _logger.LogInformation("StartServerAsync requested for {ServerName}", name);
         var isRunning = await _processManager.IsServerRunningAsync(name, cancellationToken);
         if (isRunning)
         {
@@ -212,48 +213,93 @@ public class ServerService : IServerService
         var javaBinary = string.IsNullOrEmpty(config.Java.JavaBinary) ? "java" : config.Java.JavaBinary;
         var jarFile = config.Java.JarFile;
 
+        _logger.LogInformation(
+            "Server config for {ServerName}: javaBinary={JavaBinary} jarFile={JarFile} xmx={Xmx} xms={Xms}",
+            name,
+            javaBinary,
+            jarFile ?? "<null>",
+            config.Java.JavaXmx,
+            config.Java.JavaXms);
+
         if (string.IsNullOrEmpty(jarFile))
         {
             throw new InvalidOperationException($"Server '{name}' has no JAR file configured");
         }
 
-        // Build screen command arguments
-        var args = new List<string>
+        EnsureEulaAccepted(serverPath);
+        await EnsureExecutableAvailableAsync("screen", "-v", "GNU screen", cancellationToken);
+        await EnsureExecutableAvailableAsync(javaBinary, "-version", "Java runtime", cancellationToken);
+
+        var resolvedJarPath = ResolveJarPath(serverPath, jarFile);
+        _logger.LogInformation("Resolved JAR path for {ServerName}: {JarPath}", name, resolvedJarPath);
+        if (!File.Exists(resolvedJarPath))
         {
-            "-dmS",
-            $"mc-{name}",
+            throw new InvalidOperationException($"Configured JAR file not found: {resolvedJarPath}");
+        }
+
+        var logDir = Path.Combine(serverPath, "logs");
+        Directory.CreateDirectory(logDir);
+        var startupLogPath = Path.Combine(logDir, "startup.log");
+
+        // Build Java command arguments
+        var javaArgs = new List<string>
+        {
             javaBinary,
-            "-server"
+            "-server",
+            $"-Dmineos.server={name}"
         };
 
         if (config.Java.JavaXmx > 0)
-            args.Add($"-Xmx{config.Java.JavaXmx}M");
+            javaArgs.Add($"-Xmx{config.Java.JavaXmx}M");
         if (config.Java.JavaXms > 0)
-            args.Add($"-Xms{config.Java.JavaXms}M");
+            javaArgs.Add($"-Xms{config.Java.JavaXms}M");
 
         if (!string.IsNullOrEmpty(config.Java.JavaTweaks))
         {
-            args.AddRange(config.Java.JavaTweaks.Split(' ', StringSplitOptions.RemoveEmptyEntries));
+            javaArgs.AddRange(config.Java.JavaTweaks.Split(' ', StringSplitOptions.RemoveEmptyEntries));
         }
 
-        args.Add("-jar");
-        args.Add(jarFile);
+        javaArgs.Add("-jar");
+        javaArgs.Add(resolvedJarPath);
 
         if (!string.IsNullOrEmpty(config.Java.JarArgs))
         {
-            args.AddRange(config.Java.JarArgs.Split(' ', StringSplitOptions.RemoveEmptyEntries));
+            javaArgs.AddRange(config.Java.JarArgs.Split(' ', StringSplitOptions.RemoveEmptyEntries));
         }
         else if (!config.Minecraft.Unconventional)
         {
-            args.Add("nogui");
+            javaArgs.Add("nogui");
         }
 
         // TODO: Get actual owner uid/gid
         var uid = 1000;
         var gid = 1000;
 
+        var startTime = DateTimeOffset.UtcNow;
+        var startupStamp = $"[{startTime:O}] Launching {name}";
+        var javaCommand = string.Join(" ", javaArgs.Select(EscapeBashArgument));
+        var startupLogArg = EscapeBashArgument(startupLogPath);
+        var shellCommand = $"echo {EscapeBashArgument(startupStamp)} >> {startupLogArg}; exec {javaCommand} >> {startupLogArg} 2>&1";
+
+        var args = new List<string>
+        {
+            "-dmS",
+            $"mc-{name}",
+            "bash",
+            "-lc",
+            shellCommand
+        };
+
+        _logger.LogInformation(
+            "Starting screen for {ServerName} in {WorkingDirectory}. Args: {Args}",
+            name,
+            serverPath,
+            string.Join(' ', args));
+        _logger.LogInformation("Startup log file: {StartupLogPath}", startupLogPath);
+        _logger.LogInformation("Java command: {JavaCommand}", javaCommand);
         await _processManager.StartScreenSessionAsync(name, args.ToArray(), uid, gid, serverPath, cancellationToken);
 
+        await VerifyServerStartedAsync(name, serverPath, startTime, startupLogPath, cancellationToken);
         _logger.LogInformation("Started server {ServerName}", name);
     }
 
@@ -486,5 +532,138 @@ public class ServerService : IServerService
         }
 
         _logger.LogInformation("FTB installer completed for server {ServerName}", name);
+    }
+
+    private static string ResolveJarPath(string serverPath, string jarFile)
+    {
+        var trimmed = jarFile.Trim();
+        if (Path.IsPathRooted(trimmed))
+        {
+            return trimmed;
+        }
+
+        return Path.Combine(serverPath, trimmed);
+    }
+
+    private static void EnsureEulaAccepted(string serverPath)
+    {
+        var eulaPath = Path.Combine(serverPath, "eula.txt");
+        if (!File.Exists(eulaPath))
+        {
+            throw new InvalidOperationException("EULA has not been accepted yet. Call /servers/{name}/eula first.");
+        }
+
+        var lines = File.ReadAllLines(eulaPath);
+        var eulaLine = lines.FirstOrDefault(line => line.TrimStart().StartsWith("eula=", StringComparison.OrdinalIgnoreCase));
+        if (eulaLine == null || !eulaLine.Trim().Equals("eula=true", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException("EULA has not been accepted yet. Call /servers/{name}/eula first.");
+        }
+    }
+
+    private async Task EnsureExecutableAvailableAsync(
+        string executable,
+        string args,
+        string friendlyName,
+        CancellationToken cancellationToken)
+    {
+        _logger.LogInformation("Checking {FriendlyName} availability via {Executable} {Args}", friendlyName, executable, args);
+        try
+        {
+            var startInfo = new ProcessStartInfo
+            {
+                FileName = executable,
+                Arguments = args,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true
+            };
+
+            using var process = new Process { StartInfo = startInfo };
+            process.Start();
+            await process.WaitForExitAsync(cancellationToken);
+
+            if (process.ExitCode != 0)
+            {
+                var error = await process.StandardError.ReadToEndAsync(cancellationToken);
+                _logger.LogWarning("{FriendlyName} check failed: exitCode={ExitCode} error={Error}", friendlyName, process.ExitCode, error);
+                throw new InvalidOperationException($"{friendlyName} check failed: {error}");
+            }
+        }
+        catch (System.ComponentModel.Win32Exception ex)
+        {
+            throw new InvalidOperationException($"{friendlyName} is not available on PATH.", ex);
+        }
+    }
+
+    private async Task VerifyServerStartedAsync(
+        string name,
+        string serverPath,
+        DateTimeOffset startTime,
+        string startupLogPath,
+        CancellationToken cancellationToken)
+    {
+        var logPath = Path.Combine(serverPath, "logs", "latest.log");
+        var timeout = TimeSpan.FromSeconds(10);
+        var started = DateTimeOffset.UtcNow;
+
+        while (DateTimeOffset.UtcNow - started < timeout)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            var processInfo = _processManager.GetServerProcess(name);
+            if (processInfo?.ScreenPid != null || processInfo?.JavaPid != null)
+            {
+                _logger.LogInformation(
+                    "Detected running process for {ServerName}: screenPid={ScreenPid} javaPid={JavaPid}",
+                    name,
+                    processInfo?.ScreenPid,
+                    processInfo?.JavaPid);
+                return;
+            }
+
+            if (File.Exists(logPath))
+            {
+                var logInfo = new FileInfo(logPath);
+                if (logInfo.LastWriteTimeUtc >= startTime.UtcDateTime)
+                {
+                    _logger.LogInformation("Detected log output for {ServerName} at {LogPath}", name, logPath);
+                    return;
+                }
+            }
+
+            await Task.Delay(250, cancellationToken);
+        }
+
+        _logger.LogWarning("Start verification timed out for {ServerName}. Log exists: {HasLog}", name, File.Exists(logPath));
+        var latestLog = File.Exists(logPath) ? ReadLogTail(logPath, 20) : "No latest.log output found.";
+        var startupLog = File.Exists(startupLogPath) ? ReadLogTail(startupLogPath, 40) : "No startup.log output found.";
+        throw new InvalidOperationException($"Server '{name}' did not start. {latestLog} {startupLog}");
+    }
+
+    private static string ReadLogTail(string logPath, int maxLines)
+    {
+        try
+        {
+            var lines = File.ReadLines(logPath).Reverse().Take(maxLines).Reverse().ToList();
+            return lines.Count > 0
+                ? $"Last log lines: {string.Join(" | ", lines)}"
+                : "Log file is empty.";
+        }
+        catch (Exception ex)
+        {
+            return $"Failed to read log output: {ex.Message}";
+        }
+    }
+
+    private static string EscapeBashArgument(string value)
+    {
+        if (string.IsNullOrEmpty(value))
+        {
+            return "''";
+        }
+
+        return "'" + value.Replace("'", "'\"'\"'") + "'";
     }
 }

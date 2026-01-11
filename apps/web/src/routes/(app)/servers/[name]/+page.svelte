@@ -1,5 +1,9 @@
 <script lang="ts">
+	import { onMount } from 'svelte';
 	import { invalidateAll } from '$app/navigation';
+	import { Terminal } from '@xterm/xterm';
+	import { FitAddon } from '@xterm/addon-fit';
+	import '@xterm/xterm/css/xterm.css';
 	import * as api from '$lib/api/client';
 	import type { PageData } from './$types';
 	import type { LayoutData } from './$types';
@@ -7,6 +11,12 @@
 	let { data }: { data: PageData & { server: LayoutData['server'] } } = $props();
 
 	let actionLoading = $state(false);
+	let terminalContainer: HTMLDivElement;
+	let terminal: Terminal | null = $state(null);
+	let fitAddon: FitAddon | null = null;
+	let eventSource: EventSource | null = null;
+	let command = $state('');
+	let sending = $state(false);
 
 	async function handleAction(action: 'start' | 'stop' | 'restart' | 'kill') {
 		if (!data.server) return;
@@ -40,6 +50,22 @@
 		}
 	}
 
+	async function handleAcceptEula() {
+		if (!data.server) return;
+
+		actionLoading = true;
+		try {
+			const result = await api.acceptEula(fetch, data.server.name);
+			if (result.error) {
+				alert(`Failed to accept EULA: ${result.error}`);
+			} else {
+				alert('EULA accepted successfully! You can now start the server.');
+			}
+		} finally {
+			actionLoading = false;
+		}
+	}
+
 	const formatBytes = (value: number | null) => {
 		if (!value) return 'N/A';
 		const units = ['B', 'KB', 'MB', 'GB', 'TB'];
@@ -51,13 +77,98 @@
 		const date = new Date(dateStr);
 		return date.toLocaleDateString() + ' ' + date.toLocaleTimeString();
 	};
+
+	onMount(() => {
+		if (!data.server) return;
+
+		// Create terminal
+		terminal = new Terminal({
+			cursorBlink: true,
+			theme: {
+				background: '#0d1117',
+				foreground: '#c9d1d9',
+				cursor: '#4299e1'
+			},
+			fontFamily: '"Cascadia Code", "Fira Code", "Consolas", monospace',
+			fontSize: 13,
+			lineHeight: 1.2,
+			scrollback: 10000
+		});
+
+		fitAddon = new FitAddon();
+		terminal.loadAddon(fitAddon);
+		terminal.open(terminalContainer);
+		fitAddon.fit();
+
+		terminal.writeln('\x1b[1;36m=== MineOS Console ===\x1b[0m');
+		terminal.writeln('\x1b[90mConnecting to server logs...\x1b[0m');
+		terminal.writeln('');
+
+		// Connect to SSE stream
+		connectToLogs();
+
+		// Handle resize
+		const resizeObserver = new ResizeObserver(() => {
+			fitAddon?.fit();
+		});
+		resizeObserver.observe(terminalContainer);
+
+		return () => {
+			terminal?.dispose();
+			eventSource?.close();
+			resizeObserver.disconnect();
+		};
+	});
+
+	function connectToLogs() {
+		if (!data.server) return;
+
+		eventSource = new EventSource(`/api/servers/${data.server.name}/console/stream`);
+
+		eventSource.onmessage = (event) => {
+			try {
+				const log = JSON.parse(event.data);
+				terminal?.writeln(log.message);
+			} catch (err) {
+				console.error('Failed to parse log message:', err);
+			}
+		};
+
+		eventSource.onerror = () => {
+			terminal?.writeln('\x1b[31mConnection lost. Reconnecting...\x1b[0m');
+			eventSource?.close();
+			setTimeout(connectToLogs, 2000);
+		};
+	}
+
+	async function sendCommand() {
+		if (!command.trim() || !data.server || sending) return;
+
+		sending = true;
+		try {
+			const res = await fetch(`/api/servers/${data.server.name}/console`, {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ command: command.trim() })
+			});
+
+			if (!res.ok) {
+				terminal?.writeln('\x1b[31mFailed to send command\x1b[0m');
+			} else {
+				terminal?.writeln(`\x1b[90m> ${command.trim()}\x1b[0m`);
+				command = '';
+			}
+		} finally {
+			sending = false;
+		}
+	}
 </script>
 
 <div class="dashboard">
 	<section class="section">
 		<h2>Quick Actions</h2>
 		<div class="action-buttons">
-			{#if data.heartbeat.data?.status === 'Running'}
+			{#if data.heartbeat.data?.status?.toLowerCase() === 'running'}
 				<button class="btn btn-warning" onclick={() => handleAction('stop')} disabled={actionLoading}>
 					⏹️ Stop Server
 				</button>
@@ -70,6 +181,9 @@
 			{:else}
 				<button class="btn btn-success" onclick={() => handleAction('start')} disabled={actionLoading}>
 					▶️ Start Server
+				</button>
+				<button class="btn btn-secondary" onclick={handleAcceptEula} disabled={actionLoading}>
+					📜 Accept EULA
 				</button>
 			{/if}
 		</div>
@@ -170,6 +284,32 @@
 			</div>
 		{/if}
 	</div>
+
+	<!-- Console Section -->
+	<section class="section console-section">
+		<h2>Console</h2>
+		<div class="console-container">
+			<div class="terminal-wrapper">
+				<div bind:this={terminalContainer} class="terminal"></div>
+			</div>
+			<div class="command-input">
+				<input
+					type="text"
+					bind:value={command}
+					placeholder="Enter command..."
+					disabled={sending || data.heartbeat.data?.status?.toLowerCase() !== 'running'}
+					onkeydown={(e) => e.key === 'Enter' && sendCommand()}
+				/>
+				<button
+					class="btn btn-primary"
+					onclick={sendCommand}
+					disabled={sending || !command.trim() || data.heartbeat.data?.status?.toLowerCase() !== 'running'}
+				>
+					{sending ? 'Sending...' : 'Send'}
+				</button>
+			</div>
+		</div>
+	</section>
 </div>
 
 <style>
@@ -256,6 +396,16 @@
 		background: rgba(255, 92, 92, 0.25);
 	}
 
+	.btn-secondary {
+		background: #2b2f45;
+		color: #d4d9f1;
+		border: 1px solid #3a3f5a;
+	}
+
+	.btn-secondary:hover:not(:disabled) {
+		background: #3a3f5a;
+	}
+
 	.grid {
 		display: grid;
 		grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
@@ -303,5 +453,60 @@
 		.grid {
 			grid-template-columns: 1fr;
 		}
+	}
+
+	/* Console Section */
+	.console-section {
+		margin-top: 8px;
+	}
+
+	.console-container {
+		background: #0d1117;
+		border-radius: 12px;
+		overflow: hidden;
+		border: 1px solid #2a2f47;
+	}
+
+	.terminal-wrapper {
+		height: 500px;
+		padding: 12px;
+	}
+
+	.terminal {
+		height: 100%;
+		width: 100%;
+	}
+
+	.command-input {
+		display: flex;
+		gap: 12px;
+		padding: 12px;
+		background: #141827;
+		border-top: 1px solid #2a2f47;
+	}
+
+	.command-input input {
+		flex: 1;
+		background: #1a1e2f;
+		border: 1px solid #2a2f47;
+		border-radius: 6px;
+		padding: 10px 14px;
+		color: #eef0f8;
+		font-family: 'Consolas', 'Monaco', monospace;
+		font-size: 13px;
+	}
+
+	.command-input input:focus {
+		outline: none;
+		border-color: #5865f2;
+	}
+
+	.command-input input:disabled {
+		opacity: 0.5;
+		cursor: not-allowed;
+	}
+
+	.command-input button {
+		min-width: 100px;
 	}
 </style>
