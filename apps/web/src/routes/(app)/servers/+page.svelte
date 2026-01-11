@@ -1,11 +1,16 @@
 <script lang="ts">
+	import { onMount } from 'svelte';
 	import { invalidateAll } from '$app/navigation';
 	import * as api from '$lib/api/client';
 	import type { PageData } from './$types';
+	import type { ServerSummary } from '$lib/api/types';
 
 	let { data }: { data: PageData } = $props();
 
 	let actionLoading = $state<Record<string, boolean>>({});
+	let servers = $state<ServerSummary[]>(data.servers.data ?? []);
+	let serversError = $state<string | null>(data.servers.error);
+	let serversStream: EventSource | null = null;
 
 	async function handleAction(serverName: string, action: 'start' | 'stop' | 'restart' | 'kill') {
 		actionLoading[serverName] = true;
@@ -56,6 +61,26 @@
 			actionLoading = { ...actionLoading };
 		}
 	}
+
+	onMount(() => {
+		serversStream = new EventSource('/api/host/servers/stream');
+		serversStream.onmessage = (event) => {
+			try {
+				servers = JSON.parse(event.data) as ServerSummary[];
+				serversError = null;
+			} catch (err) {
+				console.error('Failed to parse servers stream:', err);
+			}
+		};
+		serversStream.onerror = () => {
+			serversStream?.close();
+			serversStream = null;
+		};
+
+		return () => {
+			serversStream?.close();
+		};
+	});
 </script>
 
 <div class="page-header">
@@ -68,42 +93,44 @@
 	</a>
 </div>
 
-{#if data.servers.error}
+{#if serversError}
 	<div class="error-box">
-		<p>Failed to load servers: {data.servers.error}</p>
+		<p>Failed to load servers: {serversError}</p>
 	</div>
-{:else if data.servers.data && data.servers.data.length > 0}
+{:else if servers.length > 0}
 	<div class="server-grid">
-		{#each data.servers.data as server}
+		{#each servers as server}
 			<div class="server-card">
 				<div class="card-header">
-					<div>
+					<div class="server-title">
+						<span class="status-dot" class:status-up={server.up} class:status-down={!server.up}></span>
 						<h2>{server.name}</h2>
-						<span class="status-badge" class:status-up={server.up} class:status-down={!server.up}>
-							{server.up ? 'Running' : 'Stopped'}
-						</span>
 					</div>
+					<span class="status-pill" class:status-up={server.up} class:status-down={!server.up}>
+						{server.up ? 'Running' : 'Stopped'}
+					</span>
 				</div>
 
-				<div class="card-body">
+				<div class="card-meta">
 					{#if server.profile}
-						<div class="info-row">
-							<span class="label">Profile:</span>
-							<span class="value">{server.profile}</span>
-						</div>
+						<span class="badge">Profile: {server.profile}</span>
 					{/if}
 					{#if server.port}
-						<div class="info-row">
-							<span class="label">Port:</span>
-							<span class="value">{server.port}</span>
-						</div>
+						<span class="badge badge-muted">Port: {server.port}</span>
 					{/if}
-					{#if server.playersOnline !== null && server.playersMax !== null}
-						<div class="info-row">
-							<span class="label">Players:</span>
-							<span class="value">{server.playersOnline} / {server.playersMax}</span>
-						</div>
-					{/if}
+				</div>
+
+				<div class="card-metrics">
+					<div class="metric">
+						<span class="metric-label">Players</span>
+						<span class="metric-value">
+							{server.playersOnline ?? '--'} / {server.playersMax ?? '--'}
+						</span>
+					</div>
+					<div class="metric">
+						<span class="metric-label">Status</span>
+						<span class="metric-value">{server.up ? 'Online' : 'Offline'}</span>
+					</div>
 				</div>
 
 				<div class="card-actions">
@@ -152,7 +179,7 @@
 	</div>
 {:else}
 	<div class="empty-state">
-		<p class="empty-icon">📦</p>
+		<p class="empty-icon">[]</p>
 		<h2>No servers yet</h2>
 		<p>Create your first Minecraft server to get started</p>
 		<a href="/servers/new" class="btn-primary">Create Server</a>
@@ -181,7 +208,7 @@
 	}
 
 	.btn-primary {
-		background: #5865f2;
+		background: var(--mc-grass);
 		color: white;
 		border: none;
 		border-radius: 8px;
@@ -197,7 +224,7 @@
 	}
 
 	.btn-primary:hover {
-		background: #4752c4;
+		background: var(--mc-grass-dark);
 	}
 
 	.error-box {
@@ -219,17 +246,20 @@
 	}
 
 	.server-card {
-		background: #1a1e2f;
+		background: linear-gradient(160deg, rgba(26, 30, 47, 0.95), rgba(17, 20, 34, 0.95));
 		border-radius: 16px;
 		padding: 20px;
 		box-shadow: 0 20px 40px rgba(0, 0, 0, 0.35);
+		border: 1px solid rgba(106, 176, 76, 0.15);
+		display: flex;
+		flex-direction: column;
+		gap: 16px;
 	}
 
 	.card-header {
 		display: flex;
 		justify-content: space-between;
-		align-items: flex-start;
-		margin-bottom: 16px;
+		align-items: center;
 		gap: 12px;
 	}
 
@@ -239,44 +269,99 @@
 		font-weight: 600;
 	}
 
-	.status-badge {
-		display: inline-block;
-		padding: 4px 12px;
-		border-radius: 12px;
+	.server-title {
+		display: flex;
+		align-items: center;
+		gap: 10px;
+	}
+
+	.server-title h2 {
+		margin: 0;
+		font-size: 20px;
+		font-weight: 600;
+	}
+
+	.status-dot {
+		width: 10px;
+		height: 10px;
+		border-radius: 50%;
+		box-shadow: 0 0 12px rgba(0, 0, 0, 0.4);
+	}
+
+	.status-pill {
+		display: inline-flex;
+		align-items: center;
+		gap: 6px;
+		padding: 6px 12px;
+		border-radius: 999px;
 		font-size: 12px;
-		font-weight: 500;
+		font-weight: 600;
+		letter-spacing: 0.04em;
+		text-transform: uppercase;
 	}
 
 	.status-up {
-		background: rgba(122, 230, 141, 0.15);
-		color: #7ae68d;
+		background: rgba(106, 176, 76, 0.2);
+		color: #b7f5a2;
+		border: 1px solid rgba(106, 176, 76, 0.45);
+		box-shadow: 0 0 12px rgba(106, 176, 76, 0.2);
 	}
 
 	.status-down {
-		background: rgba(255, 159, 159, 0.15);
-		color: #ff9f9f;
+		background: rgba(255, 159, 159, 0.12);
+		color: #ffb6b6;
+		border: 1px solid rgba(255, 159, 159, 0.35);
 	}
 
-	.card-body {
+	.card-meta {
 		display: flex;
-		flex-direction: column;
 		gap: 8px;
-		margin-bottom: 16px;
+		flex-wrap: wrap;
 	}
 
-	.info-row {
-		display: flex;
-		justify-content: space-between;
-		font-size: 14px;
-	}
-
-	.label {
-		color: #9aa2c5;
-	}
-
-	.value {
-		color: #eef0f8;
+	.badge {
+		display: inline-flex;
+		align-items: center;
+		gap: 6px;
+		background: rgba(106, 176, 76, 0.12);
+		color: #d4f5dc;
+		padding: 4px 10px;
+		border-radius: 999px;
+		font-size: 12px;
 		font-weight: 500;
+		border: 1px solid rgba(106, 176, 76, 0.3);
+	}
+
+	.badge-muted {
+		background: rgba(88, 101, 242, 0.08);
+		color: #c7cbe0;
+		border-color: rgba(88, 101, 242, 0.25);
+	}
+
+	.card-metrics {
+		display: grid;
+		grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+		gap: 12px;
+	}
+
+	.metric {
+		background: rgba(20, 24, 39, 0.8);
+		border-radius: 12px;
+		padding: 12px;
+		border: 1px solid rgba(42, 47, 71, 0.8);
+	}
+
+	.metric-label {
+		display: block;
+		font-size: 12px;
+		color: #9aa2c5;
+		margin-bottom: 4px;
+	}
+
+	.metric-value {
+		font-size: 16px;
+		color: #eef0f8;
+		font-weight: 600;
 	}
 
 	.card-actions {
@@ -310,12 +395,12 @@
 	}
 
 	.btn-success {
-		background: rgba(122, 230, 141, 0.15);
-		color: #7ae68d;
+		background: rgba(106, 176, 76, 0.18);
+		color: #b7f5a2;
 	}
 
 	.btn-success:hover:not(:disabled) {
-		background: rgba(122, 230, 141, 0.25);
+		background: rgba(106, 176, 76, 0.28);
 	}
 
 	.btn-warning {

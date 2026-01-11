@@ -424,7 +424,7 @@
 						{/if}
 					</div>
 				</div>
-				<button class="btn-action" onclick={closeDetails}>Close</button>
+				<button class="btn-secondary" onclick={closeDetails}>Close</button>
 			</div>
 
 			{#if detailLoading}
@@ -539,7 +539,7 @@
 	}
 
 	.search-bar button {
-		background: #5865f2;
+		background: var(--mc-grass);
 		color: white;
 		border: none;
 		border-radius: 8px;
@@ -648,7 +648,7 @@
 	}
 
 	.btn-primary {
-		background: #5865f2;
+		background: var(--mc-grass);
 		color: white;
 		border: none;
 		border-radius: 8px;
@@ -658,9 +658,9 @@
 	}
 
 	.btn-secondary {
-		background: #2b2f45;
+		background: rgba(43, 47, 69, 0.9);
 		color: #d4d9f1;
-		border: none;
+		border: 1px solid rgba(106, 176, 76, 0.25);
 		border-radius: 8px;
 		padding: 8px 16px;
 		font-weight: 600;
@@ -698,7 +698,7 @@
 
 	.job-progress-bar {
 		height: 100%;
-		background: linear-gradient(90deg, #5865f2, #45c6f7);
+		background: linear-gradient(90deg, var(--mc-grass), var(--mc-sky));
 		transition: width 0.2s ease;
 	}
 

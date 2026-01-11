@@ -1,7 +1,16 @@
 <script lang="ts">
+	import { onMount } from 'svelte';
 	import type { PageData } from './$types';
+	import type { HostMetrics, ServerSummary } from '$lib/api/types';
 
 	let { data }: { data: PageData } = $props();
+
+	let servers = $state<ServerSummary[]>(data.servers.data ?? []);
+	let serversError = $state<string | null>(data.servers.error);
+	let hostMetrics = $state<HostMetrics | null>(data.hostMetrics.data ?? null);
+	let hostMetricsError = $state<string | null>(data.hostMetrics.error);
+	let serversStream: EventSource | null = null;
+	let metricsStream: EventSource | null = null;
 
 	const formatBytes = (bytes: number): string => {
 		if (bytes === 0) return '0 B';
@@ -21,16 +30,51 @@
 		return `${minutes}m`;
 	};
 
-	const totalServers = $derived(data.servers.data?.length ?? 0);
+	const totalServers = $derived(servers.length ?? 0);
 	const runningServers = $derived(
-		data.servers.data?.filter((s) => s.up).length ?? 0
+		servers.filter((s) => s.up).length ?? 0
 	);
 	const totalPlayers = $derived(
-		data.servers.data?.reduce((sum, s) => sum + (s.playersOnline ?? 0), 0) ?? 0
+		servers.reduce((sum, s) => sum + (s.playersOnline ?? 0), 0) ?? 0
 	);
 	const maxPlayers = $derived(
-		data.servers.data?.reduce((sum, s) => sum + (s.playersMax ?? 0), 0) ?? 0
+		servers.reduce((sum, s) => sum + (s.playersMax ?? 0), 0) ?? 0
 	);
+
+	onMount(() => {
+		serversStream = new EventSource('/api/host/servers/stream');
+		serversStream.onmessage = (event) => {
+			try {
+				servers = JSON.parse(event.data) as ServerSummary[];
+				serversError = null;
+			} catch (err) {
+				console.error('Failed to parse servers stream:', err);
+			}
+		};
+		serversStream.onerror = () => {
+			serversStream?.close();
+			serversStream = null;
+		};
+
+		metricsStream = new EventSource('/api/host/metrics/stream');
+		metricsStream.onmessage = (event) => {
+			try {
+				hostMetrics = JSON.parse(event.data) as HostMetrics;
+				hostMetricsError = null;
+			} catch (err) {
+				console.error('Failed to parse metrics stream:', err);
+			}
+		};
+		metricsStream.onerror = () => {
+			metricsStream?.close();
+			metricsStream = null;
+		};
+
+		return () => {
+			serversStream?.close();
+			metricsStream?.close();
+		};
+	});
 </script>
 
 <div class="dashboard">
@@ -45,7 +89,7 @@
 	<!-- Quick Stats -->
 	<div class="stats-grid">
 		<div class="stat-card">
-			<div class="stat-icon">🖥️</div>
+			<div class="stat-icon">[S]</div>
 			<div class="stat-content">
 				<div class="stat-value">{totalServers}</div>
 				<div class="stat-label">Total Servers</div>
@@ -53,7 +97,7 @@
 		</div>
 
 		<div class="stat-card">
-			<div class="stat-icon">✅</div>
+			<div class="stat-icon">[R]</div>
 			<div class="stat-content">
 				<div class="stat-value">{runningServers}</div>
 				<div class="stat-label">Running</div>
@@ -61,28 +105,27 @@
 		</div>
 
 		<div class="stat-card">
-			<div class="stat-icon">👥</div>
+			<div class="stat-icon">[P]</div>
 			<div class="stat-content">
 				<div class="stat-value">{totalPlayers} / {maxPlayers}</div>
 				<div class="stat-label">Players Online</div>
 			</div>
 		</div>
 
-		{#if data.hostMetrics.data}
+		{#if hostMetrics}
 			<div class="stat-card">
-				<div class="stat-icon">💾</div>
+				<div class="stat-icon">[D]</div>
 				<div class="stat-content">
 					<div class="stat-value">
-						{formatBytes(data.hostMetrics.data.disk.freeBytes)}
+						{formatBytes(hostMetrics.disk.freeBytes)}
 					</div>
 					<div class="stat-label">Disk Free</div>
 				</div>
 			</div>
 		{/if}
 	</div>
-
 	<!-- Host Metrics -->
-	{#if data.hostMetrics.data}
+	{#if hostMetrics}
 		<div class="metrics-section">
 			<h2>Host Metrics</h2>
 			<div class="metrics-grid">
@@ -91,7 +134,7 @@
 						<span class="metric-title">System Uptime</span>
 					</div>
 					<div class="metric-value">
-						{formatUptime(data.hostMetrics.data.uptimeSeconds)}
+						{formatUptime(hostMetrics.uptimeSeconds)}
 					</div>
 				</div>
 
@@ -100,7 +143,7 @@
 						<span class="metric-title">Load Average</span>
 					</div>
 					<div class="metric-value">
-						{data.hostMetrics.data.loadAvg
+						{hostMetrics.loadAvg
 							.slice(0, 3)
 							.map((v) => v.toFixed(2))
 							.join(', ')}
@@ -112,7 +155,7 @@
 						<span class="metric-title">Free Memory</span>
 					</div>
 					<div class="metric-value">
-						{formatBytes(data.hostMetrics.data.freeMemBytes)}
+						{formatBytes(hostMetrics.freeMemBytes)}
 					</div>
 				</div>
 
@@ -122,15 +165,15 @@
 					</div>
 					<div class="metric-value">
 						{((
-							(data.hostMetrics.data.disk.totalBytes -
-								data.hostMetrics.data.disk.freeBytes) /
-							data.hostMetrics.data.disk.totalBytes
+							(hostMetrics.disk.totalBytes -
+								hostMetrics.disk.freeBytes) /
+							hostMetrics.disk.totalBytes
 						) * 100).toFixed(1)}%
 					</div>
 					<div class="metric-subtext">
 						{formatBytes(
-							data.hostMetrics.data.disk.totalBytes - data.hostMetrics.data.disk.freeBytes
-						)} / {formatBytes(data.hostMetrics.data.disk.totalBytes)}
+							hostMetrics.disk.totalBytes - hostMetrics.disk.freeBytes
+						)} / {formatBytes(hostMetrics.disk.totalBytes)}
 					</div>
 				</div>
 			</div>
@@ -141,16 +184,16 @@
 	<div class="servers-section">
 		<div class="section-header">
 			<h2>Servers</h2>
-			<a href="/servers" class="link-btn">View all →</a>
+			<a href="/servers" class="link-btn">View all -></a>
 		</div>
 
-		{#if data.servers.error}
+		{#if serversError}
 			<div class="error-box">
-				<p>Failed to load servers: {data.servers.error}</p>
+				<p>Failed to load servers: {serversError}</p>
 			</div>
-		{:else if data.servers.data && data.servers.data.length > 0}
+		{:else if servers && servers.length > 0}
 			<div class="server-list">
-				{#each data.servers.data.slice(0, 6) as server}
+				{#each servers.slice(0, 6) as server}
 					<a href="/servers/{server.name}" class="server-item">
 						<div class="server-info">
 							<div class="server-name">{server.name}</div>
@@ -182,7 +225,7 @@
 			</div>
 		{:else}
 			<div class="empty-state">
-				<p class="empty-icon">📦</p>
+				<p class="empty-icon">[]</p>
 				<h3>No servers yet</h3>
 				<p>Create your first Minecraft server to get started</p>
 				<a href="/servers/new" class="btn-primary">Create Server</a>
@@ -193,7 +236,7 @@
 	<!-- Quick Links -->
 	<div class="quick-links">
 		<a href="/profiles" class="quick-link-card">
-			<div class="quick-link-icon">📦</div>
+			<div class="quick-link-icon">[P]</div>
 			<div class="quick-link-content">
 				<div class="quick-link-title">Profiles</div>
 				<div class="quick-link-desc">Download and manage server JARs</div>
@@ -201,7 +244,7 @@
 		</a>
 
 		<a href="/import" class="quick-link-card">
-			<div class="quick-link-icon">📥</div>
+			<div class="quick-link-icon">[I]</div>
 			<div class="quick-link-content">
 				<div class="quick-link-title">Import</div>
 				<div class="quick-link-desc">Import servers from archives</div>
@@ -248,7 +291,7 @@
 	}
 
 	.btn-primary {
-		background: #5865f2;
+		background: var(--mc-grass);
 		color: white;
 		border: none;
 		border-radius: 8px;
@@ -263,7 +306,7 @@
 	}
 
 	.btn-primary:hover {
-		background: #4752c4;
+		background: var(--mc-grass-dark);
 	}
 
 	.stats-grid {
@@ -274,18 +317,20 @@
 	}
 
 	.stat-card {
-		background: #1a1e2f;
+		background: linear-gradient(160deg, rgba(26, 30, 47, 0.95), rgba(17, 20, 34, 0.95));
 		border-radius: 16px;
 		padding: 24px;
 		box-shadow: 0 20px 40px rgba(0, 0, 0, 0.35);
 		display: flex;
 		align-items: center;
 		gap: 16px;
+		border: 1px solid rgba(106, 176, 76, 0.12);
 	}
 
 	.stat-icon {
 		font-size: 32px;
 		opacity: 0.9;
+		color: #b7f5a2;
 	}
 
 	.stat-content {
@@ -320,6 +365,7 @@
 		border-radius: 12px;
 		padding: 20px;
 		box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25);
+		border: 1px solid rgba(42, 47, 71, 0.8);
 	}
 
 	.metric-header {
@@ -358,7 +404,7 @@
 	}
 
 	.link-btn {
-		color: #5865f2;
+		color: var(--mc-grass);
 		text-decoration: none;
 		font-size: 14px;
 		font-weight: 500;
@@ -366,7 +412,7 @@
 	}
 
 	.link-btn:hover {
-		color: #4752c4;
+		color: var(--mc-grass-dark);
 	}
 
 	.server-list {
@@ -374,6 +420,7 @@
 		border-radius: 16px;
 		overflow: hidden;
 		box-shadow: 0 20px 40px rgba(0, 0, 0, 0.35);
+		border: 1px solid rgba(106, 176, 76, 0.08);
 	}
 
 	.server-item {
@@ -391,7 +438,7 @@
 	}
 
 	.server-item:hover {
-		background: rgba(88, 101, 242, 0.05);
+		background: rgba(106, 176, 76, 0.08);
 	}
 
 	.server-info {
@@ -415,9 +462,10 @@
 	.profile-badge {
 		font-size: 12px;
 		color: #9aa2c5;
-		background: rgba(154, 162, 197, 0.1);
+		background: rgba(106, 176, 76, 0.1);
 		padding: 2px 8px;
 		border-radius: 4px;
+		border: 1px solid rgba(106, 176, 76, 0.25);
 	}
 
 	.port-badge {
@@ -439,8 +487,8 @@
 	}
 
 	.status-up {
-		background: #7ae68d;
-		box-shadow: 0 0 8px rgba(122, 230, 141, 0.4);
+		background: var(--mc-grass);
+		box-shadow: 0 0 8px rgba(106, 176, 76, 0.4);
 	}
 
 	.status-down {

@@ -21,16 +21,26 @@
 		}
 		return $page.url.pathname.startsWith(href);
 	}
+
+	function normalizeStatus(status?: string) {
+		if (!status) return { label: 'Unknown', running: false };
+		const value = status.toLowerCase();
+		if (value === 'running' || value === 'up') return { label: 'Running', running: true };
+		if (value === 'stopped' || value === 'down') return { label: 'Stopped', running: false };
+		return { label: status, running: false };
+	}
+
+	const statusMeta = normalizeStatus(data.server?.status);
 </script>
 
 <div class="server-container">
 	<div class="server-header">
 		<div>
-			<a href="/servers" class="breadcrumb">← Back to Servers</a>
+			<a href="/servers" class="breadcrumb">&lt; Back to Servers</a>
 			<h1>{data.server?.name}</h1>
 			<div class="server-meta">
-				<span class="status-badge" class:status-running={data.server?.status === 'Running'}>
-					{data.server?.status || 'Unknown'}
+				<span class="status-badge" class:status-running={statusMeta.running}>
+					{statusMeta.label}
 				</span>
 				{#if data.server?.javaPid}
 					<span class="meta-item">PID: {data.server.javaPid}</span>
@@ -96,14 +106,16 @@
 		padding: 6px 14px;
 		border-radius: 12px;
 		font-size: 13px;
-		font-weight: 500;
-		background: rgba(255, 159, 159, 0.15);
-		color: #ff9f9f;
+		font-weight: 600;
+		background: rgba(139, 90, 43, 0.2);
+		color: #f4c08e;
+		border: 1px solid rgba(139, 90, 43, 0.4);
 	}
 
 	.status-running {
-		background: rgba(122, 230, 141, 0.15);
-		color: #7ae68d;
+		background: rgba(106, 176, 76, 0.2);
+		color: #b7f5a2;
+		border: 1px solid rgba(106, 176, 76, 0.45);
 	}
 
 	.meta-item {
@@ -134,8 +146,8 @@
 	}
 
 	.tab.active {
-		color: #5865f2;
-		border-bottom-color: #5865f2;
+		color: var(--mc-grass);
+		border-bottom-color: var(--mc-grass);
 	}
 
 	.content {

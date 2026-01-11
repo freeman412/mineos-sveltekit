@@ -9,6 +9,7 @@
 	let mods = $state<InstalledMod[]>([]);
 	let loading = $state(false);
 	let uploading = $state(false);
+	let isDragging = $state(false);
 	let searchQuery = $state('');
 	let searchResults = $state<CurseForgeModSummary[]>([]);
 	let searchLoading = $state(false);
@@ -67,10 +68,12 @@
 		}
 	}
 
-	async function handleUpload(event: Event) {
-		const input = event.target as HTMLInputElement;
-		const file = input.files?.[0];
-		if (!file || !data.server) return;
+	async function uploadModFile(file: File) {
+		if (!data.server) return;
+		if (!file.name.toLowerCase().endsWith('.jar') && !file.name.toLowerCase().endsWith('.zip')) {
+			alert('Only .jar or .zip files are supported.');
+			return;
+		}
 
 		uploading = true;
 		try {
@@ -90,8 +93,23 @@
 			alert(err instanceof Error ? err.message : 'Upload failed');
 		} finally {
 			uploading = false;
-			input.value = '';
 		}
+	}
+
+	async function handleUpload(event: Event) {
+		const input = event.target as HTMLInputElement;
+		const file = input.files?.[0];
+		if (!file) return;
+		await uploadModFile(file);
+		input.value = '';
+	}
+
+	async function handleDrop(event: DragEvent) {
+		event.preventDefault();
+		isDragging = false;
+		const file = event.dataTransfer?.files?.[0];
+		if (!file) return;
+		await uploadModFile(file);
 	}
 
 	async function deleteMod(fileName: string) {
@@ -369,6 +387,23 @@
 		</div>
 	</div>
 
+	<div
+		class="upload-drop"
+		class:active={isDragging}
+		ondragover={(event) => {
+			event.preventDefault();
+			isDragging = true;
+		}}
+		ondragleave={() => {
+			isDragging = false;
+		}}
+		ondrop={handleDrop}
+	>
+		<div class="drop-content">
+			<strong>Drag & drop</strong> a mod file here (.jar or .zip), or use Upload Mod.
+		</div>
+	</div>
+
 	{#if jobStatus}
 		<div class="job-card">
 			<div class="job-header">
@@ -542,7 +577,7 @@
 						{/if}
 					</div>
 				</div>
-				<button class="btn-action" onclick={closeDetails}>Close</button>
+				<button class="btn-secondary" onclick={closeDetails}>Close</button>
 			</div>
 
 			{#if detailLoading}
@@ -628,8 +663,28 @@
 		gap: 12px;
 	}
 
+	.upload-drop {
+		border: 2px dashed #2a2f47;
+		border-radius: 16px;
+		padding: 18px;
+		text-align: center;
+		color: #9aa2c5;
+		background: rgba(20, 24, 39, 0.6);
+		transition: border-color 0.2s, background 0.2s, color 0.2s;
+	}
+
+	.upload-drop.active {
+		border-color: #7ae68d;
+		background: rgba(122, 230, 141, 0.08);
+		color: #d4f5dc;
+	}
+
+	.drop-content strong {
+		color: #eef0f8;
+	}
+
 	.upload-button {
-		background: #5865f2;
+		background: var(--mc-grass);
 		color: white;
 		border-radius: 8px;
 		padding: 10px 20px;
@@ -673,7 +728,7 @@
 
 	.job-progress-bar {
 		height: 100%;
-		background: linear-gradient(90deg, #5865f2, #45c6f7);
+		background: linear-gradient(90deg, var(--mc-grass), var(--mc-sky));
 		transition: width 0.2s ease;
 	}
 
@@ -779,7 +834,7 @@
 	}
 
 	.search-bar button {
-		background: #5865f2;
+		background: var(--mc-grass);
 		color: white;
 		border: none;
 		border-radius: 8px;
@@ -888,7 +943,7 @@
 	}
 
 	.btn-primary {
-		background: #5865f2;
+		background: var(--mc-grass);
 		color: white;
 		border: none;
 		border-radius: 8px;
@@ -898,9 +953,9 @@
 	}
 
 	.btn-secondary {
-		background: #2b2f45;
+		background: rgba(43, 47, 69, 0.9);
 		color: #d4d9f1;
-		border: none;
+		border: 1px solid rgba(106, 176, 76, 0.25);
 		border-radius: 8px;
 		padding: 8px 16px;
 		font-weight: 600;
