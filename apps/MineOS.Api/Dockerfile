@@ -46,14 +46,18 @@ RUN groupadd -g 1000 minecraft && \
 WORKDIR /app
 COPY --from=publish /app/publish .
 
-# Create directory structure and set permissions
+# Create directory structure
+# Keep /var/games/minecraft root-owned for security
+# Only specific server directories will be chowned to minecraft user when created
 RUN mkdir -p /var/games/minecraft/servers \
     /var/games/minecraft/profiles \
     /var/games/minecraft/backups \
     /var/games/minecraft/archives \
     /var/games/minecraft/imports \
+    /var/games/minecraft/logs \
     /app/data && \
-    chown -R minecraft:minecraft /var/games/minecraft && \
+    chmod 755 /var/games/minecraft && \
+    chmod 700 /var/games/minecraft/logs && \
     chown -R 1000:1000 /app/data
 
 # Expose API port
