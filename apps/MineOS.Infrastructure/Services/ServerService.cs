@@ -254,6 +254,12 @@ public class ServerService : IServerService
 
         var logDir = Path.Combine(serverPath, "logs");
         Directory.CreateDirectory(logDir);
+
+        // Change ownership of logs directory to minecraft user so it can write logs
+        var uid = _options.RunAsUid;
+        var gid = _options.RunAsGid;
+        await ChangeOwnershipAsync(logDir, uid, gid, cancellationToken);
+
         var startupLogPath = Path.Combine(logDir, "startup.log");
 
         // Build Java command arguments
@@ -285,9 +291,6 @@ public class ServerService : IServerService
         {
             javaArgs.Add("nogui");
         }
-
-        var uid = _options.RunAsUid;
-        var gid = _options.RunAsGid;
 
         var startTime = DateTimeOffset.UtcNow;
         var startupStamp = $"[{startTime:O}] Launching {name}";
@@ -772,6 +775,36 @@ public class ServerService : IServerService
         catch (Exception ex)
         {
             return $"Failed to read log output: {ex.Message}";
+        }
+    }
+
+    private async Task ChangeOwnershipAsync(string path, int uid, int gid, CancellationToken cancellationToken)
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
+        // Use chown to change ownership
+        var process = new System.Diagnostics.Process
+        {
+            StartInfo = new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = "/bin/chown",
+                ArgumentList = { $"{uid}:{gid}", path },
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true
+            }
+        };
+
+        process.Start();
+        await process.WaitForExitAsync(cancellationToken);
+
+        if (process.ExitCode != 0)
+        {
+            var error = await process.StandardError.ReadToEndAsync(cancellationToken);
+            _logger.LogWarning("Failed to change ownership of {Path} to {Uid}:{Gid}: {Error}", path, uid, gid, error);
         }
     }
 
