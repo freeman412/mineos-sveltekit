@@ -216,3 +216,4 @@ app.Run();
         };
 builder.Services.AddScoped<IAdminShellSession, AdminShellService>();
 app.UseWebSockets();
+builder.Services.AddScoped<IUserService, UserService>();
