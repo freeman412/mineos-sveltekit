@@ -1,64 +1,125 @@
-version: '3'
+version: '3.8'
 
 services:
-  mineos:
-    image: hexparrot/mineos:latest
-    container_name: mineos_server
-    networks:
-      - mineos
+  # PostgreSQL Database (optional - enable with: docker compose --profile postgres up)
+  postgres:
+    image: postgres:16-alpine
+    container_name: mineos-postgres
     restart: unless-stopped
-
-    # Adjust as needed; if this is too short, stopping the container
-    #  may corrupt map data
-    stop_grace_period: 10m
-
-    volumes:
-      # Using a bind mapping is preferrable here due to how docker
-      # stores names volumes by default in /var/lib/docker/volumes
-      # with permissions that prevent normal users from accessing
-      # the folder structure.
-      - /var/games/mineos/minecraft:/var/games/minecraft
-
     environment:
-      # Should the web interface use HTTPS or HTTP?
-      # Valid entries are "true" and "false" (with quotes)
-      USE_HTTPS: "true"
-
-      # What port should the web interface listen on?
-      # This is independant of the USE_HTTPS setting.
-      SERVER_PORT: 8443
-
-      # On startup, mineos will check if an account of this name exists.
-      # If it does not exist, one will be created. This account, and
-      # any other created with this variable will be permitted to login
-      # to the web interface.
-      USER_NAME: mc
-
-      # If the account listed above does not already exist, when mineos
-      # creates it, it will do so with UID. If an account with this UID
-      # already exists, account creation will be aborted.
-      USER_UID: 1000
-
-      # If the account is being created, it will use either the password
-      # set below, or a random, 20 character password will generated for
-      # you and displayed in the console log. After first launch, you
-      # should check the log.
-      USER_PASSWORD: random_see_log
-
+      POSTGRES_DB: ${POSTGRES_DB:-mineos}
+      POSTGRES_USER: ${POSTGRES_USER:-mineos}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-mineos}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
     ports:
-      # HTTPS port for web interface. If you change the SERVER_PORT
-      # variable, also change this mapping.
-      - "8443:8443/tcp"
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-mineos}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    profiles:
+      - postgres
 
-      # Minecraft server ports. 25565 is the default, but is you plan
-      # on running multiple servers at the same time, each will need
-      # a unique port unless you are using bungiecord.
-      # Expand this range as needed.
+  # MySQL Database (optional - enable with: docker compose --profile mysql up)
+  mysql:
+    image: mysql:8.0
+    container_name: mineos-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-mineos}
+      MYSQL_USER: ${MYSQL_USER:-mineos}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-mineos}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root}
+    volumes:
+      - mysql_data:/var/lib/mysql
+    ports:
+      - "3306:3306"
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${MYSQL_ROOT_PASSWORD:-root}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    profiles:
+      - mysql
+
+  # MineOS API
+  api:
+    build:
+      context: .
+      dockerfile: apps/MineOS.Api/Dockerfile
+    container_name: mineos-api
+    restart: unless-stopped
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Production
+      - ASPNETCORE_URLS=http://+:5078
+      - ConnectionStrings__DefaultConnection=${ConnectionStrings__DefaultConnection}
+      - Auth__SeedUsername=${Auth__SeedUsername}
+      - Auth__SeedPassword=${Auth__SeedPassword}
+      - Auth__JwtSecret=${Auth__JwtSecret}
+      - Auth__JwtIssuer=${Auth__JwtIssuer:-mineos}
+      - Auth__JwtAudience=${Auth__JwtAudience:-mineos}
+      - Auth__JwtExpiryHours=${Auth__JwtExpiryHours:-24}
+      - ApiKey__SeedKey=${ApiKey__SeedKey}
+      - Host__BaseDirectory=${Host__BaseDirectory:-/var/games/minecraft}
+      - Host__ServersPathSegment=${Host__ServersPathSegment:-servers}
+      - Host__ProfilesPathSegment=${Host__ProfilesPathSegment:-profiles}
+      - Host__BackupsPathSegment=${Host__BackupsPathSegment:-backups}
+      - Host__ArchivesPathSegment=${Host__ArchivesPathSegment:-archives}
+      - Host__ImportsPathSegment=${Host__ImportsPathSegment:-imports}
+      - Host__OwnerUid=${Host__OwnerUid:-1000}
+      - Host__OwnerGid=${Host__OwnerGid:-1000}
+      - CurseForge__ApiKey=${CurseForge__ApiKey:-}
+      - Discord__WebhookUrl=${Discord__WebhookUrl:-}
+      - Logging__LogLevel__Default=${Logging__LogLevel__Default:-Information}
+      - Logging__LogLevel__Microsoft.AspNetCore=${Logging__LogLevel__Microsoft.AspNetCore:-Warning}
+    volumes:
+      - ${Host__BaseDirectory:-/var/games/minecraft}:/var/games/minecraft
+      - ./data:/app/data
+      - /var/run/docker.sock:/var/run/docker.sock  # For Docker management (optional)
+    ports:
+      - "${API_PORT:-5078}:5078"
+      # Minecraft server ports - expand as needed
       - "25565-25570:25565-25570/tcp"
       - "25565-25570:25565-25570/udp"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5078/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # MineOS Web UI
+  web:
+    build:
+      context: ./apps/web
+      dockerfile: Dockerfile
+      args:
+        - PUBLIC_API_URL=http://localhost:${API_PORT:-5078}
+    container_name: mineos-web
+    restart: unless-stopped
+    environment:
+      - NODE_ENV=production
+      - PUBLIC_API_URL=http://localhost:${API_PORT:-5078}
+      - ORIGIN=http://localhost:${WEB_PORT:-3000}
+    ports:
+      - "${WEB_PORT:-3000}:3000"
+    depends_on:
+      - api
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
 
 volumes:
-  mineos_data:
+  postgres_data:
+    driver: local
+  mysql_data:
+    driver: local
 
 networks:
-  mineos:
+  default:
+    name: mineos-network
