@@ -11,7 +11,9 @@
 		{ href: `/servers/${data.server?.name}/backups`, label: 'Backups' },
 		{ href: `/servers/${data.server?.name}/archives`, label: 'Archives' },
 		{ href: `/servers/${data.server?.name}/files`, label: 'Files' },
+		{ href: `/servers/${data.server?.name}/performance`, label: 'Performance' },
 		{ href: `/servers/${data.server?.name}/worlds`, label: 'Worlds' },
+		{ href: `/servers/${data.server?.name}/players`, label: 'Players' },
 		{ href: `/servers/${data.server?.name}/mods`, label: 'Mods' },
 		{ href: `/servers/${data.server?.name}/cron`, label: 'Cron Jobs' }
 	];

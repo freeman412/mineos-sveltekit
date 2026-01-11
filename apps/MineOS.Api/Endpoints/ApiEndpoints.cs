@@ -11,6 +11,8 @@ public static class ApiEndpoints
         api.MapHostEndpoints();
         api.MapServerEndpoints();
         api.MapWorldEndpoints();
+        api.MapPerformanceEndpoints();
+        api.MapPlayerEndpoints();
         api.MapProfileEndpoints();
         api.MapJobEndpoints();
         api.MapCurseForgeEndpoints();

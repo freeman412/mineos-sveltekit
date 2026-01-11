@@ -181,3 +181,36 @@ export type WorldInfo = {
 	fileCount: number;
 	directoryCount: number;
 };
+
+// Performance Monitoring
+export type PerformanceSample = {
+	serverName: string;
+	timestamp: string;
+	isRunning: boolean;
+	cpuPercent: number;
+	ramUsedMb: number;
+	ramTotalMb: number;
+	tps: number | null;
+	playerCount: number;
+};
+
+// Player Management
+export type PlayerSummary = {
+	uuid: string;
+	name: string;
+	whitelisted: boolean;
+	isOp: boolean;
+	opLevel: number | null;
+	opBypassPlayerLimit: boolean | null;
+	banned: boolean;
+	banReason: string | null;
+	banExpiresAt: string | null;
+	lastSeen: string | null;
+	playTimeSeconds: number | null;
+};
+
+export type PlayerStats = {
+	uuid: string;
+	rawJson: string;
+	lastModified: string | null;
+};

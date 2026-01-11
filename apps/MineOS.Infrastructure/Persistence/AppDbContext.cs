@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using MineOS.Domain.Entities;
 
 namespace MineOS.Infrastructure.Persistence;
@@ -108,6 +109,12 @@ public sealed class AppDbContext : DbContext
             entity.HasKey(x => x.Id);
             entity.HasIndex(x => new { x.ServerName, x.Timestamp });
             entity.Property(x => x.ServerName).HasMaxLength(256);
+            var timestampConverter = new ValueConverter<DateTimeOffset, long>(
+                value => value.ToUnixTimeSeconds(),
+                value => DateTimeOffset.FromUnixTimeSeconds(value));
+            entity.Property(x => x.Timestamp)
+                .HasConversion(timestampConverter)
+                .HasColumnType("INTEGER");
         });
 
         modelBuilder.Entity<Alert>(entity =>

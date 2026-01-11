@@ -25,11 +25,18 @@ public static class MonitoringEndpoints
 
             await context.Response.StartAsync(cancellationToken);
 
-            await foreach (var heartbeat in monitoringService.StreamHeartbeatAsync(name, cancellationToken))
+            try
             {
-                var json = JsonSerializer.Serialize(heartbeat, JsonOptions);
-                await context.Response.WriteAsync($"data: {json}\n\n", cancellationToken);
-                await context.Response.Body.FlushAsync(cancellationToken);
+                await foreach (var heartbeat in monitoringService.StreamHeartbeatAsync(name, cancellationToken))
+                {
+                    var json = JsonSerializer.Serialize(heartbeat, JsonOptions);
+                    await context.Response.WriteAsync($"data: {json}\n\n", cancellationToken);
+                    await context.Response.Body.FlushAsync(cancellationToken);
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                // Expected when client disconnects or request is cancelled.
             }
         });
 
