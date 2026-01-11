@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { invalidateAll } from '$app/navigation';
+	import { goto, invalidateAll } from '$app/navigation';
 	import * as api from '$lib/api/client';
 	import type { PageData } from './$types';
 	import type { ServerSummary } from '$lib/api/types';
@@ -11,8 +11,65 @@
 	let servers = $state<ServerSummary[]>(data.servers.data ?? []);
 	let serversError = $state<string | null>(data.servers.error);
 	let serversStream: EventSource | null = null;
+	let memoryHistory = $state<Record<string, number[]>>({});
 
-	async function handleAction(serverName: string, action: 'start' | 'stop' | 'restart' | 'kill') {
+	const maxMemoryPoints = 30;
+
+	const formatBytes = (value?: number | null) => {
+		if (!value || value <= 0) return '--';
+		const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+		const index = Math.floor(Math.log(value) / Math.log(1024));
+		const normalized = value / Math.pow(1024, index);
+		return `${normalized.toFixed(1)} ${units[index]}`;
+	};
+
+	function buildSparkline(values: number[], width = 120, height = 32) {
+		if (!values || values.length < 2) return '';
+		const min = Math.min(...values);
+		const max = Math.max(...values);
+		const range = max - min || 1;
+		return values
+			.map((value, idx) => {
+				const x = (idx / (values.length - 1)) * width;
+				const y = height - ((value - min) / range) * height;
+				return `${x},${y}`;
+			})
+			.join(' ');
+	}
+
+	function updateMemoryHistory(nextServers: ServerSummary[]) {
+		const updated = { ...memoryHistory };
+		for (const server of nextServers) {
+			if (server.memoryBytes == null) continue;
+			const history = updated[server.name] ? [...updated[server.name]] : [];
+			history.push(server.memoryBytes);
+			if (history.length > maxMemoryPoints) {
+				history.shift();
+			}
+			updated[server.name] = history;
+		}
+		memoryHistory = updated;
+	}
+
+	function handleCardClick(serverName: string) {
+		goto(`/servers/${encodeURIComponent(serverName)}`);
+	}
+
+	function handleCardKeydown(event: KeyboardEvent, serverName: string) {
+		if (event.key === 'Enter' || event.key === ' ') {
+			event.preventDefault();
+			handleCardClick(serverName);
+		}
+	}
+
+	async function handleAction(
+		serverName: string,
+		action: 'start' | 'stop' | 'restart' | 'kill',
+		event?: Event
+	) {
+		event?.stopPropagation();
+		event?.preventDefault();
+
 		actionLoading[serverName] = true;
 		try {
 			let result;
@@ -43,7 +100,10 @@
 		}
 	}
 
-	async function handleDelete(serverName: string) {
+	async function handleDelete(serverName: string, event?: Event) {
+		event?.stopPropagation();
+		event?.preventDefault();
+
 		if (!confirm(`Are you sure you want to delete server "${serverName}"?`)) {
 			return;
 		}
@@ -63,10 +123,13 @@
 	}
 
 	onMount(() => {
+		updateMemoryHistory(servers);
 		serversStream = new EventSource('/api/host/servers/stream');
 		serversStream.onmessage = (event) => {
 			try {
-				servers = JSON.parse(event.data) as ServerSummary[];
+				const nextServers = JSON.parse(event.data) as ServerSummary[];
+				servers = nextServers;
+				updateMemoryHistory(nextServers);
 				serversError = null;
 			} catch (err) {
 				console.error('Failed to parse servers stream:', err);
@@ -100,7 +163,13 @@
 {:else if servers.length > 0}
 	<div class="server-grid">
 		{#each servers as server}
-			<div class="server-card">
+			<div
+				class="server-card"
+				role="link"
+				tabindex="0"
+				onclick={() => handleCardClick(server.name)}
+				onkeydown={(event) => handleCardKeydown(event, server.name)}
+			>
 				<div class="card-header">
 					<div class="server-title">
 						<span class="status-dot" class:status-up={server.up} class:status-down={!server.up}></span>
@@ -131,27 +200,43 @@
 						<span class="metric-label">Status</span>
 						<span class="metric-value">{server.up ? 'Online' : 'Offline'}</span>
 					</div>
+					<div class="metric memory">
+						<span class="metric-label">Memory</span>
+						<span class="metric-value">{formatBytes(server.memoryBytes)}</span>
+						{#if memoryHistory[server.name]?.length > 1}
+							<svg class="sparkline" viewBox="0 0 120 32" preserveAspectRatio="none">
+								<polyline
+									points={buildSparkline(memoryHistory[server.name])}
+									fill="none"
+									stroke="rgba(106, 176, 76, 0.8)"
+									stroke-width="2"
+									stroke-linecap="round"
+									stroke-linejoin="round"
+								/>
+							</svg>
+						{/if}
+					</div>
 				</div>
 
 				<div class="card-actions">
 					{#if server.up}
 						<button
 							class="btn-action btn-warning"
-							onclick={() => handleAction(server.name, 'stop')}
+							onclick={(event) => handleAction(server.name, 'stop', event)}
 							disabled={actionLoading[server.name]}
 						>
 							Stop
 						</button>
 						<button
 							class="btn-action"
-							onclick={() => handleAction(server.name, 'restart')}
+							onclick={(event) => handleAction(server.name, 'restart', event)}
 							disabled={actionLoading[server.name]}
 						>
 							Restart
 						</button>
 						<button
 							class="btn-action btn-danger"
-							onclick={() => handleAction(server.name, 'kill')}
+							onclick={(event) => handleAction(server.name, 'kill', event)}
 							disabled={actionLoading[server.name]}
 						>
 							Kill
@@ -159,16 +244,15 @@
 					{:else}
 						<button
 							class="btn-action btn-success"
-							onclick={() => handleAction(server.name, 'start')}
+							onclick={(event) => handleAction(server.name, 'start', event)}
 							disabled={actionLoading[server.name]}
 						>
 							Start
 						</button>
 					{/if}
-					<a href="/servers/{server.name}" class="btn-action">Details</a>
 					<button
 						class="btn-action btn-danger"
-						onclick={() => handleDelete(server.name)}
+						onclick={(event) => handleDelete(server.name, event)}
 						disabled={actionLoading[server.name]}
 					>
 						Delete
@@ -254,6 +338,18 @@
 		display: flex;
 		flex-direction: column;
 		gap: 16px;
+		cursor: pointer;
+		transition: transform 0.2s ease, box-shadow 0.2s ease;
+	}
+
+	.server-card:hover {
+		transform: translateY(-3px);
+		box-shadow: 0 28px 50px rgba(0, 0, 0, 0.45);
+	}
+
+	.server-card:focus-visible {
+		outline: 2px solid rgba(106, 176, 76, 0.6);
+		outline-offset: 4px;
 	}
 
 	.card-header {
@@ -349,6 +445,9 @@
 		border-radius: 12px;
 		padding: 12px;
 		border: 1px solid rgba(42, 47, 71, 0.8);
+		display: flex;
+		flex-direction: column;
+		gap: 4px;
 	}
 
 	.metric-label {
@@ -362,6 +461,12 @@
 		font-size: 16px;
 		color: #eef0f8;
 		font-weight: 600;
+	}
+
+	.sparkline {
+		width: 100%;
+		height: 32px;
+		opacity: 0.9;
 	}
 
 	.card-actions {

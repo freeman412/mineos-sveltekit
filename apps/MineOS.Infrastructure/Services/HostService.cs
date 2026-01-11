@@ -89,7 +89,19 @@ public sealed class HostService : IHostService
                 : (int?)null;
             var processInfo = _processManager.GetServerProcess(name);
             var up = processInfo?.JavaPid != null || processInfo?.ScreenPid != null;
-            var ping = up ? await _monitoringService.GetPingInfoAsync(name, cancellationToken) : null;
+            PingInfoDto? ping = null;
+            long? memoryBytes = null;
+
+            if (up)
+            {
+                var pingTask = _monitoringService.GetPingInfoAsync(name, cancellationToken);
+                var memoryTask = _monitoringService.GetMemoryInfoAsync(name, cancellationToken);
+
+                await Task.WhenAll(pingTask, memoryTask);
+                ping = await pingTask;
+                memoryBytes = memoryTask.Result.ResidentMemory;
+            }
+
             var playersOnline = ping?.PlayersOnline;
             var playersMax = ping?.PlayersMax ?? maxPlayers;
 
@@ -99,7 +111,8 @@ public sealed class HostService : IHostService
                 Profile: null,
                 Port: port,
                 PlayersOnline: playersOnline,
-                PlayersMax: playersMax));
+                PlayersMax: playersMax,
+                MemoryBytes: memoryBytes));
         }
 
         return results;

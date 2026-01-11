@@ -24,6 +24,9 @@
 	let heartbeatSource: EventSource | null = null;
 	let heartbeatStatus = $derived((heartbeat?.status ?? '').toLowerCase());
 	let isRunning = $derived(heartbeatStatus === 'up' || heartbeatStatus === 'running');
+	let memoryHistory = $state<number[]>([]);
+
+	const maxMemoryPoints = 40;
 
 	const resolveModule = <T>(module: T | { default: T }): T =>
 		(module as { default?: T }).default ?? (module as T);
@@ -82,6 +85,29 @@
 		const i = Math.floor(Math.log(value) / Math.log(1024));
 		return `${(value / Math.pow(1024, i)).toFixed(1)} ${units[i]}`;
 	};
+
+	function buildSparkline(values: number[], width = 200, height = 60) {
+		if (!values || values.length < 2) return '';
+		const min = Math.min(...values);
+		const max = Math.max(...values);
+		const range = max - min || 1;
+		return values
+			.map((value, idx) => {
+				const x = (idx / (values.length - 1)) * width;
+				const y = height - ((value - min) / range) * height;
+				return `${x},${y}`;
+			})
+			.join(' ');
+	}
+
+	function updateMemoryHistory(value: number | null) {
+		if (value == null || value <= 0) return;
+		const next = [...memoryHistory, value];
+		if (next.length > maxMemoryPoints) {
+			next.shift();
+		}
+		memoryHistory = next;
+	}
 
 	const formatDate = (dateStr: string) => {
 		const date = new Date(dateStr);
@@ -179,6 +205,9 @@
 			try {
 				heartbeat = JSON.parse(event.data);
 				heartbeatError = null;
+				if (heartbeat?.memoryBytes != null) {
+					updateMemoryHistory(heartbeat.memoryBytes);
+				}
 			} catch (err) {
 				console.error('Failed to parse heartbeat:', err);
 			}
@@ -282,6 +311,25 @@
 				</div>
 			</div>
 		</div>
+
+		{#if heartbeat?.memoryBytes}
+			<div class="card memory-card">
+				<h3>Memory Usage</h3>
+				<div class="memory-value">{formatBytes(heartbeat.memoryBytes)}</div>
+				{#if memoryHistory.length > 1}
+					<svg class="memory-chart" viewBox="0 0 200 60" preserveAspectRatio="none">
+						<polyline
+							points={buildSparkline(memoryHistory)}
+							fill="none"
+							stroke="rgba(106, 176, 76, 0.9)"
+							stroke-width="2.5"
+							stroke-linecap="round"
+							stroke-linejoin="round"
+						/>
+					</svg>
+				{/if}
+			</div>
+		{/if}
 
 		{#if heartbeat?.ping}
 			<div class="card">
@@ -473,6 +521,22 @@
 		font-size: 16px;
 		font-weight: 600;
 		color: #9aa2c5;
+	}
+
+	.memory-card {
+		gap: 12px;
+	}
+
+	.memory-value {
+		font-size: 22px;
+		font-weight: 600;
+		color: #eef0f8;
+	}
+
+	.memory-chart {
+		width: 100%;
+		height: 60px;
+		opacity: 0.9;
 	}
 
 	.info-grid {

@@ -18,6 +18,7 @@ export type ServerSummary = {
 	port?: number | null;
 	playersOnline?: number | null;
 	playersMax?: number | null;
+	memoryBytes?: number | null;
 };
 
 export type Profile = {

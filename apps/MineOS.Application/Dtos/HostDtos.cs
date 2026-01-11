@@ -10,7 +10,8 @@ public record ServerSummaryDto(
     string? Profile,
     int? Port,
     int? PlayersOnline,
-    int? PlayersMax);
+    int? PlayersMax,
+    long? MemoryBytes);
 
 public record ProfileDto(
     string Id,

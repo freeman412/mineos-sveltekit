@@ -11,6 +11,9 @@
 	let hostMetricsError = $state<string | null>(data.hostMetrics.error);
 	let serversStream: EventSource | null = null;
 	let metricsStream: EventSource | null = null;
+	let memoryHistory = $state<Record<string, number[]>>({});
+
+	const maxMemoryPoints = 30;
 
 	const formatBytes = (bytes: number): string => {
 		if (bytes === 0) return '0 B';
@@ -40,12 +43,46 @@
 	const maxPlayers = $derived(
 		servers.reduce((sum, s) => sum + (s.playersMax ?? 0), 0) ?? 0
 	);
+	const totalServerMemory = $derived(
+		servers.reduce((sum, s) => sum + (s.memoryBytes ?? 0), 0) ?? 0
+	);
+
+	function buildSparkline(values: number[], width = 120, height = 28) {
+		if (!values || values.length < 2) return '';
+		const min = Math.min(...values);
+		const max = Math.max(...values);
+		const range = max - min || 1;
+		return values
+			.map((value, idx) => {
+				const x = (idx / (values.length - 1)) * width;
+				const y = height - ((value - min) / range) * height;
+				return `${x},${y}`;
+			})
+			.join(' ');
+	}
+
+	function updateMemoryHistory(nextServers: ServerSummary[]) {
+		const updated = { ...memoryHistory };
+		for (const server of nextServers) {
+			if (server.memoryBytes == null) continue;
+			const history = updated[server.name] ? [...updated[server.name]] : [];
+			history.push(server.memoryBytes);
+			if (history.length > maxMemoryPoints) {
+				history.shift();
+			}
+			updated[server.name] = history;
+		}
+		memoryHistory = updated;
+	}
 
 	onMount(() => {
+		updateMemoryHistory(servers);
 		serversStream = new EventSource('/api/host/servers/stream');
 		serversStream.onmessage = (event) => {
 			try {
-				servers = JSON.parse(event.data) as ServerSummary[];
+				const nextServers = JSON.parse(event.data) as ServerSummary[];
+				servers = nextServers;
+				updateMemoryHistory(nextServers);
 				serversError = null;
 			} catch (err) {
 				console.error('Failed to parse servers stream:', err);
@@ -109,6 +146,14 @@
 			<div class="stat-content">
 				<div class="stat-value">{totalPlayers} / {maxPlayers}</div>
 				<div class="stat-label">Players Online</div>
+			</div>
+		</div>
+
+		<div class="stat-card">
+			<div class="stat-icon">[M]</div>
+			<div class="stat-content">
+				<div class="stat-value">{formatBytes(totalServerMemory)}</div>
+				<div class="stat-label">Server Memory</div>
 			</div>
 		</div>
 
@@ -214,6 +259,21 @@
 									<span class="players-count"
 										>{server.playersOnline}/{server.playersMax}</span
 									>
+								{/if}
+								{#if server.memoryBytes !== null && server.memoryBytes !== undefined}
+									<span class="memory-count">{formatBytes(server.memoryBytes)}</span>
+									{#if memoryHistory[server.name]?.length > 1}
+										<svg class="mini-sparkline" viewBox="0 0 120 28" preserveAspectRatio="none">
+											<polyline
+												points={buildSparkline(memoryHistory[server.name])}
+												fill="none"
+												stroke="rgba(106, 176, 76, 0.8)"
+												stroke-width="2"
+												stroke-linecap="round"
+												stroke-linejoin="round"
+											/>
+										</svg>
+									{/if}
 								{/if}
 							{:else}
 								<span class="status-indicator status-down"></span>
@@ -504,6 +564,19 @@
 		font-size: 13px;
 		color: #9aa2c5;
 		margin-left: 4px;
+	}
+
+	.memory-count {
+		font-size: 12px;
+		color: #7ae68d;
+		margin-left: 4px;
+	}
+
+	.mini-sparkline {
+		width: 90px;
+		height: 28px;
+		margin-left: 6px;
+		opacity: 0.9;
 	}
 
 	.error-box {
