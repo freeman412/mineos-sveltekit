@@ -51,3 +51,35 @@ public record CurseForgeSearchResultDto(
     int TotalCount,
     IReadOnlyList<CurseForgeModSummaryDto> Results
 );
+
+public record ModpackInstallProgressDto(
+    string JobId,
+    string ServerName,
+    string Status,
+    int Percentage,
+    string? CurrentStep,
+    int CurrentModIndex,
+    int TotalMods,
+    string? CurrentModName,
+    IReadOnlyList<string> OutputLines,
+    string? Error
+);
+
+public record InstalledModpackDto(
+    int Id,
+    string Name,
+    string? Version,
+    string? LogoUrl,
+    int ModCount,
+    DateTimeOffset InstalledAt
+);
+
+public record InstalledModWithModpackDto(
+    string FileName,
+    long SizeBytes,
+    DateTimeOffset ModifiedAt,
+    bool IsDisabled,
+    int? ModpackId,
+    string? ModpackName,
+    int? CurseForgeProjectId
+);

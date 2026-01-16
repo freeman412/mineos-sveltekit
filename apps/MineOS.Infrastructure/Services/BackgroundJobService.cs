@@ -17,7 +17,10 @@ public sealed class BackgroundJobService : IBackgroundJobService, IHostedService
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly Channel<BackgroundJob> _jobQueue;
     private readonly ConcurrentDictionary<string, JobState> _jobs;
+    private readonly ConcurrentDictionary<string, ModpackInstallState> _modpackStates = new();
+    private readonly Channel<ModpackJob> _modpackJobQueue;
     private Task? _executingTask;
+    private Task? _modpackExecutingTask;
     private readonly CancellationTokenSource _stoppingCts = new();
 
     public BackgroundJobService(ILogger<BackgroundJobService> logger, IServiceScopeFactory scopeFactory)
@@ -25,6 +28,7 @@ public sealed class BackgroundJobService : IBackgroundJobService, IHostedService
         _logger = logger;
         _scopeFactory = scopeFactory;
         _jobQueue = Channel.CreateUnbounded<BackgroundJob>();
+        _modpackJobQueue = Channel.CreateUnbounded<ModpackJob>();
         _jobs = new ConcurrentDictionary<string, JobState>();
     }
 
@@ -138,22 +142,76 @@ public sealed class BackgroundJobService : IBackgroundJobService, IHostedService
         }
     }
 
+    public string QueueModpackInstall(string serverName, Func<IModpackInstallState, CancellationToken, Task> work)
+    {
+        var jobId = Guid.NewGuid().ToString("N");
+        var state = new ModpackInstallState(jobId, serverName);
+        var job = new ModpackJob(jobId, serverName, state, work);
+
+        _modpackStates[jobId] = state;
+        _modpackJobQueue.Writer.TryWrite(job);
+
+        _logger.LogInformation("Queued modpack install job {JobId} for server {ServerName}", jobId, serverName);
+
+        return jobId;
+    }
+
+    public ModpackInstallProgressDto? GetModpackInstallStatus(string jobId)
+    {
+        if (_modpackStates.TryGetValue(jobId, out var state))
+        {
+            return state.ToDto();
+        }
+        return null;
+    }
+
+    public async IAsyncEnumerable<ModpackInstallProgressDto> StreamModpackProgressAsync(
+        string jobId,
+        [EnumeratorCancellation] CancellationToken cancellationToken)
+    {
+        if (!_modpackStates.TryGetValue(jobId, out var state))
+        {
+            yield break;
+        }
+
+        // Send current status immediately
+        yield return state.ToDto();
+
+        // Stream updates at faster interval for real-time output
+        while (!cancellationToken.IsCancellationRequested && !state.IsComplete)
+        {
+            await Task.Delay(300, cancellationToken);
+            yield return state.ToDto();
+        }
+
+        // Final state
+        if (!cancellationToken.IsCancellationRequested)
+        {
+            yield return state.ToDto();
+        }
+    }
+
     public Task StartAsync(CancellationToken cancellationToken)
     {
         _executingTask = ExecuteAsync(_stoppingCts.Token);
+        _modpackExecutingTask = ExecuteModpackJobsAsync(_stoppingCts.Token);
         return Task.CompletedTask;
     }
 
     public async Task StopAsync(CancellationToken cancellationToken)
     {
-        if (_executingTask == null)
+        if (_executingTask == null && _modpackExecutingTask == null)
         {
             return;
         }
 
         _stoppingCts.Cancel();
 
-        await Task.WhenAny(_executingTask, Task.Delay(Timeout.Infinite, cancellationToken));
+        var tasks = new List<Task>();
+        if (_executingTask != null) tasks.Add(_executingTask);
+        if (_modpackExecutingTask != null) tasks.Add(_modpackExecutingTask);
+
+        await Task.WhenAny(Task.WhenAll(tasks), Task.Delay(Timeout.Infinite, cancellationToken));
     }
 
     private async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -163,6 +221,16 @@ public sealed class BackgroundJobService : IBackgroundJobService, IHostedService
         await foreach (var job in _jobQueue.Reader.ReadAllAsync(stoppingToken))
         {
             await ProcessJobAsync(job, stoppingToken);
+        }
+    }
+
+    private async Task ExecuteModpackJobsAsync(CancellationToken stoppingToken)
+    {
+        _logger.LogInformation("Modpack install job service started");
+
+        await foreach (var job in _modpackJobQueue.Reader.ReadAllAsync(stoppingToken))
+        {
+            await ProcessModpackJobAsync(job, stoppingToken);
         }
     }
 
@@ -206,6 +274,31 @@ public sealed class BackgroundJobService : IBackgroundJobService, IHostedService
         }
     }
 
+    private async Task ProcessModpackJobAsync(ModpackJob job, CancellationToken stoppingToken)
+    {
+        var state = job.State;
+        state.SetRunning();
+        state.AppendOutput($"Starting modpack installation for {job.ServerName}...");
+
+        try
+        {
+            await job.Work(state, stoppingToken);
+
+            state.MarkCompleted();
+            _logger.LogInformation("Modpack install job {JobId} completed successfully", job.JobId);
+        }
+        catch (OperationCanceledException)
+        {
+            state.MarkFailed("Installation was cancelled");
+            _logger.LogWarning("Modpack install job {JobId} was cancelled", job.JobId);
+        }
+        catch (Exception ex)
+        {
+            state.MarkFailed(ex.Message);
+            _logger.LogError(ex, "Modpack install job {JobId} failed", job.JobId);
+        }
+    }
+
     public void Dispose()
     {
         _stoppingCts.Cancel();
@@ -217,6 +310,13 @@ public sealed class BackgroundJobService : IBackgroundJobService, IHostedService
         string Type,
         string ServerName,
         Func<IProgress<JobProgressDto>, CancellationToken, Task> Work
+    );
+
+    private record ModpackJob(
+        string JobId,
+        string ServerName,
+        ModpackInstallState State,
+        Func<IModpackInstallState, CancellationToken, Task> Work
     );
 
     private class JobState

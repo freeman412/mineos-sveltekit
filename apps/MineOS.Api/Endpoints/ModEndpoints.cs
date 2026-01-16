@@ -151,6 +151,111 @@ public static class ModEndpoints
             return Results.Accepted($"/api/v1/jobs/{jobId}", new { jobId, message = "Modpack install queued" });
         });
 
+        // Enhanced modpack install with state tracking and rollback
+        servers.MapPost("/{name}/modpacks/install-enhanced", async (
+            string name,
+            [FromBody] InstallModpackEnhancedRequest request,
+            IModService modService,
+            IBackgroundJobService jobService) =>
+        {
+            var jobId = jobService.QueueModpackInstall(name, async (state, ct) =>
+            {
+                await modService.InstallModpackWithStateAsync(
+                    name,
+                    request.ModpackId,
+                    request.FileId,
+                    request.ModpackName,
+                    request.ModpackVersion,
+                    request.LogoUrl,
+                    state,
+                    ct);
+            });
+
+            return Results.Accepted($"/api/v1/servers/{name}/modpacks/install/{jobId}/stream", new { jobId, message = "Modpack install queued" });
+        });
+
+        // Stream modpack install progress with output
+        servers.MapGet("/{name}/modpacks/install/{jobId}/stream", async (
+            HttpContext context,
+            string name,
+            string jobId,
+            IBackgroundJobService jobService,
+            CancellationToken cancellationToken) =>
+        {
+            context.Response.Headers.ContentType = "text/event-stream";
+            context.Response.Headers.CacheControl = "no-cache";
+            context.Response.Headers.Connection = "keep-alive";
+
+            await context.Response.StartAsync(cancellationToken);
+
+            await foreach (var progress in jobService.StreamModpackProgressAsync(jobId, cancellationToken))
+            {
+                var json = JsonSerializer.Serialize(progress, JsonOptions);
+                await context.Response.WriteAsync($"data: {json}\n\n", cancellationToken);
+                await context.Response.Body.FlushAsync(cancellationToken);
+            }
+
+            return Results.Empty;
+        });
+
+        // List installed modpacks
+        servers.MapGet("/{name}/modpacks", async (
+            string name,
+            IModService modService,
+            ILogger<IModService> logger,
+            CancellationToken cancellationToken) =>
+        {
+            try
+            {
+                var modpacks = await modService.ListInstalledModpacksAsync(name, cancellationToken);
+                return Results.Ok(modpacks);
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Failed to list modpacks for server {ServerName}", name);
+                return Results.Problem(ex.Message);
+            }
+        });
+
+        // Uninstall modpack
+        servers.MapDelete("/{name}/modpacks/{modpackId:int}", async (
+            string name,
+            int modpackId,
+            IModService modService,
+            CancellationToken cancellationToken) =>
+        {
+            try
+            {
+                await modService.UninstallModpackAsync(name, modpackId, cancellationToken);
+                return Results.Ok(new { message = "Modpack uninstalled" });
+            }
+            catch (InvalidOperationException ex)
+            {
+                return Results.NotFound(new { error = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                return Results.Problem(ex.Message);
+            }
+        });
+
+        // List mods with modpack associations
+        servers.MapGet("/{name}/mods/with-modpacks", async (
+            string name,
+            IModService modService,
+            CancellationToken cancellationToken) =>
+        {
+            try
+            {
+                var mods = await modService.ListModsWithModpacksAsync(name, cancellationToken);
+                return Results.Ok(mods);
+            }
+            catch (DirectoryNotFoundException ex)
+            {
+                return Results.NotFound(new { error = ex.Message });
+            }
+        });
+
         servers.MapGet("/{name}/mods/stream", async (
             HttpContext context,
             string name,
@@ -186,3 +291,10 @@ public static class ModEndpoints
 public record InstallModRequest(int ModId, int? FileId);
 
 public record InstallModpackRequest(int ModpackId, int? FileId);
+
+public record InstallModpackEnhancedRequest(
+    int ModpackId,
+    int? FileId,
+    string ModpackName,
+    string? ModpackVersion,
+    string? LogoUrl);

@@ -1,10 +1,15 @@
 using System.IO.Compression;
+using System.Net;
 using System.Text.Json;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using MineOS.Application.Dtos;
 using MineOS.Application.Interfaces;
 using MineOS.Application.Options;
+using MineOS.Domain.Entities;
+using MineOS.Infrastructure.Persistence;
 using MineOS.Infrastructure.Utilities;
 
 namespace MineOS.Infrastructure.Services;
@@ -12,6 +17,12 @@ namespace MineOS.Infrastructure.Services;
 public sealed class ModService : IModService
 {
     private const string RestartFlagFile = ".mineos-restart-required";
+    private static readonly TimeSpan[] DownloadRetryDelays = new[]
+    {
+        TimeSpan.FromSeconds(2),
+        TimeSpan.FromSeconds(5),
+        TimeSpan.FromSeconds(10)
+    };
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         PropertyNameCaseInsensitive = true
@@ -19,19 +30,25 @@ public sealed class ModService : IModService
 
     private readonly ILogger<ModService> _logger;
     private readonly HostOptions _hostOptions;
+    private readonly CurseForgeOptions _curseForgeOptions;
     private readonly ICurseForgeService _curseForgeService;
     private readonly HttpClient _httpClient;
+    private readonly IServiceScopeFactory _scopeFactory;
 
     public ModService(
         ILogger<ModService> logger,
         IOptions<HostOptions> hostOptions,
+        IOptions<CurseForgeOptions> curseForgeOptions,
         ICurseForgeService curseForgeService,
-        HttpClient httpClient)
+        HttpClient httpClient,
+        IServiceScopeFactory scopeFactory)
     {
         _logger = logger;
         _hostOptions = hostOptions.Value;
+        _curseForgeOptions = curseForgeOptions.Value;
         _curseForgeService = curseForgeService;
         _httpClient = httpClient;
+        _scopeFactory = scopeFactory;
     }
 
     public Task<IReadOnlyList<InstalledModDto>> ListModsAsync(string serverName, CancellationToken cancellationToken)
@@ -186,6 +203,508 @@ public sealed class ModService : IModService
         _logger.LogInformation("Installed modpack {ModpackId} ({FileName}) for server {ServerName}", modpackId, modpackFile.FileName, serverName);
     }
 
+    public async Task<IReadOnlyList<InstalledModWithModpackDto>> ListModsWithModpacksAsync(
+        string serverName,
+        CancellationToken cancellationToken)
+    {
+        var serverPath = GetServerPath(serverName);
+        if (!Directory.Exists(serverPath))
+        {
+            throw new DirectoryNotFoundException($"Server '{serverName}' not found");
+        }
+
+        var modsPath = GetModsPath(serverName);
+        if (!Directory.Exists(modsPath))
+        {
+            return Array.Empty<InstalledModWithModpackDto>();
+        }
+
+        // Get all mod files from disk
+        var modFiles = Directory.GetFiles(modsPath)
+            .Select(path => new FileInfo(path))
+            .ToDictionary(f => f.Name, f => f, StringComparer.OrdinalIgnoreCase);
+
+        // Get installed mod records from database
+        Dictionary<string, InstalledModRecord> installedModsByFileName;
+        try
+        {
+            using var scope = _scopeFactory.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+
+            var installedMods = await db.InstalledModRecords
+                .AsNoTracking()
+                .Where(r => r.ServerName == serverName)
+                .Include(r => r.Modpack)
+                .ToListAsync(cancellationToken);
+
+            installedModsByFileName = installedMods.ToDictionary(
+                m => m.FileName,
+                m => m,
+                StringComparer.OrdinalIgnoreCase);
+        }
+        catch (Microsoft.Data.Sqlite.SqliteException ex) when (ex.SqliteErrorCode == 1)
+        {
+            _logger.LogWarning("InstalledModRecords table does not exist yet. Run database migrations.");
+            installedModsByFileName = new Dictionary<string, InstalledModRecord>(StringComparer.OrdinalIgnoreCase);
+        }
+
+        var result = new List<InstalledModWithModpackDto>();
+
+        foreach (var (fileName, fileInfo) in modFiles)
+        {
+            var isDisabled = fileName.EndsWith(".disabled", StringComparison.OrdinalIgnoreCase);
+
+            if (installedModsByFileName.TryGetValue(fileName, out var record))
+            {
+                result.Add(new InstalledModWithModpackDto(
+                    fileName,
+                    fileInfo.Length,
+                    fileInfo.LastWriteTimeUtc,
+                    isDisabled,
+                    record.ModpackId,
+                    record.Modpack?.Name,
+                    record.CurseForgeProjectId));
+            }
+            else
+            {
+                result.Add(new InstalledModWithModpackDto(
+                    fileName,
+                    fileInfo.Length,
+                    fileInfo.LastWriteTimeUtc,
+                    isDisabled,
+                    null,
+                    null,
+                    null));
+            }
+        }
+
+        return result.OrderBy(m => m.FileName).ToList();
+    }
+
+    public async Task InstallModpackWithStateAsync(
+        string serverName,
+        int modpackId,
+        int? fileId,
+        string modpackName,
+        string? modpackVersion,
+        string? logoUrl,
+        IModpackInstallState state,
+        CancellationToken cancellationToken)
+    {
+        var serverPath = GetServerPath(serverName);
+        if (!Directory.Exists(serverPath))
+        {
+            throw new DirectoryNotFoundException($"Server '{serverName}' not found");
+        }
+
+        state.AppendOutput($"Resolving modpack file for {modpackName}...");
+        var resolvedFileId = await ResolveFileIdAsync(modpackId, fileId, cancellationToken);
+        var modpackFile = await _curseForgeService.GetModFileAsync(modpackId, resolvedFileId, cancellationToken);
+        var downloadUrl = modpackFile.DownloadUrl ??
+                          await _curseForgeService.GetModFileDownloadUrlAsync(modpackId, resolvedFileId, cancellationToken);
+
+        var modpackPath = Path.Combine(EnsureModpackPath(serverName), ValidateFileName(modpackFile.FileName));
+
+        state.UpdateProgress(5, "Downloading modpack archive");
+        state.AppendOutput($"Downloading {modpackFile.FileName}...");
+        await DownloadFileWithStateAsync(downloadUrl, modpackPath, state, cancellationToken);
+
+        try
+        {
+            await ApplyModpackWithStateAsync(serverName, modpackPath, modpackId, modpackName, modpackVersion, logoUrl, state, cancellationToken);
+            MarkRestartRequired(serverPath);
+            _logger.LogInformation("Installed modpack {ModpackId} ({FileName}) for server {ServerName}", modpackId, modpackFile.FileName, serverName);
+        }
+        catch (Exception ex)
+        {
+            state.AppendOutput($"ERROR: {ex.Message}");
+            state.AppendOutput("Rolling back installation...");
+
+            var installedFiles = state.GetInstalledFilePaths();
+            foreach (var filePath in installedFiles)
+            {
+                try
+                {
+                    if (File.Exists(filePath))
+                    {
+                        File.Delete(filePath);
+                        state.AppendOutput($"Removed: {Path.GetFileName(filePath)}");
+                    }
+                }
+                catch (Exception deleteEx)
+                {
+                    state.AppendOutput($"Failed to remove {Path.GetFileName(filePath)}: {deleteEx.Message}");
+                    _logger.LogWarning(deleteEx, "Failed to remove file during rollback: {FilePath}", filePath);
+                }
+            }
+
+            state.AppendOutput($"Rollback complete. Removed {installedFiles.Count} files.");
+            throw;
+        }
+    }
+
+    public async Task<IReadOnlyList<InstalledModpackDto>> ListInstalledModpacksAsync(
+        string serverName,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            using var scope = _scopeFactory.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+
+            var modpacks = await db.InstalledModpacks
+                .AsNoTracking()
+                .Where(m => m.ServerName == serverName)
+                .ToListAsync(cancellationToken);
+
+            // Order on client side (SQLite doesn't support DateTimeOffset in ORDER BY)
+            return modpacks
+                .OrderByDescending(m => m.InstalledAt)
+                .Select(m => new InstalledModpackDto(
+                    m.Id,
+                    m.Name,
+                    m.Version,
+                    m.LogoUrl,
+                    m.ModCount,
+                    m.InstalledAt))
+                .ToList();
+        }
+        catch (Microsoft.Data.Sqlite.SqliteException ex) when (ex.SqliteErrorCode == 1) // SQLITE_ERROR - table doesn't exist
+        {
+            _logger.LogWarning("InstalledModpacks table does not exist yet. Run database migrations.");
+            return Array.Empty<InstalledModpackDto>();
+        }
+    }
+
+    public async Task UninstallModpackAsync(
+        string serverName,
+        int modpackDbId,
+        CancellationToken cancellationToken)
+    {
+        using var scope = _scopeFactory.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+
+        var modpack = await db.InstalledModpacks
+            .Include(m => m.Mods)
+            .FirstOrDefaultAsync(m => m.Id == modpackDbId && m.ServerName == serverName, cancellationToken);
+
+        if (modpack == null)
+        {
+            throw new InvalidOperationException($"Modpack with ID {modpackDbId} not found");
+        }
+
+        var modsPath = GetModsPath(serverName);
+        var deletedCount = 0;
+
+        foreach (var modRecord in modpack.Mods)
+        {
+            var modPath = Path.Combine(modsPath, modRecord.FileName);
+            if (File.Exists(modPath))
+            {
+                File.Delete(modPath);
+                deletedCount++;
+                _logger.LogDebug("Deleted mod file {FileName} from modpack {ModpackName}", modRecord.FileName, modpack.Name);
+            }
+        }
+
+        db.InstalledModpacks.Remove(modpack);
+        await db.SaveChangesAsync(cancellationToken);
+
+        MarkRestartRequired(GetServerPath(serverName));
+        _logger.LogInformation("Uninstalled modpack {ModpackName} ({ModpackId}), removed {Count} mod files",
+            modpack.Name, modpackDbId, deletedCount);
+    }
+
+    private async Task ApplyModpackWithStateAsync(
+        string serverName,
+        string modpackPath,
+        int curseForgeProjectId,
+        string modpackName,
+        string? modpackVersion,
+        string? logoUrl,
+        IModpackInstallState state,
+        CancellationToken cancellationToken)
+    {
+        await using var fileStream = new FileStream(modpackPath, FileMode.Open, FileAccess.Read, FileShare.Read);
+        using var archive = new ZipArchive(fileStream, ZipArchiveMode.Read);
+
+        var manifestEntry = archive.GetEntry("manifest.json");
+        if (manifestEntry == null)
+        {
+            throw new InvalidOperationException("Modpack manifest.json not found");
+        }
+
+        ModpackManifest? manifest;
+        await using (var manifestStream = manifestEntry.Open())
+        {
+            manifest = await JsonSerializer.DeserializeAsync<ModpackManifest>(manifestStream, JsonOptions, cancellationToken);
+        }
+
+        if (manifest == null || manifest.Files.Count == 0)
+        {
+            throw new InvalidOperationException("Modpack manifest is missing required files");
+        }
+
+        state.SetTotalMods(manifest.Files.Count);
+        state.AppendOutput($"Found {manifest.Files.Count} mods to install");
+
+        state.UpdateProgress(10, "Extracting overrides");
+        state.AppendOutput("Extracting override files...");
+        var extractedOverrides = ExtractOverridesWithTracking(archive, serverName, state);
+        state.AppendOutput($"Extracted {extractedOverrides} override files");
+
+        state.UpdateProgress(15, "Resolving modpack files");
+        var downloads = await ResolveModpackDownloadsAsync(
+            manifest.Files,
+            cancellationToken,
+            state.AppendOutput);
+        state.SetTotalMods(downloads.Count);
+        state.AppendOutput($"Resolved {downloads.Count} mod files");
+
+        var installedModRecords = new List<InstalledModRecord>();
+
+        for (var i = 0; i < downloads.Count; i++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            var download = downloads[i];
+            state.UpdateModProgress(i + 1, download.FileName);
+
+            try
+            {
+                state.AppendOutput($"Downloading: {download.FileName}");
+                state.AppendOutput($"  URL: {download.DownloadUrl}");
+                _logger.LogInformation("Downloading mod {ModId}/{FileId} ({FileName}) from {Url}",
+                    download.ProjectId, download.FileId, download.FileName, download.DownloadUrl);
+
+                var modsPath = EnsureModsPath(serverName);
+                var targetPath = Path.Combine(modsPath, ValidateFileName(download.FileName));
+
+                await DownloadFileWithStateAsync(download.DownloadUrl, targetPath, state, cancellationToken);
+                state.RecordInstalledFile(targetPath);
+
+                installedModRecords.Add(new InstalledModRecord
+                {
+                    ServerName = serverName,
+                    FileName = download.FileName,
+                    CurseForgeProjectId = download.ProjectId,
+                    ModName = null, // Could fetch mod name if needed
+                    InstalledAt = DateTimeOffset.UtcNow
+                });
+
+                state.AppendOutput($"Installed: {download.FileName}");
+            }
+            catch (Exception ex)
+            {
+                state.AppendOutput($"ERROR downloading mod {download.ProjectId}: {ex.Message}");
+                throw;
+            }
+        }
+
+        state.UpdateProgress(95, "Saving modpack records");
+        state.AppendOutput("Saving installation records to database...");
+
+        using var scope = _scopeFactory.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+
+        // Check if modpack already exists for this server
+        var existingModpack = await db.InstalledModpacks
+            .FirstOrDefaultAsync(m => m.ServerName == serverName && m.CurseForgeProjectId == curseForgeProjectId, cancellationToken);
+
+        if (existingModpack != null)
+        {
+            // Update existing modpack
+            existingModpack.Name = modpackName;
+            existingModpack.Version = modpackVersion;
+            existingModpack.LogoUrl = logoUrl;
+            existingModpack.ModCount = installedModRecords.Count;
+            existingModpack.InstalledAt = DateTimeOffset.UtcNow;
+
+            // Remove old mod records
+            var oldRecords = await db.InstalledModRecords
+                .Where(r => r.ModpackId == existingModpack.Id)
+                .ToListAsync(cancellationToken);
+            db.InstalledModRecords.RemoveRange(oldRecords);
+
+            // Add new mod records
+            foreach (var record in installedModRecords)
+            {
+                record.ModpackId = existingModpack.Id;
+            }
+            db.InstalledModRecords.AddRange(installedModRecords);
+        }
+        else
+        {
+            // Create new modpack
+            var modpack = new InstalledModpack
+            {
+                ServerName = serverName,
+                CurseForgeProjectId = curseForgeProjectId,
+                Name = modpackName,
+                Version = modpackVersion,
+                LogoUrl = logoUrl,
+                ModCount = installedModRecords.Count,
+                InstalledAt = DateTimeOffset.UtcNow
+            };
+            db.InstalledModpacks.Add(modpack);
+            await db.SaveChangesAsync(cancellationToken);
+
+            foreach (var record in installedModRecords)
+            {
+                record.ModpackId = modpack.Id;
+            }
+            db.InstalledModRecords.AddRange(installedModRecords);
+        }
+
+        await db.SaveChangesAsync(cancellationToken);
+        state.AppendOutput($"Installation complete! Installed {installedModRecords.Count} mods.");
+    }
+
+    private int ExtractOverridesWithTracking(ZipArchive archive, string serverName, IModpackInstallState state)
+    {
+        var serverPath = GetServerPath(serverName);
+        var count = 0;
+
+        foreach (var entry in archive.Entries)
+        {
+            if (!entry.FullName.StartsWith("overrides/", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            if (string.Equals(entry.FullName, "overrides/", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            var relativePath = entry.FullName.Substring("overrides/".Length);
+            var destination = GetSafePath(serverPath, relativePath);
+
+            if (entry.FullName.EndsWith("/", StringComparison.Ordinal))
+            {
+                Directory.CreateDirectory(destination);
+                OwnershipHelper.TrySetOwnership(destination, _hostOptions.RunAsUid, _hostOptions.RunAsGid, _logger);
+                continue;
+            }
+
+            var directory = Path.GetDirectoryName(destination);
+            if (!string.IsNullOrWhiteSpace(directory))
+            {
+                Directory.CreateDirectory(directory);
+                OwnershipHelper.TrySetOwnership(directory, _hostOptions.RunAsUid, _hostOptions.RunAsGid, _logger);
+            }
+
+            using var entryStream = entry.Open();
+            using var fileStream = new FileStream(destination, FileMode.Create, FileAccess.Write, FileShare.None);
+            entryStream.CopyTo(fileStream);
+            OwnershipHelper.TrySetOwnership(destination, _hostOptions.RunAsUid, _hostOptions.RunAsGid, _logger);
+
+            state.RecordInstalledFile(destination);
+            count++;
+        }
+
+        return count;
+    }
+
+    private int ExtractModsFromArchive(ZipArchive archive, string serverName, IModpackInstallState state)
+    {
+        var modsPath = EnsureModsPath(serverName);
+        var count = 0;
+
+        foreach (var entry in archive.Entries)
+        {
+            // Look for mod files in overrides/mods/ or mods/ folders
+            var isInMods = entry.FullName.StartsWith("overrides/mods/", StringComparison.OrdinalIgnoreCase) ||
+                           entry.FullName.StartsWith("mods/", StringComparison.OrdinalIgnoreCase);
+
+            if (!isInMods)
+            {
+                continue;
+            }
+
+            // Skip directory entries
+            if (entry.FullName.EndsWith("/", StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            // Only extract .jar files
+            if (!entry.Name.EndsWith(".jar", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            var destination = Path.Combine(modsPath, entry.Name);
+            using var entryStream = entry.Open();
+            using var fileStream = new FileStream(destination, FileMode.Create, FileAccess.Write, FileShare.None);
+            entryStream.CopyTo(fileStream);
+            OwnershipHelper.TrySetOwnership(destination, _hostOptions.RunAsUid, _hostOptions.RunAsGid, _logger);
+
+            state.RecordInstalledFile(destination);
+            state.AppendOutput($"Extracted mod: {entry.Name}");
+            count++;
+        }
+
+        return count;
+    }
+
+    private async Task SaveModpackRecordsAsync(
+        string serverName,
+        int curseForgeProjectId,
+        string modpackName,
+        string? modpackVersion,
+        string? logoUrl,
+        List<InstalledModRecord> modRecords,
+        CancellationToken cancellationToken)
+    {
+        using var scope = _scopeFactory.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+
+        var modpack = new InstalledModpack
+        {
+            ServerName = serverName,
+            CurseForgeProjectId = curseForgeProjectId,
+            Name = modpackName,
+            Version = modpackVersion,
+            LogoUrl = logoUrl,
+            ModCount = modRecords.Count,
+            InstalledAt = DateTimeOffset.UtcNow
+        };
+
+        db.InstalledModpacks.Add(modpack);
+        await db.SaveChangesAsync(cancellationToken);
+
+        // Associate mods with the modpack
+        foreach (var record in modRecords)
+        {
+            record.ModpackId = modpack.Id;
+        }
+
+        db.InstalledModRecords.AddRange(modRecords);
+        await db.SaveChangesAsync(cancellationToken);
+    }
+
+    private async Task DownloadFileWithStateAsync(
+        string url,
+        string targetPath,
+        IModpackInstallState state,
+        CancellationToken cancellationToken)
+    {
+        await DownloadFileWithRetriesAsync(
+            url,
+            targetPath,
+            cancellationToken,
+            null,
+            message => state.AppendOutput(message));
+
+        await OwnershipHelper.ChangeOwnershipAsync(
+            targetPath,
+            _hostOptions.RunAsUid,
+            _hostOptions.RunAsGid,
+            _logger,
+            cancellationToken);
+    }
+
     private async Task ApplyModpackAsync(
         string serverName,
         string modpackPath,
@@ -220,15 +739,36 @@ public sealed class ModService : IModService
         completed++;
         ReportProgress(progress, serverName, "modpack-install", completed, total, "Overrides extracted");
 
-        foreach (var file in manifest.Files)
+        ReportProgress(progress, serverName, "modpack-install", completed, total, "Resolving modpack files");
+        var downloads = await ResolveModpackDownloadsAsync(
+            manifest.Files,
+            cancellationToken,
+            message => ReportProgress(progress, serverName, "modpack-install", completed, total, message));
+        total = downloads.Count + 1;
+
+        foreach (var download in downloads)
         {
             cancellationToken.ThrowIfCancellationRequested();
             var stepMessage = $"Downloading mod {completed}/{total - 1}";
             ReportProgress(progress, serverName, "modpack-install", completed, total, stepMessage);
-            var silentProgress = new Progress<JobProgressDto>(_ => { });
-            await InstallModFromCurseForgeAsync(serverName, file.ProjectId, file.FileId, silentProgress, cancellationToken);
+            var modsPath = EnsureModsPath(serverName);
+            var targetPath = Path.Combine(modsPath, ValidateFileName(download.FileName));
+
+            await DownloadFileWithRetriesAsync(
+                download.DownloadUrl,
+                targetPath,
+                cancellationToken,
+                null,
+                message => ReportProgress(progress, serverName, "modpack-install", completed, total, message));
+
+            await OwnershipHelper.ChangeOwnershipAsync(
+                targetPath,
+                _hostOptions.RunAsUid,
+                _hostOptions.RunAsGid,
+                _logger,
+                cancellationToken);
             completed++;
-            ReportProgress(progress, serverName, "modpack-install", completed, total, $"Downloaded mod {file.ProjectId}");
+            ReportProgress(progress, serverName, "modpack-install", completed, total, $"Downloaded {download.FileName}");
         }
     }
 
@@ -271,6 +811,126 @@ public sealed class ModService : IModService
         }
     }
 
+    private sealed record ModpackDownload(int ProjectId, int FileId, string FileName, string DownloadUrl);
+
+    private async Task<IReadOnlyList<ModpackDownload>> ResolveModpackDownloadsAsync(
+        IReadOnlyList<ModpackFile> files,
+        CancellationToken cancellationToken,
+        Action<string>? log = null)
+    {
+        if (files.Count == 0)
+        {
+            return Array.Empty<ModpackDownload>();
+        }
+
+        var fileIds = files.Select(f => f.FileId).Distinct().ToList();
+        var fileConfigById = files
+            .GroupBy(f => f.FileId)
+            .ToDictionary(g => g.Key, g => g.First());
+
+        log?.Invoke($"Fetching metadata for {fileIds.Count} files...");
+        var fileById = new Dictionary<int, CurseForgeFileDto>();
+        try
+        {
+            var fileDtos = await _curseForgeService.GetModFilesAsync(fileIds, cancellationToken);
+            foreach (var file in fileDtos)
+            {
+                fileById[file.Id] = file;
+            }
+        }
+        catch (Exception ex)
+        {
+            log?.Invoke($"Bulk metadata fetch failed: {ex.Message}. Falling back to per-file lookups...");
+        }
+
+        var missingFiles = fileIds.Where(id => !fileById.ContainsKey(id)).ToList();
+        if (missingFiles.Count > 0)
+        {
+            log?.Invoke($"Missing metadata for {missingFiles.Count} files, requesting individually...");
+            foreach (var missingId in missingFiles)
+            {
+                var fallback = fileConfigById[missingId];
+                try
+                {
+                    var file = await _curseForgeService.GetModFileAsync(
+                        fallback.ProjectId,
+                        fallback.FileId,
+                        cancellationToken);
+                    fileById[missingId] = file;
+                }
+                catch (Exception ex)
+                {
+                    if (!fallback.Required)
+                    {
+                        log?.Invoke($"Skipping optional mod file {missingId}: {ex.Message}");
+                        continue;
+                    }
+
+                    throw;
+                }
+            }
+        }
+
+        var downloadUrls = new Dictionary<int, string>();
+        foreach (var file in fileById.Values)
+        {
+            if (!string.IsNullOrWhiteSpace(file.DownloadUrl))
+            {
+                downloadUrls[file.Id] = file.DownloadUrl!;
+                _logger.LogDebug("File {FileId} ({FileName}) has downloadUrl from metadata: {Url}",
+                    file.Id, file.FileName, file.DownloadUrl);
+            }
+        }
+
+        // Files without downloadUrl in metadata cannot be downloaded (mod author restriction)
+        var missingUrls = fileById.Keys.Where(id => !downloadUrls.ContainsKey(id)).ToList();
+        if (missingUrls.Count > 0)
+        {
+            log?.Invoke($"WARNING: {missingUrls.Count} files have no download URL (mod author restriction)");
+            _logger.LogWarning("Skipping {Count} files without downloadUrl - mod authors have disabled direct downloads", missingUrls.Count);
+            foreach (var fileId in missingUrls)
+            {
+                var fallback = fileConfigById[fileId];
+                var modFile = fileById[fileId];
+                log?.Invoke($"SKIPPED: {modFile.FileName} - Direct downloads disabled by mod author");
+                log?.Invoke($"  Manual download: https://www.curseforge.com/minecraft/mc-mods/{fallback.ProjectId}/files/{fallback.FileId}");
+                _logger.LogWarning("Skipping file {FileId} ({FileName}) for mod {ProjectId} - no downloadUrl available",
+                    fallback.FileId, modFile.FileName, fallback.ProjectId);
+            }
+        }
+
+        var downloads = new List<ModpackDownload>(files.Count);
+        foreach (var file in files)
+        {
+            if (!fileById.TryGetValue(file.FileId, out var modFile))
+            {
+                if (!file.Required)
+                {
+                    log?.Invoke($"Skipping optional mod file {file.FileId}: metadata unavailable");
+                    continue;
+                }
+
+                throw new InvalidOperationException($"Modpack file metadata missing for file ID {file.FileId}");
+            }
+
+            if (!downloadUrls.TryGetValue(file.FileId, out var downloadUrl) || string.IsNullOrWhiteSpace(downloadUrl))
+            {
+                // Skip files without download URLs - mod authors have disabled direct downloads
+                log?.Invoke($"SKIPPED: {modFile.FileName} - Mod author requires manual download from CurseForge");
+                log?.Invoke($"  Visit: https://www.curseforge.com/minecraft/mc-mods/{file.ProjectId}/files/{file.FileId}");
+                continue;
+            }
+
+            downloads.Add(new ModpackDownload(
+                file.ProjectId,
+                file.FileId,
+                modFile.FileName,
+                downloadUrl));
+        }
+
+        return downloads;
+    }
+
     private static void ReportProgress(
         IProgress<JobProgressDto> progress,
         string serverName,
@@ -298,35 +958,33 @@ public sealed class ModService : IModService
         string type,
         CancellationToken cancellationToken)
     {
-        using var response = await _httpClient.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
-        response.EnsureSuccessStatusCode();
-
-        var totalBytes = response.Content.Headers.ContentLength;
-
-        await using var source = await response.Content.ReadAsStreamAsync(cancellationToken);
-        await using var target = new FileStream(targetPath, FileMode.Create, FileAccess.Write, FileShare.None);
-
-        var buffer = new byte[8192];
-        long totalRead = 0;
-        int read;
-        while ((read = await source.ReadAsync(buffer, cancellationToken)) > 0)
-        {
-            await target.WriteAsync(buffer.AsMemory(0, read), cancellationToken);
-            totalRead += read;
-
-            if (totalBytes.HasValue && totalBytes.Value > 0)
+        await DownloadFileWithRetriesAsync(
+            url,
+            targetPath,
+            cancellationToken,
+            (totalRead, totalBytes) =>
             {
-                var percent = (int)Math.Round(totalRead * 100.0 / totalBytes.Value);
-                progress.Report(new JobProgressDto(
-                    string.Empty,
-                    type,
-                    serverName,
-                    "running",
-                    percent,
-                    $"Downloading {Path.GetFileName(targetPath)}",
-                    DateTimeOffset.UtcNow));
-            }
-        }
+                if (totalBytes.HasValue && totalBytes.Value > 0)
+                {
+                    var percent = (int)Math.Round(totalRead * 100.0 / totalBytes.Value);
+                    progress.Report(new JobProgressDto(
+                        string.Empty,
+                        type,
+                        serverName,
+                        "running",
+                        percent,
+                        $"Downloading {Path.GetFileName(targetPath)}",
+                        DateTimeOffset.UtcNow));
+                }
+            },
+            message => progress.Report(new JobProgressDto(
+                string.Empty,
+                type,
+                serverName,
+                "running",
+                0,
+                message,
+                DateTimeOffset.UtcNow)));
 
         await OwnershipHelper.ChangeOwnershipAsync(
             targetPath,
@@ -334,6 +992,116 @@ public sealed class ModService : IModService
             _hostOptions.RunAsGid,
             _logger,
             cancellationToken);
+    }
+
+    private async Task DownloadFileWithRetriesAsync(
+        string url,
+        string targetPath,
+        CancellationToken cancellationToken,
+        Action<long, long?>? progressCallback,
+        Action<string>? onRetry)
+    {
+        for (var attempt = 0; attempt <= DownloadRetryDelays.Length; attempt++)
+        {
+            try
+            {
+                using var request = new HttpRequestMessage(HttpMethod.Get, url);
+
+                // Add CurseForge API key for downloads from api.curseforge.com
+                if (url.Contains("api.curseforge.com", StringComparison.OrdinalIgnoreCase))
+                {
+                    request.Headers.Add("x-api-key", _curseForgeOptions.ApiKey);
+                }
+
+                using var response = await _httpClient.SendAsync(
+                    request,
+                    HttpCompletionOption.ResponseHeadersRead,
+                    cancellationToken);
+
+                if (!response.IsSuccessStatusCode)
+                {
+                    var body = await response.Content.ReadAsStringAsync(cancellationToken);
+                    _logger.LogError("Download failed for URL: {Url} - Status: {StatusCode} - Body: {Body}",
+                        url, (int)response.StatusCode, body);
+                    throw new HttpRequestException(
+                        $"Download failed ({(int)response.StatusCode}) for URL {url}: {body}",
+                        null,
+                        response.StatusCode);
+                }
+
+                var totalBytes = response.Content.Headers.ContentLength;
+
+                await using var source = await response.Content.ReadAsStreamAsync(cancellationToken);
+                await using var target = new FileStream(targetPath, FileMode.Create, FileAccess.Write, FileShare.None);
+
+                var buffer = new byte[8192];
+                long totalRead = 0;
+                int read;
+                while ((read = await source.ReadAsync(buffer, cancellationToken)) > 0)
+                {
+                    await target.WriteAsync(buffer.AsMemory(0, read), cancellationToken);
+                    totalRead += read;
+                    progressCallback?.Invoke(totalRead, totalBytes);
+                }
+
+                return;
+            }
+            catch (Exception ex) when (IsRetryableDownloadException(ex) && attempt < DownloadRetryDelays.Length)
+            {
+                TryDeleteFile(targetPath);
+                var delay = DownloadRetryDelays[attempt];
+                onRetry?.Invoke($"Download failed ({FormatDownloadError(ex)}). Retrying in {delay.TotalSeconds:0}s...");
+                await Task.Delay(delay, cancellationToken);
+            }
+        }
+    }
+
+    private static bool IsRetryableDownloadException(Exception ex)
+    {
+        if (ex is OperationCanceledException)
+        {
+            return false;
+        }
+
+        if (ex is HttpRequestException httpEx)
+        {
+            if (!httpEx.StatusCode.HasValue)
+            {
+                return true;
+            }
+
+            var status = httpEx.StatusCode.Value;
+            return status == HttpStatusCode.TooManyRequests
+                   || status == HttpStatusCode.Forbidden
+                   || (int)status >= 500;
+        }
+
+        return ex is IOException;
+    }
+
+    private static string FormatDownloadError(Exception ex)
+    {
+        if (ex is HttpRequestException httpEx && httpEx.StatusCode.HasValue)
+        {
+            return ((int)httpEx.StatusCode.Value).ToString();
+        }
+
+        return ex.GetType().Name;
+    }
+
+    private static void TryDeleteFile(string path)
+    {
+        try
+        {
+            if (File.Exists(path))
+            {
+                File.Delete(path);
+            }
+        }
+        catch
+        {
+            // Ignore cleanup failures.
+        }
     }
 
     private async Task<int> ResolveFileIdAsync(int modId, int? fileId, CancellationToken cancellationToken)

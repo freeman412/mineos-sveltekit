@@ -1,5 +1,4 @@
 using Microsoft.AspNetCore.Authorization;
-using Microsoft.AspNetCore.Mvc;
 using MineOS.Application.Interfaces;
 
 namespace MineOS.Api.Endpoints;
@@ -61,7 +60,7 @@ public static class WorldEndpoints
         worlds.MapPost("/{worldName}/upload", async (
             string serverName,
             string worldName,
-            [FromForm] IFormFile file,
+            IFormFile file,
             IWorldService worldService,
             CancellationToken cancellationToken) =>
         {
