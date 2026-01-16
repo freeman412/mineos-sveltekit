@@ -251,3 +251,36 @@ export type ForgeInstallStatus = {
 	startedAt: string;
 	completedAt: string | null;
 };
+
+// Modpack types
+export type ModpackInstallProgress = {
+	jobId: string;
+	serverName: string;
+	status: string;
+	percentage: number;
+	currentStep: string | null;
+	currentModIndex: number;
+	totalMods: number;
+	currentModName: string | null;
+	outputLines: string[];
+	error: string | null;
+};
+
+export type InstalledModpack = {
+	id: number;
+	name: string;
+	version: string | null;
+	logoUrl: string | null;
+	modCount: number;
+	installedAt: string;
+};
+
+export type InstalledModWithModpack = {
+	fileName: string;
+	sizeBytes: number;
+	modifiedAt: string;
+	isDisabled: boolean;
+	modpackId: number | null;
+	modpackName: string | null;
+	curseForgeProjectId: number | null;
+};
