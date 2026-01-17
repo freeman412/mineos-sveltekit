@@ -18,6 +18,8 @@ public static class ApiEndpoints
         api.MapCurseForgeEndpoints();
         api.MapForgeEndpoints();
         api.MapAdminEndpoints();
+        api.MapNotificationEndpoints();
+        api.MapSettingsEndpoints();
 
         return app;
     }

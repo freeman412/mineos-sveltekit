@@ -48,6 +48,12 @@ public sealed class AppDbContext : DbContext
     public DbSet<InstalledModpack> InstalledModpacks => Set<InstalledModpack>();
     public DbSet<InstalledModRecord> InstalledModRecords => Set<InstalledModRecord>();
 
+    // Notifications
+    public DbSet<SystemNotification> SystemNotifications => Set<SystemNotification>();
+
+    // Settings
+    public DbSet<SystemSetting> SystemSettings => Set<SystemSetting>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.Entity<ApiKey>(entity =>
@@ -237,6 +243,39 @@ public sealed class AppDbContext : DbContext
                 .WithMany(m => m.Mods)
                 .HasForeignKey(x => x.ModpackId)
                 .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        // Notifications
+        modelBuilder.Entity<SystemNotification>(entity =>
+        {
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.Type).HasMaxLength(32);
+            entity.Property(x => x.Title).HasMaxLength(256);
+            entity.Property(x => x.ServerName).HasMaxLength(256);
+
+            // Convert DateTimeOffset to Unix timestamp for SQLite compatibility
+            var timestampConverter = new ValueConverter<DateTimeOffset, long>(
+                value => value.ToUnixTimeSeconds(),
+                value => DateTimeOffset.FromUnixTimeSeconds(value));
+            entity.Property(x => x.CreatedAt)
+                .HasConversion(timestampConverter)
+                .HasColumnType("INTEGER");
+            entity.Property(x => x.DismissedAt)
+                .HasConversion(timestampConverter)
+                .HasColumnType("INTEGER");
+
+            entity.HasIndex(x => x.CreatedAt);
+            entity.HasIndex(x => new { x.ServerName, x.CreatedAt });
+        });
+
+        // Settings
+        modelBuilder.Entity<SystemSetting>(entity =>
+        {
+            entity.HasKey(x => x.Id);
+            entity.HasIndex(x => x.Key).IsUnique();
+            entity.Property(x => x.Key).HasMaxLength(128).IsRequired();
+            entity.Property(x => x.Value).HasMaxLength(1024);
+            entity.Property(x => x.Description).HasMaxLength(512);
         });
     }
 }

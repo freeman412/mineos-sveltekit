@@ -30,23 +30,23 @@ public sealed class ModService : IModService
 
     private readonly ILogger<ModService> _logger;
     private readonly HostOptions _hostOptions;
-    private readonly CurseForgeOptions _curseForgeOptions;
     private readonly ICurseForgeService _curseForgeService;
+    private readonly ISettingsService _settingsService;
     private readonly HttpClient _httpClient;
     private readonly IServiceScopeFactory _scopeFactory;
 
     public ModService(
         ILogger<ModService> logger,
         IOptions<HostOptions> hostOptions,
-        IOptions<CurseForgeOptions> curseForgeOptions,
         ICurseForgeService curseForgeService,
+        ISettingsService settingsService,
         HttpClient httpClient,
         IServiceScopeFactory scopeFactory)
     {
         _logger = logger;
         _hostOptions = hostOptions.Value;
-        _curseForgeOptions = curseForgeOptions.Value;
         _curseForgeService = curseForgeService;
+        _settingsService = settingsService;
         _httpClient = httpClient;
         _scopeFactory = scopeFactory;
     }
@@ -92,18 +92,60 @@ public sealed class ModService : IModService
 
         var safeName = ValidateFileName(fileName);
         var modsPath = EnsureModsPath(serverName);
-        var targetPath = Path.Combine(modsPath, safeName);
+        var lowerName = safeName.ToLowerInvariant();
 
-        await using var target = new FileStream(targetPath, FileMode.Create, FileAccess.Write, FileShare.None);
-        await content.CopyToAsync(target, cancellationToken);
-        await OwnershipHelper.ChangeOwnershipAsync(
-            targetPath,
-            _hostOptions.RunAsUid,
-            _hostOptions.RunAsGid,
-            _logger,
-            cancellationToken);
+        // Check if this is an archive file that needs extraction
+        var isZip = lowerName.EndsWith(".zip");
+        var isTar = lowerName.EndsWith(".tar") || lowerName.EndsWith(".tar.gz") || lowerName.EndsWith(".tgz");
+
+        if (isZip || isTar)
+        {
+            // Save archive to a temporary location
+            var tempPath = Path.Combine(Path.GetTempPath(), $"mineos_upload_{Guid.NewGuid():N}{Path.GetExtension(safeName)}");
+            try
+            {
+                await using (var tempFile = new FileStream(tempPath, FileMode.Create, FileAccess.Write, FileShare.None))
+                {
+                    await content.CopyToAsync(tempFile, cancellationToken);
+                }
+
+                // Extract archive contents
+                if (isZip)
+                {
+                    await ExtractZipToModsAsync(tempPath, modsPath, cancellationToken);
+                }
+                else if (isTar)
+                {
+                    await ExtractTarToModsAsync(tempPath, modsPath, cancellationToken);
+                }
+
+                _logger.LogInformation("Extracted archive {FileName} for server {ServerName}", safeName, serverName);
+            }
+            finally
+            {
+                // Clean up temp file
+                if (File.Exists(tempPath))
+                {
+                    File.Delete(tempPath);
+                }
+            }
+        }
+        else
+        {
+            // Regular file (JAR) - save directly
+            var targetPath = Path.Combine(modsPath, safeName);
+            await using var target = new FileStream(targetPath, FileMode.Create, FileAccess.Write, FileShare.None);
+            await content.CopyToAsync(target, cancellationToken);
+            await OwnershipHelper.ChangeOwnershipAsync(
+                targetPath,
+                _hostOptions.RunAsUid,
+                _hostOptions.RunAsGid,
+                _logger,
+                cancellationToken);
+            _logger.LogInformation("Uploaded mod {FileName} for server {ServerName}", safeName, serverName);
+        }
+
         MarkRestartRequired(serverPath);
-        _logger.LogInformation("Uploaded mod {FileName} for server {ServerName}", safeName, serverName);
     }
 
     public Task DeleteModAsync(string serverName, string fileName, CancellationToken cancellationToken)
@@ -1001,6 +1043,13 @@ public sealed class ModService : IModService
         Action<long, long?>? progressCallback,
         Action<string>? onRetry)
     {
+        // Pre-fetch API key if this is a CurseForge download
+        string? curseForgeApiKey = null;
+        if (url.Contains("api.curseforge.com", StringComparison.OrdinalIgnoreCase))
+        {
+            curseForgeApiKey = await _settingsService.GetAsync(SettingsService.Keys.CurseForgeApiKey, cancellationToken);
+        }
+
         for (var attempt = 0; attempt <= DownloadRetryDelays.Length; attempt++)
         {
             try
@@ -1008,9 +1057,9 @@ public sealed class ModService : IModService
                 using var request = new HttpRequestMessage(HttpMethod.Get, url);
 
                 // Add CurseForge API key for downloads from api.curseforge.com
-                if (url.Contains("api.curseforge.com", StringComparison.OrdinalIgnoreCase))
+                if (!string.IsNullOrWhiteSpace(curseForgeApiKey))
                 {
-                    request.Headers.Add("x-api-key", _curseForgeOptions.ApiKey);
+                    request.Headers.Add("x-api-key", curseForgeApiKey);
                 }
 
                 using var response = await _httpClient.SendAsync(
@@ -1184,6 +1233,103 @@ public sealed class ModService : IModService
         }
 
         return normalized;
+    }
+
+    private async Task ExtractZipToModsAsync(string zipPath, string modsPath, CancellationToken cancellationToken)
+    {
+        using var archive = ZipFile.OpenRead(zipPath);
+        foreach (var entry in archive.Entries)
+        {
+            // Skip directories and non-JAR files
+            if (string.IsNullOrEmpty(entry.Name) || !entry.Name.EndsWith(".jar", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            // Extract only the file name (ignore directory structure)
+            var targetPath = Path.Combine(modsPath, entry.Name);
+
+            // Extract the file
+            entry.ExtractToFile(targetPath, overwrite: true);
+
+            // Set ownership
+            await OwnershipHelper.ChangeOwnershipAsync(
+                targetPath,
+                _hostOptions.RunAsUid,
+                _hostOptions.RunAsGid,
+                _logger,
+                cancellationToken);
+
+            _logger.LogInformation("Extracted JAR: {FileName}", entry.Name);
+        }
+    }
+
+    private async Task ExtractTarToModsAsync(string tarPath, string modsPath, CancellationToken cancellationToken)
+    {
+        // For tar/tar.gz extraction, we'll shell out to tar command (more reliable on Linux)
+        var isGzipped = tarPath.EndsWith(".gz", StringComparison.OrdinalIgnoreCase) ||
+                        tarPath.EndsWith(".tgz", StringComparison.OrdinalIgnoreCase);
+
+        // Create a temp directory for extraction
+        var tempExtractPath = Path.Combine(Path.GetTempPath(), $"mineos_extract_{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempExtractPath);
+
+        try
+        {
+            // Use tar command to extract
+            var tarArgs = isGzipped ? "-xzf" : "-xf";
+            var process = new System.Diagnostics.Process
+            {
+                StartInfo = new System.Diagnostics.ProcessStartInfo
+                {
+                    FileName = "tar",
+                    Arguments = $"{tarArgs} \"{tarPath}\" -C \"{tempExtractPath}\"",
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    UseShellExecute = false,
+                    CreateNoWindow = true
+                }
+            };
+
+            process.Start();
+            await process.WaitForExitAsync(cancellationToken);
+
+            if (process.ExitCode != 0)
+            {
+                var error = await process.StandardError.ReadToEndAsync(cancellationToken);
+                _logger.LogError("Tar extraction failed: {Error}", error);
+                throw new InvalidOperationException($"Failed to extract tar archive: {error}");
+            }
+
+            // Find all JAR files in the extracted directory
+            var jarFiles = Directory.GetFiles(tempExtractPath, "*.jar", SearchOption.AllDirectories);
+            foreach (var jarFile in jarFiles)
+            {
+                var fileName = Path.GetFileName(jarFile);
+                var targetPath = Path.Combine(modsPath, fileName);
+
+                // Copy JAR to mods folder
+                File.Copy(jarFile, targetPath, overwrite: true);
+
+                // Set ownership
+                await OwnershipHelper.ChangeOwnershipAsync(
+                    targetPath,
+                    _hostOptions.RunAsUid,
+                    _hostOptions.RunAsGid,
+                    _logger,
+                    cancellationToken);
+
+                _logger.LogInformation("Extracted JAR: {FileName}", fileName);
+            }
+        }
+        finally
+        {
+            // Clean up temp extraction directory
+            if (Directory.Exists(tempExtractPath))
+            {
+                Directory.Delete(tempExtractPath, recursive: true);
+            }
+        }
     }
 
     private sealed class ModpackManifest

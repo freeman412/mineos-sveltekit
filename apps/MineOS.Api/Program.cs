@@ -169,6 +169,7 @@ builder.Services.AddHttpClient<IModService, ModService>();
 builder.Services.AddHttpClient<CurseForgeClient>();
 builder.Services.AddScoped<ApiKeySeeder>();
 builder.Services.AddScoped<UserSeeder>();
+builder.Services.AddScoped<ISettingsService, SettingsService>();
 
 builder.Services.AddCors(options =>
 {

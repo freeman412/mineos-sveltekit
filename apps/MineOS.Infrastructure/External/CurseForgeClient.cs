@@ -3,7 +3,9 @@ using System.Text;
 using System.Text.Json;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using MineOS.Application.Interfaces;
 using MineOS.Application.Options;
+using MineOS.Infrastructure.Services;
 
 namespace MineOS.Infrastructure.External;
 
@@ -16,15 +18,18 @@ public sealed class CurseForgeClient
 
     private readonly HttpClient _httpClient;
     private readonly CurseForgeOptions _options;
+    private readonly ISettingsService _settingsService;
     private readonly ILogger<CurseForgeClient> _logger;
 
     public CurseForgeClient(
         HttpClient httpClient,
         IOptions<CurseForgeOptions> options,
+        ISettingsService settingsService,
         ILogger<CurseForgeClient> logger)
     {
         _httpClient = httpClient;
         _options = options.Value;
+        _settingsService = settingsService;
         _logger = logger;
 
         if (!string.IsNullOrWhiteSpace(_options.BaseUrl))
@@ -41,11 +46,11 @@ public sealed class CurseForgeClient
 
     public async Task<CurseForgeApiResponse<T>> GetAsync<T>(string path, CancellationToken cancellationToken)
     {
-        EnsureApiKey();
+        var apiKey = await GetApiKeyAsync(cancellationToken);
 
         using var request = new HttpRequestMessage(HttpMethod.Get, path);
         request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-        request.Headers.Add("x-api-key", _options.ApiKey);
+        request.Headers.Add("x-api-key", apiKey);
 
         using var response = await _httpClient.SendAsync(request, cancellationToken);
         var payload = await response.Content.ReadAsStringAsync(cancellationToken);
@@ -89,7 +94,7 @@ public sealed class CurseForgeClient
         object payload,
         CancellationToken cancellationToken)
     {
-        EnsureApiKey();
+        var apiKey = await GetApiKeyAsync(cancellationToken);
 
         var json = JsonSerializer.Serialize(payload, JsonOptions);
         using var request = new HttpRequestMessage(HttpMethod.Post, path)
@@ -97,7 +102,7 @@ public sealed class CurseForgeClient
             Content = new StringContent(json, Encoding.UTF8, "application/json")
         };
         request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-        request.Headers.Add("x-api-key", _options.ApiKey);
+        request.Headers.Add("x-api-key", apiKey);
 
         using var response = await _httpClient.SendAsync(request, cancellationToken);
         var body = await response.Content.ReadAsStringAsync(cancellationToken);
@@ -136,12 +141,22 @@ public sealed class CurseForgeClient
         return parsed;
     }
 
-    private void EnsureApiKey()
+    private async Task<string> GetApiKeyAsync(CancellationToken cancellationToken)
     {
-        if (string.IsNullOrWhiteSpace(_options.ApiKey))
+        var apiKey = await _settingsService.GetAsync(SettingsService.Keys.CurseForgeApiKey, cancellationToken);
+        if (string.IsNullOrWhiteSpace(apiKey))
         {
-            throw new InvalidOperationException("CurseForge API key is not configured");
+            throw new InvalidOperationException("CurseForge API key is not configured. Please configure it in Admin > Settings.");
         }
+        return apiKey;
+    }
+
+    /// <summary>
+    /// Check if the CurseForge API key is configured (database or config)
+    /// </summary>
+    public Task<bool> IsConfiguredAsync(CancellationToken cancellationToken)
+    {
+        return _settingsService.HasValueAsync(SettingsService.Keys.CurseForgeApiKey, cancellationToken);
     }
 
     private static string NormalizeBaseUrl(string baseUrl)
