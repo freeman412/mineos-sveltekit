@@ -1,49 +1,4 @@
-version: '3.8'
-
 services:
-  # PostgreSQL Database (optional - enable with: docker compose --profile postgres up)
-  postgres:
-    image: postgres:16-alpine
-    container_name: mineos-postgres
-    restart: unless-stopped
-    environment:
-      POSTGRES_DB: ${POSTGRES_DB:-mineos}
-      POSTGRES_USER: ${POSTGRES_USER:-mineos}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-mineos}
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    ports:
-      - "5432:5432"
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-mineos}"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    profiles:
-      - postgres
-
-  # MySQL Database (optional - enable with: docker compose --profile mysql up)
-  mysql:
-    image: mysql:8.0
-    container_name: mineos-mysql
-    restart: unless-stopped
-    environment:
-      MYSQL_DATABASE: ${MYSQL_DATABASE:-mineos}
-      MYSQL_USER: ${MYSQL_USER:-mineos}
-      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-mineos}
-      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root}
-    volumes:
-      - mysql_data:/var/lib/mysql
-    ports:
-      - "3306:3306"
-    healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${MYSQL_ROOT_PASSWORD:-root}"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    profiles:
-      - mysql
-
   # MineOS API
   api:
     build:
@@ -81,8 +36,9 @@ services:
     ports:
       - "${API_PORT:-5078}:5078"
       # Minecraft server ports - expand as needed
-      - "25565-25570:25565-25570/tcp"
-      - "25565-25570:25565-25570/udp"
+      - "${MC_PORT_RANGE:-25565-25570}:${MC_PORT_RANGE:-25565-25570}/tcp"
+      - "${MC_PORT_RANGE:-25565-25570}:${MC_PORT_RANGE:-25565-25570}/udp"
+
     #healthcheck:
       #test: ["CMD", "curl", "-f", "http://localhost:5078/health"]
       #interval: 30s
@@ -120,13 +76,6 @@ services:
       - "${WEB_PORT:-3000}:3000"
     depends_on:
       - api
-
-
-volumes:
-  postgres_data:
-    driver: local
-  mysql_data:
-    driver: local
 
 networks:
   default:
