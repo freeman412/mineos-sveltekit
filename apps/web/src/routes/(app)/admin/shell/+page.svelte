@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import '@xterm/xterm/css/xterm.css';
-	import { PUBLIC_API_BASE_URL } from '$env/static/public';
+	import { env } from '$env/dynamic/public';
 
 	type TerminalType = import('@xterm/xterm').Terminal;
 	type FitAddonType = import('@xterm/addon-fit').FitAddon;
@@ -45,7 +45,7 @@
 	};
 
 	const getWebSocketUrl = () => {
-		const baseUrl = PUBLIC_API_BASE_URL || window.location.origin;
+		const baseUrl = env.PUBLIC_API_BASE_URL || window.location.origin;
 		const wsBase = baseUrl.replace(/^http/, 'ws');
 		return `${wsBase}/api/v1/admin/shell/ws`;
 	};
