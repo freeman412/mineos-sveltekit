@@ -12,12 +12,13 @@ services:
       - ConnectionStrings__DefaultConnection=${ConnectionStrings__DefaultConnection}
       - Auth__SeedUsername=${Auth__SeedUsername}
       - Auth__SeedPassword=${Auth__SeedPassword}
-      - Auth__JwtSecret=${Auth__JwtSecret}
-      - Auth__JwtIssuer=${Auth__JwtIssuer:-mineos}
-      - Auth__JwtAudience=${Auth__JwtAudience:-mineos}
-      - Auth__JwtExpiryHours=${Auth__JwtExpiryHours:-24}
+      - Auth__Jwt__SigningKey=${Auth__JwtSecret}
+      - Auth__Jwt__Issuer=${Auth__JwtIssuer:-mineos}
+      - Auth__Jwt__Audience=${Auth__JwtAudience:-mineos}
+      - Auth__Jwt__ExpiresMinutes=${Auth__JwtExpiryMinutes:-60}
       - ApiKey__SeedKey=${ApiKey__SeedKey}
-      - Host__BaseDirectory=${Host__BaseDirectory:-/var/games/minecraft}
+      # Always use container path - host path is only for volume mount
+      - Host__BaseDirectory=/var/games/minecraft
       - Host__ServersPathSegment=${Host__ServersPathSegment:-servers}
       - Host__ProfilesPathSegment=${Host__ProfilesPathSegment:-profiles}
       - Host__BackupsPathSegment=${Host__BackupsPathSegment:-backups}
