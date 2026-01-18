@@ -162,6 +162,8 @@ function Load-ExistingConfig {
     if ([string]::IsNullOrWhiteSpace($script:mcPortRange)) { $script:mcPortRange = "25565-25570" }
     $script:baseDir = Get-EnvValue "Host__BaseDirectory"
     if ([string]::IsNullOrWhiteSpace($script:baseDir)) { $script:baseDir = "C:/minecraft" }
+    $script:dataDir = Get-EnvValue "Data__Directory"
+    if ([string]::IsNullOrWhiteSpace($script:dataDir)) { $script:dataDir = "$baseDir/data" }
 }
 
 function Assert-PortNumber {
@@ -263,6 +265,9 @@ function Start-ConfigWizard {
     $script:baseDir = Read-Host "Base directory for Minecraft servers (default: C:\minecraft)"
     if ([string]::IsNullOrWhiteSpace($script:baseDir)) { $script:baseDir = "C:\minecraft" }
 
+    $script:dataDir = Read-Host "Database directory (default: $baseDir\data)"
+    if ([string]::IsNullOrWhiteSpace($script:dataDir)) { $script:dataDir = "$baseDir\data" }
+
     $script:apiPort = Read-Host "API port (default: 5078)"
     if ([string]::IsNullOrWhiteSpace($script:apiPort)) { $script:apiPort = "5078" }
     [void](Assert-PortNumber -Value $script:apiPort -Name "API port")
@@ -302,6 +307,7 @@ ApiKey__SeedKey=$apiKey
 
 # Host Configuration
 Host__BaseDirectory=$($baseDir -replace '\\', '/')
+Data__Directory=$($dataDir -replace '\\', '/')
 Host__ServersPathSegment=servers
 Host__ProfilesPathSegment=profiles
 Host__BackupsPathSegment=backups
@@ -335,7 +341,7 @@ function New-Directories {
     New-Item -ItemType Directory -Force -Path "$baseDir\backups" | Out-Null
     New-Item -ItemType Directory -Force -Path "$baseDir\archives" | Out-Null
     New-Item -ItemType Directory -Force -Path "$baseDir\imports" | Out-Null
-    New-Item -ItemType Directory -Force -Path ".\data" | Out-Null
+    New-Item -ItemType Directory -Force -Path "$dataDir" | Out-Null
     Write-Success "Created directories"
 }
 

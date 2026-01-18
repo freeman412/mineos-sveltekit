@@ -30,9 +30,11 @@ services:
       - Discord__WebhookUrl=${Discord__WebhookUrl:-}
       - Logging__LogLevel__Default=${Logging__LogLevel__Default:-Information}
       - Logging__LogLevel__Microsoft.AspNetCore=Warning
+      - Cors__AllowedOrigins__0=${WEB_ORIGIN:-http://localhost:${WEB_PORT:-3000}}
+      - Cors__AllowedOrigins__1=${WEB_ORIGIN_DEV:-http://localhost:5174}
     volumes:
       - ${Host__BaseDirectory:-/var/games/minecraft}:/var/games/minecraft
-      - ./data:/app/data
+      - ${Data__Directory:-./data}:/app/data
       - /var/run/docker.sock:/var/run/docker.sock  # For Docker management (optional)
     ports:
       - "${API_PORT:-5078}:5078"

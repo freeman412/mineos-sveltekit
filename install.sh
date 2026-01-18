@@ -181,6 +181,10 @@ run_config_wizard() {
     read -p "Base directory for Minecraft servers (default: /var/games/minecraft): " base_dir
     base_dir=${base_dir:-/var/games/minecraft}
 
+    # Database directory
+    read -p "Database directory (default: ${base_dir}/data): " data_dir
+    data_dir=${data_dir:-${base_dir}/data}
+
     # Port configuration
     read -p "API port (default: 5078): " api_port
     api_port=${api_port:-5078}
@@ -225,6 +229,7 @@ ApiKey__SeedKey=${API_KEY}
 
 # Host Configuration
 Host__BaseDirectory=${base_dir}
+Data__Directory=${data_dir}
 Host__ServersPathSegment=servers
 Host__ProfilesPathSegment=profiles
 Host__BackupsPathSegment=backups
@@ -260,15 +265,16 @@ create_directories() {
     mkdir -p "${base_dir}/backups"
     mkdir -p "${base_dir}/archives"
     mkdir -p "${base_dir}/imports"
-    mkdir -p "./data"
+    mkdir -p "${data_dir}"
 
     # Set permissions
     if [ "$EUID" -eq 0 ]; then
         chown -R 1000:1000 "${base_dir}"
+        chown -R 1000:1000 "${data_dir}"
         success "Set directory ownership to 1000:1000"
     else
         warn "Not running as root, skipping ownership change"
-        warn "You may need to run: sudo chown -R 1000:1000 ${base_dir}"
+        warn "You may need to run: sudo chown -R 1000:1000 ${base_dir} ${data_dir}"
     fi
 
     success "Created required directories"
