@@ -1,19 +1,31 @@
 <script lang="ts">
-	import type { SystemNotification } from '$lib/api/types';
+	import type { SystemNotification, JobStatus, ModpackInstallProgress } from '$lib/api/types';
 	import { onMount } from 'svelte';
 	import { modal } from '$lib/stores/modal';
+	import { uploads, type UploadEntry } from '$lib/stores/uploads';
 
 	let notifications = $state<SystemNotification[]>([]);
+	let activeJobs = $state<JobStatus[]>([]);
+	let activeModpacks = $state<ModpackInstallProgress[]>([]);
 	let isOpen = $state(false);
 	let loading = $state(false);
 
+	const activeUploads = $derived($uploads.filter((u) => u.status === 'uploading'));
+	const activeTaskCount = $derived(activeJobs.length + activeModpacks.length + activeUploads.length);
 	const unreadCount = $derived(notifications.filter((n) => !n.isRead && !n.dismissedAt).length);
+	const totalBadgeCount = $derived(unreadCount + activeTaskCount);
 
 	onMount(() => {
 		loadNotifications();
+		loadActiveJobs();
 		// Poll for new notifications every 30 seconds
-		const interval = setInterval(loadNotifications, 30000);
-		return () => clearInterval(interval);
+		const notificationInterval = setInterval(loadNotifications, 30000);
+		// Poll for active jobs more frequently (every 5 seconds)
+		const jobsInterval = setInterval(loadActiveJobs, 5000);
+		return () => {
+			clearInterval(notificationInterval);
+			clearInterval(jobsInterval);
+		};
 	});
 
 	async function loadNotifications() {
@@ -28,6 +40,19 @@
 			console.error('Failed to load notifications:', err);
 		} finally {
 			loading = false;
+		}
+	}
+
+	async function loadActiveJobs() {
+		try {
+			const res = await fetch('/api/jobs');
+			if (res.ok) {
+				const data = await res.json();
+				activeJobs = data.jobs ?? [];
+				activeModpacks = data.modpackInstalls ?? [];
+			}
+		} catch (err) {
+			console.error('Failed to load active jobs:', err);
 		}
 	}
 
@@ -133,10 +158,26 @@
 		return date.toLocaleDateString();
 	}
 
+	function getJobTypeLabel(type: string): string {
+		switch (type) {
+			case 'import':
+				return 'Server Import';
+			case 'backup':
+				return 'Backup';
+			case 'restore':
+				return 'Restore';
+			case 'download':
+				return 'Download';
+			default:
+				return type.charAt(0).toUpperCase() + type.slice(1);
+		}
+	}
+
 	function toggleMenu() {
 		isOpen = !isOpen;
 		if (isOpen) {
 			loadNotifications();
+			loadActiveJobs();
 		}
 	}
 
@@ -153,13 +194,81 @@
 <div class="notification-menu">
 	<button class="notification-bell" onclick={toggleMenu} aria-label="Notifications">
 		<span class="bell-icon">🔔</span>
-		{#if unreadCount > 0}
-			<span class="badge">{unreadCount > 9 ? '9+' : unreadCount}</span>
+		{#if totalBadgeCount > 0}
+			<span class="badge" class:has-tasks={activeTaskCount > 0}>
+				{totalBadgeCount > 9 ? '9+' : totalBadgeCount}
+			</span>
 		{/if}
 	</button>
 
 	{#if isOpen}
 		<div class="notification-dropdown">
+			{#if activeTaskCount > 0}
+				<div class="section-header tasks-header">
+					<span class="section-icon">⏳</span>
+					<h3>Active Tasks</h3>
+				</div>
+				<div class="tasks-list">
+					{#each activeJobs as job (job.jobId)}
+						<div class="task-item">
+							<div class="task-info">
+								<span class="task-type">{getJobTypeLabel(job.type)}</span>
+								<span class="task-server">{job.serverName}</span>
+							</div>
+							<div class="task-progress">
+								<div class="progress-bar">
+									<div class="progress-fill" style="width: {job.percentage}%"></div>
+								</div>
+								<span class="progress-text">{job.percentage}%</span>
+							</div>
+							{#if job.message}
+								<span class="task-message">{job.message}</span>
+							{/if}
+						</div>
+					{/each}
+					{#each activeModpacks as modpack (modpack.jobId)}
+						<div class="task-item">
+							<div class="task-info">
+								<span class="task-type">Modpack Install</span>
+								<span class="task-server">{modpack.serverName}</span>
+							</div>
+							<div class="task-progress">
+								<div class="progress-bar">
+									<div class="progress-fill" style="width: {modpack.percentage}%"></div>
+								</div>
+								<span class="progress-text">
+									{modpack.currentModIndex}/{modpack.totalMods}
+								</span>
+							</div>
+							{#if modpack.currentModName}
+								<span class="task-message">{modpack.currentModName}</span>
+							{/if}
+						</div>
+					{/each}
+					{#each activeUploads as upload (upload.id)}
+						<div class="task-item upload-item">
+							<div class="task-info">
+								<span class="task-type">Upload</span>
+								<span class="task-server">{upload.filename}</span>
+							</div>
+							<div class="task-progress">
+								<div class="progress-bar uploading">
+									<div class="progress-fill-animated"></div>
+								</div>
+								<span class="progress-text">Uploading</span>
+							</div>
+							<button
+								class="cancel-upload"
+								onclick={() => uploads.cancel(upload.id)}
+								title="Cancel upload"
+							>
+								✕
+							</button>
+						</div>
+					{/each}
+				</div>
+			{/if}
+
 			<div class="dropdown-header">
 				<h3>Notifications</h3>
 				{#if notifications.length > 0}
@@ -414,5 +523,149 @@
 	.action-btn.danger:hover {
 		background: rgba(255, 92, 92, 0.1);
 		color: #ff9f9f;
+	}
+
+	/* Badge with active tasks indicator */
+	.badge.has-tasks {
+		background: #5b9eff;
+	}
+
+	/* Active Tasks Section */
+	.section-header.tasks-header {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		padding: 12px 20px;
+		background: rgba(91, 158, 255, 0.08);
+		border-bottom: 1px solid #2a2f47;
+	}
+
+	.section-header.tasks-header h3 {
+		margin: 0;
+		font-size: 14px;
+		font-weight: 600;
+		color: #5b9eff;
+	}
+
+	.section-icon {
+		font-size: 16px;
+	}
+
+	.tasks-list {
+		border-bottom: 1px solid #2a2f47;
+	}
+
+	.task-item {
+		padding: 12px 20px;
+		border-bottom: 1px solid rgba(42, 47, 71, 0.5);
+	}
+
+	.task-item:last-child {
+		border-bottom: none;
+	}
+
+	.task-info {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		margin-bottom: 8px;
+	}
+
+	.task-type {
+		font-size: 13px;
+		font-weight: 600;
+		color: #eef0f8;
+	}
+
+	.task-server {
+		font-size: 12px;
+		color: #9aa2c5;
+		background: #1a1f33;
+		padding: 2px 8px;
+		border-radius: 4px;
+		border: 1px solid #2a2f47;
+	}
+
+	.task-progress {
+		display: flex;
+		align-items: center;
+		gap: 10px;
+		margin-bottom: 4px;
+	}
+
+	.task-progress .progress-bar {
+		flex: 1;
+		height: 6px;
+		background: #2a2f47;
+		border-radius: 3px;
+		overflow: hidden;
+	}
+
+	.task-progress .progress-fill {
+		height: 100%;
+		background: linear-gradient(90deg, #5b9eff, #79c0ff);
+		border-radius: 3px;
+		transition: width 0.3s ease;
+	}
+
+	.progress-text {
+		font-size: 11px;
+		color: #9aa2c5;
+		min-width: 40px;
+		text-align: right;
+	}
+
+	.task-message {
+		font-size: 11px;
+		color: #7c87b2;
+		display: block;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	/* Upload items */
+	.upload-item {
+		position: relative;
+	}
+
+	.progress-bar.uploading {
+		overflow: hidden;
+	}
+
+	.progress-fill-animated {
+		height: 100%;
+		width: 50%;
+		background: linear-gradient(90deg, #5b9eff, #79c0ff, #5b9eff);
+		background-size: 200% 100%;
+		animation: uploadProgress 1.5s ease-in-out infinite;
+	}
+
+	@keyframes uploadProgress {
+		0% {
+			transform: translateX(-100%);
+		}
+		100% {
+			transform: translateX(200%);
+		}
+	}
+
+	.cancel-upload {
+		position: absolute;
+		right: 12px;
+		top: 50%;
+		transform: translateY(-50%);
+		background: none;
+		border: none;
+		color: #ff6b6b;
+		font-size: 14px;
+		cursor: pointer;
+		padding: 4px 8px;
+		border-radius: 4px;
+		transition: background 0.2s;
+	}
+
+	.cancel-upload:hover {
+		background: rgba(255, 92, 92, 0.15);
 	}
 </style>

@@ -194,6 +194,15 @@ export type PerformanceSample = {
 	playerCount: number;
 };
 
+export type SparkStatus = {
+	installed: boolean;
+	mode: string | null;
+	jarName: string | null;
+	version: string | null;
+	reportCount: number;
+	reports: string[];
+};
+
 // Player Management
 export type PlayerSummary = {
 	uuid: string;
@@ -283,6 +292,24 @@ export type InstalledModWithModpack = {
 	modpackId: number | null;
 	modpackName: string | null;
 	curseForgeProjectId: number | null;
+};
+
+// Background job types
+export type JobStatus = {
+	jobId: string;
+	type: string;
+	serverName: string;
+	status: 'queued' | 'running' | 'completed' | 'failed';
+	percentage: number;
+	message: string | null;
+	startedAt: string;
+	completedAt: string | null;
+	error: string | null;
+};
+
+export type ActiveJobsResponse = {
+	jobs: JobStatus[];
+	modpackInstalls: ModpackInstallProgress[];
 };
 
 // Notification types
