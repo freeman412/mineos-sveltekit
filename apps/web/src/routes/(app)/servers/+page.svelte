@@ -1,20 +1,40 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { goto, invalidateAll } from '$app/navigation';
+	import { env } from '$env/dynamic/public';
 	import * as api from '$lib/api/client';
 	import { modal } from '$lib/stores/modal';
 	import type { PageData } from './$types';
-	import type { ServerSummary } from '$lib/api/types';
+	import type { ArchiveEntry, ServerSummary } from '$lib/api/types';
 
 	let { data }: { data: PageData } = $props();
 
 	let actionLoading = $state<Record<string, boolean>>({});
+	let importLoading = $state<Record<string, boolean>>({});
 	let servers = $state<ServerSummary[]>(data.servers.data ?? []);
 	let serversError = $state<string | null>(data.servers.error);
 	let serversStream: EventSource | null = null;
 	let memoryHistory = $state<Record<string, number[]>>({});
+	let imports = $state<ArchiveEntry[]>(data.imports.data ?? []);
+	let importsError = $state<string | null>(data.imports.error);
+	let serverNames = $state<Record<string, string>>({});
+	let dragActive = $state(false);
+	let uploadError = $state('');
+	let uploadBusy = $state(false);
+	let uploadProgress = $state(0);
+	let uploadFileName = $state('');
+	let uploadStatus = $state('');
+	let importJobs = $state<
+		Record<string, { jobId: string; status: string; percentage: number; message?: string | null }>
+	>({});
+	const importStreams = new Map<string, EventSource>();
 
 	const maxMemoryPoints = 30;
+
+	$effect(() => {
+		imports = data.imports.data ?? [];
+		importsError = data.imports.error;
+	});
 
 	const formatBytes = (value?: number | null) => {
 		if (!value || value <= 0) return '--';
@@ -23,6 +43,18 @@
 		const normalized = value / Math.pow(1024, index);
 		return `${normalized.toFixed(1)} ${units[index]}`;
 	};
+
+	function formatFileSize(bytes: number): string {
+		if (bytes === 0) return '0 B';
+		const k = 1024;
+		const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+		const i = Math.floor(Math.log(bytes) / Math.log(k));
+		return `${(bytes / Math.pow(k, i)).toFixed(2)} ${sizes[i]}`;
+	}
+
+	function formatDate(date: string): string {
+		return new Date(date).toLocaleString();
+	}
 
 	function buildSparkline(values: number[], width = 120, height = 32) {
 		if (!values || values.length < 2) return '';
@@ -122,6 +154,188 @@
 		}
 	}
 
+	function getApiBase() {
+		return env.PUBLIC_API_BASE_URL || window.location.origin;
+	}
+
+	function uploadArchive(file: File): Promise<void> {
+		return new Promise((resolve, reject) => {
+			const xhr = new XMLHttpRequest();
+			xhr.open('POST', `${getApiBase()}/api/v1/host/imports/upload`, true);
+			xhr.withCredentials = true;
+			xhr.setRequestHeader('X-File-Name', file.name);
+			xhr.setRequestHeader('Content-Type', file.type || 'application/octet-stream');
+
+			xhr.upload.onprogress = (event) => {
+				if (!event.lengthComputable) return;
+				uploadProgress = Math.round((event.loaded / event.total) * 100);
+			};
+
+			xhr.onload = () => {
+				if (xhr.status >= 200 && xhr.status < 300) {
+					resolve();
+					return;
+				}
+
+				let message = 'Upload failed';
+				try {
+					const parsed = JSON.parse(xhr.responseText || '{}');
+					message = parsed.error || message;
+				} catch {
+					if (xhr.responseText) {
+						message = xhr.responseText;
+					}
+				}
+				reject(new Error(message));
+			};
+
+			xhr.onerror = () => reject(new Error('Upload failed'));
+			xhr.send(file);
+		});
+	}
+
+	async function uploadArchives(files: FileList | File[]) {
+		if (!files || files.length === 0) return;
+		uploadError = '';
+		uploadBusy = true;
+		try {
+			const list = Array.from(files);
+			for (let i = 0; i < list.length; i += 1) {
+				const file = list[i];
+				uploadFileName = file.name;
+				uploadStatus = `Uploading ${i + 1} of ${list.length}`;
+				uploadProgress = 0;
+				await uploadArchive(file);
+			}
+			await modal.success(
+				`Uploaded ${list.length} archive${list.length === 1 ? '' : 's'}.`,
+				'Upload complete'
+			);
+			await invalidateAll();
+		} catch (err) {
+			uploadError = err instanceof Error ? err.message : 'Upload failed';
+		} finally {
+			uploadBusy = false;
+			dragActive = false;
+			uploadStatus = '';
+		}
+	}
+
+	function startImportJob(filename: string, jobId: string) {
+		if (!jobId) return;
+		importJobs[filename] = {
+			jobId,
+			status: 'queued',
+			percentage: 0,
+			message: 'Queued'
+		};
+		importJobs = { ...importJobs };
+
+		const source = new EventSource(`/api/jobs/${encodeURIComponent(jobId)}/stream`);
+		importStreams.set(jobId, source);
+
+		source.onmessage = (event) => {
+			try {
+				const update = JSON.parse(event.data) as {
+					status: string;
+					percentage: number;
+					message?: string | null;
+				};
+
+				importJobs[filename] = {
+					jobId,
+					status: update.status,
+					percentage: update.percentage ?? 0,
+					message: update.message ?? null
+				};
+				importJobs = { ...importJobs };
+
+				if (update.status === 'completed' || update.status === 'failed') {
+					source.close();
+					importStreams.delete(jobId);
+					if (update.status === 'completed') {
+						void modal.success(`Import for "${filename}" finished.`, 'Import complete');
+						void invalidateAll();
+					} else {
+						void modal.error(`Import for "${filename}" failed.`, 'Import failed');
+					}
+				}
+			} catch {
+				// ignore parse errors
+			}
+		};
+
+		source.onerror = () => {
+			source.close();
+			importStreams.delete(jobId);
+		};
+	}
+
+	async function handleCreateImport(filename: string) {
+		const serverName = (serverNames[filename] || '').trim();
+		if (!serverName) {
+			await modal.alert('Server name is required', 'Required Field');
+			return;
+		}
+
+		importLoading[filename] = true;
+		try {
+			const res = await fetch(
+				`/api/host/imports/${encodeURIComponent(filename)}/create-server`,
+				{
+					method: 'POST',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify({ serverName })
+				}
+			);
+
+			if (!res.ok) {
+				const error = await res.json().catch(() => ({ error: 'Failed to import server' }));
+				await modal.error(error.error || 'Failed to import server');
+			} else {
+				const result = await res.json();
+				const jobId = result.jobId as string | undefined;
+				if (jobId) {
+					startImportJob(filename, jobId);
+					await modal.alert(
+						`Import for "${filename}" queued. You can keep working while it unpacks.`,
+						'Import started'
+					);
+				}
+				serverNames[filename] = '';
+				serverNames = { ...serverNames };
+			}
+		} finally {
+			delete importLoading[filename];
+			importLoading = { ...importLoading };
+		}
+	}
+
+	async function handleDeleteImport(filename: string) {
+		const confirmed = await modal.confirm(
+			`Delete import file "${filename}"?`,
+			'Delete Import'
+		);
+		if (!confirmed) return;
+
+		importLoading[filename] = true;
+		try {
+			const res = await fetch(`/api/host/imports/${encodeURIComponent(filename)}`, {
+				method: 'DELETE'
+			});
+
+			if (!res.ok) {
+				const error = await res.json().catch(() => ({ error: 'Failed to delete import' }));
+				await modal.error(error.error || 'Failed to delete import');
+			} else {
+				imports = imports.filter((i) => i.filename !== filename);
+			}
+		} finally {
+			delete importLoading[filename];
+			importLoading = { ...importLoading };
+		}
+	}
+
 	onMount(() => {
 		updateMemoryHistory(servers);
 		serversStream = new EventSource('/api/host/servers/stream');
@@ -142,6 +356,10 @@
 
 		return () => {
 			serversStream?.close();
+			for (const source of importStreams.values()) {
+				source.close();
+			}
+			importStreams.clear();
 		};
 	});
 </script>
@@ -272,6 +490,149 @@
 		<a href="/servers/new" class="btn-primary">Create Server</a>
 	</div>
 {/if}
+
+<section class="import-section" id="import">
+	<div class="section-header">
+		<h2>Import Servers</h2>
+		<span class="section-subtitle">Upload archives and unpack them in the background</span>
+	</div>
+
+	<div
+		class="upload-zone"
+		class:active={dragActive}
+		ondragover={(event) => {
+			event.preventDefault();
+			dragActive = true;
+		}}
+		ondragleave={() => {
+			dragActive = false;
+		}}
+		ondrop={(event) => {
+			event.preventDefault();
+			dragActive = false;
+			if (event.dataTransfer?.files?.length) {
+				uploadArchives(event.dataTransfer.files);
+			}
+		}}
+	>
+		<div>
+			<h3>Drag & drop an archive</h3>
+			<p>.zip, .tar.gz, or .tgz files supported</p>
+		</div>
+		<label class="btn-action">
+			<input
+				type="file"
+				accept=".zip,.tar.gz,.tgz"
+				multiple
+				onchange={(event) => {
+					const input = event.currentTarget as HTMLInputElement;
+					if (input.files) uploadArchives(input.files);
+					input.value = '';
+				}}
+				hidden
+			/>
+			{uploadBusy ? 'Uploading...' : 'Choose files'}
+		</label>
+	</div>
+
+	{#if uploadBusy}
+		<div class="upload-progress">
+			<div class="progress-header">
+				<strong>{uploadFileName}</strong>
+				<span>{uploadStatus}</span>
+			</div>
+			<div class="progress-track">
+				<div class="progress-bar" style={`width: ${uploadProgress}%`}></div>
+			</div>
+			<div class="progress-meta">{uploadProgress}%</div>
+		</div>
+	{/if}
+
+	{#if uploadError}
+		<p class="error-text">{uploadError}</p>
+	{/if}
+
+	{#if importsError}
+		<div class="error-box">
+			<p>Failed to load imports: {importsError}</p>
+		</div>
+	{:else if imports && imports.length > 0}
+		<div class="imports-card">
+			<table>
+				<thead>
+					<tr>
+						<th>Filename</th>
+						<th>Size</th>
+						<th>Uploaded</th>
+						<th>Server Name</th>
+						<th>Unpack</th>
+						<th>Action</th>
+					</tr>
+				</thead>
+				<tbody>
+					{#each imports as entry}
+						<tr>
+							<td class="mono">{entry.filename}</td>
+							<td>{formatFileSize(entry.size)}</td>
+							<td>{formatDate(entry.time)}</td>
+							<td>
+								<input
+									type="text"
+									placeholder="new-server"
+									value={serverNames[entry.filename] ?? ''}
+									oninput={(event) => {
+										const value = (event.currentTarget as HTMLInputElement).value;
+										serverNames[entry.filename] = value;
+										serverNames = { ...serverNames };
+									}}
+								/>
+							</td>
+							<td>
+								{#if importJobs[entry.filename]}
+									<div class="job-progress">
+										<div
+											class="job-bar"
+											style={`width: ${importJobs[entry.filename].percentage}%`}
+										></div>
+									</div>
+									<div class="job-meta">
+										{importJobs[entry.filename].status} {importJobs[entry.filename].percentage}%
+									</div>
+								{:else}
+									<span class="muted">--</span>
+								{/if}
+							</td>
+							<td>
+								<div class="import-actions">
+									<button
+										class="btn-action"
+										onclick={() => handleCreateImport(entry.filename)}
+										disabled={importLoading[entry.filename]}
+									>
+										{importLoading[entry.filename] ? 'Queueing...' : 'Import'}
+									</button>
+									<button
+										class="btn-delete-import"
+										onclick={() => handleDeleteImport(entry.filename)}
+										disabled={importLoading[entry.filename]}
+										title="Delete import"
+									>
+										🗑️
+									</button>
+								</div>
+							</td>
+						</tr>
+					{/each}
+				</tbody>
+			</table>
+		</div>
+	{:else}
+		<div class="empty-state">
+			<h3>No imports found</h3>
+			<p>Add archives to the import folder to create servers.</p>
+		</div>
+	{/if}
+</section>
 
 <style>
 	.page-header {
@@ -508,6 +869,32 @@
 		cursor: not-allowed;
 	}
 
+	.import-actions {
+		display: flex;
+		gap: 8px;
+		align-items: center;
+	}
+
+	.btn-delete-import {
+		background: transparent;
+		border: 1px solid rgba(255, 92, 92, 0.3);
+		border-radius: 6px;
+		padding: 6px 10px;
+		font-size: 14px;
+		cursor: pointer;
+		transition: all 0.2s;
+	}
+
+	.btn-delete-import:hover:not(:disabled) {
+		background: rgba(255, 92, 92, 0.15);
+		border-color: rgba(255, 92, 92, 0.5);
+	}
+
+	.btn-delete-import:disabled {
+		opacity: 0.5;
+		cursor: not-allowed;
+	}
+
 	.btn-success {
 		background: rgba(106, 176, 76, 0.18);
 		color: #b7f5a2;
@@ -533,6 +920,155 @@
 
 	.btn-danger:hover:not(:disabled) {
 		background: rgba(255, 92, 92, 0.25);
+	}
+
+	.import-section {
+		margin-top: 48px;
+		display: flex;
+		flex-direction: column;
+		gap: 20px;
+	}
+
+	.section-subtitle {
+		color: #8e96bb;
+		font-size: 13px;
+	}
+
+	.upload-zone {
+		background: #1a1e2f;
+		border-radius: 16px;
+		padding: 24px;
+		border: 2px dashed rgba(106, 176, 76, 0.2);
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		gap: 16px;
+		box-shadow: 0 20px 40px rgba(0, 0, 0, 0.35);
+	}
+
+	.upload-zone.active {
+		border-color: rgba(106, 176, 76, 0.6);
+		background: rgba(106, 176, 76, 0.08);
+	}
+
+	.upload-zone h3 {
+		margin: 0 0 6px;
+		font-size: 18px;
+	}
+
+	.upload-zone p {
+		margin: 0;
+		color: #aab2d3;
+		font-size: 13px;
+	}
+
+	.upload-progress {
+		background: rgba(20, 24, 39, 0.8);
+		border-radius: 12px;
+		padding: 16px;
+		border: 1px solid rgba(42, 47, 71, 0.8);
+	}
+
+	.progress-header {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		font-size: 13px;
+		color: #c4cff5;
+		margin-bottom: 10px;
+		gap: 12px;
+	}
+
+	.progress-track {
+		background: #0f1320;
+		border-radius: 999px;
+		height: 10px;
+		overflow: hidden;
+		border: 1px solid rgba(42, 47, 71, 0.8);
+	}
+
+	.progress-bar {
+		height: 100%;
+		background: linear-gradient(90deg, rgba(106, 176, 76, 0.8), rgba(124, 212, 114, 0.9));
+		width: 0;
+		transition: width 0.2s ease;
+	}
+
+	.progress-meta {
+		margin-top: 8px;
+		font-size: 12px;
+		color: #9aa2c5;
+	}
+
+	.imports-card {
+		background: #1a1e2f;
+		border-radius: 16px;
+		padding: 20px;
+		box-shadow: 0 20px 40px rgba(0, 0, 0, 0.35);
+		overflow-x: auto;
+	}
+
+	table {
+		width: 100%;
+		border-collapse: collapse;
+	}
+
+	th,
+	td {
+		padding: 12px 10px;
+		text-align: left;
+		border-bottom: 1px solid #2b2f45;
+		color: #d4d9f1;
+		font-size: 14px;
+	}
+
+	th {
+		color: #9aa2c5;
+		font-weight: 600;
+	}
+
+	.mono {
+		font-family: 'Courier New', monospace;
+		font-size: 12px;
+	}
+
+	.imports-card input[type='text'] {
+		width: 100%;
+		box-sizing: border-box;
+	}
+
+	.job-progress {
+		background: #0f1320;
+		border-radius: 999px;
+		height: 8px;
+		overflow: hidden;
+		border: 1px solid rgba(42, 47, 71, 0.8);
+	}
+
+	.job-bar {
+		height: 100%;
+		background: rgba(124, 179, 255, 0.85);
+		width: 0;
+		transition: width 0.2s ease;
+	}
+
+	.job-meta {
+		margin-top: 6px;
+		font-size: 11px;
+		color: #9aa2c5;
+		text-transform: uppercase;
+		letter-spacing: 0.04em;
+	}
+
+	.muted {
+		color: #6a7192;
+		font-size: 12px;
+	}
+
+	.error-text {
+		color: #ff9f9f;
+		font-size: 13px;
+		margin: 0;
 	}
 
 	.empty-state {
