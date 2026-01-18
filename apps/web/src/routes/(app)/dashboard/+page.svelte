@@ -1,5 +1,8 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import { goto, invalidateAll } from '$app/navigation';
+	import * as api from '$lib/api/client';
+	import { modal } from '$lib/stores/modal';
 	import type { PageData } from './$types';
 	import type { HostMetrics, ServerSummary } from '$lib/api/types';
 
@@ -12,6 +15,7 @@
 	let serversStream: EventSource | null = null;
 	let metricsStream: EventSource | null = null;
 	let memoryHistory = $state<Record<string, number[]>>({});
+	let actionLoading = $state<Record<string, boolean>>({});
 
 	const maxMemoryPoints = 30;
 
@@ -73,6 +77,51 @@
 			updated[server.name] = history;
 		}
 		memoryHistory = updated;
+	}
+
+	function openServer(serverName: string) {
+		goto(`/servers/${encodeURIComponent(serverName)}`);
+	}
+
+	function handleServerKeydown(event: KeyboardEvent, serverName: string) {
+		if (event.key === 'Enter' || event.key === ' ') {
+			event.preventDefault();
+			openServer(serverName);
+		}
+	}
+
+	async function handleAction(
+		serverName: string,
+		action: 'start' | 'stop' | 'kill',
+		event?: Event
+	) {
+		event?.stopPropagation();
+		event?.preventDefault();
+
+		actionLoading[serverName] = true;
+		try {
+			let result;
+			switch (action) {
+				case 'start':
+					result = await api.startServer(fetch, serverName);
+					break;
+				case 'stop':
+					result = await api.stopServer(fetch, serverName);
+					break;
+				case 'kill':
+					result = await api.killServer(fetch, serverName);
+					break;
+			}
+
+			if (result?.error) {
+				await modal.error(`Failed to ${action} server: ${result.error}`);
+			} else {
+				setTimeout(() => invalidateAll(), 1000);
+			}
+		} finally {
+			delete actionLoading[serverName];
+			actionLoading = { ...actionLoading };
+		}
 	}
 
 	onMount(() => {
@@ -239,7 +288,13 @@
 		{:else if servers && servers.length > 0}
 			<div class="server-list">
 				{#each servers.slice(0, 6) as server}
-					<a href="/servers/{server.name}" class="server-item">
+					<div
+						class="server-item"
+						role="link"
+						tabindex="0"
+						onclick={() => openServer(server.name)}
+						onkeydown={(event) => handleServerKeydown(event, server.name)}
+					>
 						<div class="server-info">
 							<div class="server-name">{server.name}</div>
 						<div class="server-meta">
@@ -253,7 +308,7 @@
 								<span class="restart-badge">Restart required</span>
 							{/if}
 						</div>
-						</div>
+					</div>
 						<div class="server-status">
 							{#if server.up}
 								<span class="status-indicator status-up"></span>
@@ -282,8 +337,34 @@
 								<span class="status-indicator status-down"></span>
 								<span class="status-text">Stopped</span>
 							{/if}
+							<div class="server-actions">
+								{#if server.up}
+									<button
+										class="server-action-btn"
+										onclick={(event) => handleAction(server.name, 'stop', event)}
+										disabled={actionLoading[server.name]}
+									>
+										Stop
+									</button>
+									<button
+										class="server-action-btn danger"
+										onclick={(event) => handleAction(server.name, 'kill', event)}
+										disabled={actionLoading[server.name]}
+									>
+										Kill
+									</button>
+								{:else}
+									<button
+										class="server-action-btn success"
+										onclick={(event) => handleAction(server.name, 'start', event)}
+										disabled={actionLoading[server.name]}
+									>
+										Start
+									</button>
+								{/if}
+							</div>
 						</div>
-					</a>
+					</div>
 				{/each}
 			</div>
 		{:else}
@@ -303,14 +384,6 @@
 			<div class="quick-link-content">
 				<div class="quick-link-title">Profiles</div>
 				<div class="quick-link-desc">Download and manage server JARs</div>
-			</div>
-		</a>
-
-		<a href="/import" class="quick-link-card">
-			<div class="quick-link-icon">[I]</div>
-			<div class="quick-link-content">
-				<div class="quick-link-title">Import</div>
-				<div class="quick-link-desc">Import servers from archives</div>
 			</div>
 		</a>
 	</div>
@@ -494,6 +567,7 @@
 		border-bottom: 1px solid #2a2f47;
 		text-decoration: none;
 		transition: background 0.2s;
+		cursor: pointer;
 	}
 
 	.server-item:last-child {
@@ -502,6 +576,11 @@
 
 	.server-item:hover {
 		background: rgba(106, 176, 76, 0.08);
+	}
+
+	.server-item:focus-visible {
+		outline: 2px solid rgba(106, 176, 76, 0.6);
+		outline-offset: -2px;
 	}
 
 	.server-info {
@@ -550,6 +629,7 @@
 		display: flex;
 		align-items: center;
 		gap: 8px;
+		flex-wrap: wrap;
 	}
 
 	.status-indicator {
@@ -570,6 +650,50 @@
 	.status-text {
 		font-size: 14px;
 		color: #d4d9f1;
+	}
+
+	.server-actions {
+		display: flex;
+		gap: 6px;
+		margin-left: 8px;
+	}
+
+	.server-action-btn {
+		background: #2b2f45;
+		color: #d4d9f1;
+		border: none;
+		border-radius: 6px;
+		padding: 6px 10px;
+		font-size: 12px;
+		cursor: pointer;
+		transition: background 0.2s;
+	}
+
+	.server-action-btn:hover:not(:disabled) {
+		background: #3a3f5a;
+	}
+
+	.server-action-btn:disabled {
+		opacity: 0.5;
+		cursor: not-allowed;
+	}
+
+	.server-action-btn.success {
+		background: rgba(106, 176, 76, 0.2);
+		color: #b7f5a2;
+	}
+
+	.server-action-btn.success:hover:not(:disabled) {
+		background: rgba(106, 176, 76, 0.3);
+	}
+
+	.server-action-btn.danger {
+		background: rgba(255, 92, 92, 0.2);
+		color: #ffb6b6;
+	}
+
+	.server-action-btn.danger:hover:not(:disabled) {
+		background: rgba(255, 92, 92, 0.3);
 	}
 
 	.players-count {
