@@ -5,6 +5,7 @@
 	import * as api from '$lib/api/client';
 	import { modal } from '$lib/stores/modal';
 	import { formatBytes, formatDate } from '$lib/utils/formatting';
+	import ProgressBar from '$lib/components/ProgressBar.svelte';
 	import type { PageData } from './$types';
 	import type { ArchiveEntry, ServerSummary } from '$lib/api/types';
 
@@ -523,10 +524,7 @@
 				<strong>{uploadFileName}</strong>
 				<span>{uploadStatus}</span>
 			</div>
-			<div class="progress-track">
-				<div class="progress-bar" style={`width: ${uploadProgress}%`}></div>
-			</div>
-			<div class="progress-meta">{uploadProgress}%</div>
+			<ProgressBar value={uploadProgress} color="green" size="sm" showLabel />
 		</div>
 	{/if}
 
@@ -959,27 +957,6 @@
 		color: #c4cff5;
 		margin-bottom: 10px;
 		gap: 12px;
-	}
-
-	.progress-track {
-		background: #0f1320;
-		border-radius: 999px;
-		height: 10px;
-		overflow: hidden;
-		border: 1px solid rgba(42, 47, 71, 0.8);
-	}
-
-	.progress-bar {
-		height: 100%;
-		background: linear-gradient(90deg, rgba(106, 176, 76, 0.8), rgba(124, 212, 114, 0.9));
-		width: 0;
-		transition: width 0.2s ease;
-	}
-
-	.progress-meta {
-		margin-top: 8px;
-		font-size: 12px;
-		color: #9aa2c5;
 	}
 
 	.imports-card {

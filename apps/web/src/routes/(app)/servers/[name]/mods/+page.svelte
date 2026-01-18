@@ -1,5 +1,6 @@
 <script lang="ts">
 	import CurseForgeSearch from '$lib/components/CurseForgeSearch.svelte';
+	import ProgressBar from '$lib/components/ProgressBar.svelte';
 	import { modal } from '$lib/stores/modal';
 	import { formatBytes } from '$lib/utils/formatting';
 	import type { PageData } from './$types';
@@ -309,11 +310,8 @@
 		<div class="upload-progress-container">
 			<div class="progress-header">
 				<span class="progress-title">Uploading: {uploadingFileName}</span>
-				<span class="progress-percent">{uploadProgress}%</span>
 			</div>
-			<div class="progress-bar-bg">
-				<div class="progress-bar-fill" style="width: {uploadProgress}%"></div>
-			</div>
+			<ProgressBar value={uploadProgress} color="green" size="sm" showLabel />
 			{#if uploadProgress === 100}
 				<p class="progress-message">Processing and extracting files...</p>
 			{/if}
@@ -721,28 +719,6 @@
 		text-overflow: ellipsis;
 		white-space: nowrap;
 		flex: 1;
-	}
-
-	.progress-percent {
-		color: #9aa2c5;
-		font-size: 14px;
-		font-weight: 600;
-		margin-left: 12px;
-	}
-
-	.progress-bar-bg {
-		height: 8px;
-		background: #141827;
-		border-radius: 999px;
-		overflow: hidden;
-		border: 1px solid #2a2f47;
-	}
-
-	.progress-bar-fill {
-		height: 100%;
-		background: linear-gradient(90deg, var(--mc-grass), #7ae68d);
-		transition: width 0.3s ease;
-		border-radius: 999px;
 	}
 
 	.progress-message {

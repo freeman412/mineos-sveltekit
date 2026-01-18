@@ -3,6 +3,7 @@
 	import * as api from '$lib/api/client';
 	import { modal } from '$lib/stores/modal';
 	import { formatBytes, formatDate } from '$lib/utils/formatting';
+	import ProgressBar from '$lib/components/ProgressBar.svelte';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
@@ -249,9 +250,7 @@
 			</button>
 			{#if uploadingNew && uploadNewProgress > 0}
 				<div class="upload-progress-bar">
-					<div class="progress-bar">
-						<div class="progress-fill" style="width: {uploadNewProgress}%"></div>
-					</div>
+					<ProgressBar value={uploadNewProgress} color="green" size="sm" />
 				</div>
 			{/if}
 		</div>
@@ -325,9 +324,7 @@
 
 					{#if uploading === world.name && uploadProgress > 0}
 						<div class="upload-progress">
-							<div class="progress-bar">
-								<div class="progress-fill" style="width: {uploadProgress}%"></div>
-							</div>
+							<ProgressBar value={uploadProgress} color="green" size="sm" />
 						</div>
 					{/if}
 				</div>
@@ -595,19 +592,6 @@
 
 	.upload-progress {
 		margin-top: 12px;
-	}
-
-	.progress-bar {
-		height: 6px;
-		background: rgba(255, 255, 255, 0.1);
-		border-radius: 3px;
-		overflow: hidden;
-	}
-
-	.progress-fill {
-		height: 100%;
-		background: linear-gradient(90deg, #6ab04c 0%, #a8e063 100%);
-		transition: width 0.3s ease;
 	}
 
 	.info-box {

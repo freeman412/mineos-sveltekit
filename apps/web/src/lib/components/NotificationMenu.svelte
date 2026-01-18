@@ -3,6 +3,7 @@
 	import { onMount } from 'svelte';
 	import { modal } from '$lib/stores/modal';
 	import { uploads, type UploadEntry } from '$lib/stores/uploads';
+	import ProgressBar from './ProgressBar.svelte';
 
 	let notifications = $state<SystemNotification[]>([]);
 	let activeJobs = $state<JobStatus[]>([]);
@@ -215,12 +216,7 @@
 								<span class="task-type">{getJobTypeLabel(job.type)}</span>
 								<span class="task-server">{job.serverName}</span>
 							</div>
-							<div class="task-progress">
-								<div class="progress-bar">
-									<div class="progress-fill" style="width: {job.percentage}%"></div>
-								</div>
-								<span class="progress-text">{job.percentage}%</span>
-							</div>
+							<ProgressBar value={job.percentage} color="blue" size="sm" showLabel />
 							{#if job.message}
 								<span class="task-message">{job.message}</span>
 							{/if}
@@ -232,14 +228,13 @@
 								<span class="task-type">Modpack Install</span>
 								<span class="task-server">{modpack.serverName}</span>
 							</div>
-							<div class="task-progress">
-								<div class="progress-bar">
-									<div class="progress-fill" style="width: {modpack.percentage}%"></div>
-								</div>
-								<span class="progress-text">
-									{modpack.currentModIndex}/{modpack.totalMods}
-								</span>
-							</div>
+							<ProgressBar
+								value={modpack.percentage}
+								color="blue"
+								size="sm"
+								showLabel
+								label="{modpack.currentModIndex}/{modpack.totalMods}"
+							/>
 							{#if modpack.currentModName}
 								<span class="task-message">{modpack.currentModName}</span>
 							{/if}
@@ -251,12 +246,7 @@
 								<span class="task-type">Upload</span>
 								<span class="task-server">{upload.filename}</span>
 							</div>
-							<div class="task-progress">
-								<div class="progress-bar uploading">
-									<div class="progress-fill-animated"></div>
-								</div>
-								<span class="progress-text">Uploading</span>
-							</div>
+							<ProgressBar indeterminate color="blue" size="sm" showLabel label="Uploading" />
 							<button
 								class="cancel-upload"
 								onclick={() => uploads.cancel(upload.id)}
@@ -586,35 +576,6 @@
 		border: 1px solid #2a2f47;
 	}
 
-	.task-progress {
-		display: flex;
-		align-items: center;
-		gap: 10px;
-		margin-bottom: 4px;
-	}
-
-	.task-progress .progress-bar {
-		flex: 1;
-		height: 6px;
-		background: #2a2f47;
-		border-radius: 3px;
-		overflow: hidden;
-	}
-
-	.task-progress .progress-fill {
-		height: 100%;
-		background: linear-gradient(90deg, #5b9eff, #79c0ff);
-		border-radius: 3px;
-		transition: width 0.3s ease;
-	}
-
-	.progress-text {
-		font-size: 11px;
-		color: #9aa2c5;
-		min-width: 40px;
-		text-align: right;
-	}
-
 	.task-message {
 		font-size: 11px;
 		color: #7c87b2;
@@ -627,27 +588,6 @@
 	/* Upload items */
 	.upload-item {
 		position: relative;
-	}
-
-	.progress-bar.uploading {
-		overflow: hidden;
-	}
-
-	.progress-fill-animated {
-		height: 100%;
-		width: 50%;
-		background: linear-gradient(90deg, #5b9eff, #79c0ff, #5b9eff);
-		background-size: 200% 100%;
-		animation: uploadProgress 1.5s ease-in-out infinite;
-	}
-
-	@keyframes uploadProgress {
-		0% {
-			transform: translateX(-100%);
-		}
-		100% {
-			transform: translateX(200%);
-		}
 	}
 
 	.cancel-upload {

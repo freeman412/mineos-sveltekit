@@ -3,6 +3,7 @@
 	import type { PageData } from './$types';
 	import * as api from '$lib/api/client';
 	import type { CurseForgeSearchResult, ForgeVersion } from '$lib/api/types';
+	import ProgressBar from '$lib/components/ProgressBar.svelte';
 
 	let { data }: { data: PageData } = $props();
 
@@ -740,10 +741,7 @@
 						{/if}
 					</p>
 					{#if forgeInstallId && forgeInstallProgress > 0}
-						<div class="progress-container">
-							<div class="progress-bar" style="width: {forgeInstallProgress}%"></div>
-						</div>
-						<span class="progress-text">{forgeInstallProgress}%</span>
+						<ProgressBar value={forgeInstallProgress} color="green" size="md" showLabel />
 					{/if}
 					{#if forgeInstallId && forgeInstallOutput}
 						<div class="output-section">
@@ -1407,30 +1405,6 @@
 		font-size: 14px;
 		font-weight: 500;
 		color: #eef0f8;
-	}
-
-	/* Progress Bar */
-	.progress-container {
-		width: 100%;
-		max-width: 400px;
-		height: 8px;
-		background: #2b2f45;
-		border-radius: 999px;
-		overflow: hidden;
-		margin-top: 20px;
-	}
-
-	.progress-bar {
-		height: 100%;
-		background: linear-gradient(90deg, #5865f2, #a855f7);
-		border-radius: 999px;
-		transition: width 0.3s ease;
-	}
-
-	.progress-text {
-		margin-top: 8px;
-		font-size: 13px;
-		color: #9aa2c5;
 	}
 
 	/* Output Section */

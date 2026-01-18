@@ -2,6 +2,7 @@
 	import { onMount, tick } from 'svelte';
 	import { modal } from '$lib/stores/modal';
 	import type { CurseForgeModSummary, CurseForgeMod, ModpackInstallProgress } from '$lib/api/types';
+	import ProgressBar from './ProgressBar.svelte';
 
 	interface Props {
 		serverName: string;
@@ -486,9 +487,7 @@
 				<div class="install-progress">
 					{#if modpackInstallProgress}
 						<h2>Installing {detailItem.name}</h2>
-						<div class="progress-bar">
-							<div class="progress-fill" style="width: {modpackInstallProgress.percentage}%"></div>
-						</div>
+						<ProgressBar value={modpackInstallProgress.percentage} color="green" size="md" />
 						<p class="status">{modpackInstallProgress.currentStep}</p>
 						{#if modpackInstallProgress.totalMods > 0}
 							<p class="mod-progress">
@@ -516,9 +515,7 @@
 						{/if}
 					{:else if modInstallProgress}
 						<h2>Installing Mod</h2>
-						<div class="progress-bar">
-							<div class="progress-fill" style="width: {modInstallProgress.percentage}%"></div>
-						</div>
+						<ProgressBar value={modInstallProgress.percentage} color="green" size="md" />
 						<p class="status">{modInstallProgress.message}</p>
 
 						{#if modInstallProgress.status === 'completed'}
@@ -889,19 +886,6 @@
 		font-size: 24px;
 		font-weight: 600;
 		color: #eef0f8;
-	}
-
-	.progress-bar {
-		height: 8px;
-		background: #252a3d;
-		border-radius: 999px;
-		overflow: hidden;
-	}
-
-	.progress-fill {
-		height: 100%;
-		background: linear-gradient(90deg, var(--mc-grass), var(--mc-sky));
-		transition: width 0.2s ease;
 	}
 
 	.status {
