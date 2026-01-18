@@ -10,3 +10,5 @@ public record UserDto(
 public record CreateUserRequestDto(string Username, string Password, string Role);
 
 public record UpdateUserRequestDto(string? Password, string? Role, bool? IsActive);
+
+public record UpdateSelfRequestDto(string? Username, string? Password);

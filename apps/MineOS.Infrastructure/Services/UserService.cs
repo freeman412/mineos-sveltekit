@@ -96,6 +96,47 @@ public sealed class UserService : IUserService
         return ToDto(user);
     }
 
+    public async Task<UserDto> UpdateSelfAsync(int id, UpdateSelfRequestDto request, CancellationToken cancellationToken)
+    {
+        var user = await _db.Users.FirstOrDefaultAsync(u => u.Id == id, cancellationToken);
+        if (user == null)
+        {
+            throw new ArgumentException("User not found");
+        }
+
+        if (!string.IsNullOrWhiteSpace(request.Username))
+        {
+            var normalized = request.Username.Trim();
+            if (string.IsNullOrWhiteSpace(normalized))
+            {
+                throw new ArgumentException("Username is required");
+            }
+
+            if (!string.Equals(user.Username, normalized, StringComparison.OrdinalIgnoreCase))
+            {
+                var exists = await _db.Users.AnyAsync(
+                    u => u.Username.ToLower() == normalized.ToLower() && u.Id != id,
+                    cancellationToken);
+
+                if (exists)
+                {
+                    throw new InvalidOperationException("Username already exists");
+                }
+
+                user.Username = normalized;
+            }
+        }
+
+        if (!string.IsNullOrWhiteSpace(request.Password))
+        {
+            user.PasswordHash = _passwordHasher.Hash(request.Password);
+        }
+
+        await _db.SaveChangesAsync(cancellationToken);
+        _logger.LogInformation("Updated profile for user {Username}", user.Username);
+        return ToDto(user);
+    }
+
     public async Task DeleteUserAsync(int id, CancellationToken cancellationToken)
     {
         var user = await _db.Users.FirstOrDefaultAsync(u => u.Id == id, cancellationToken);
