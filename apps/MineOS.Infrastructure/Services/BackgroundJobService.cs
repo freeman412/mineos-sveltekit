@@ -76,6 +76,31 @@ public sealed class BackgroundJobService : IBackgroundJobService, IHostedService
         );
     }
 
+    public IReadOnlyList<JobStatusDto> GetActiveJobs()
+    {
+        return _jobs.Values
+            .Where(j => j.Status == "queued" || j.Status == "running")
+            .Select(j => new JobStatusDto(
+                j.JobId,
+                j.Type,
+                j.ServerName,
+                j.Status,
+                j.Percentage,
+                j.Message,
+                j.StartedAt,
+                j.CompletedAt,
+                j.Error))
+            .ToList();
+    }
+
+    public IReadOnlyList<ModpackInstallProgressDto> GetActiveModpackInstalls()
+    {
+        return _modpackStates.Values
+            .Where(s => !s.IsComplete)
+            .Select(s => s.ToDto())
+            .ToList();
+    }
+
     public async IAsyncEnumerable<JobProgressDto> StreamJobProgressAsync(
         string jobId,
         [EnumeratorCancellation] CancellationToken cancellationToken)

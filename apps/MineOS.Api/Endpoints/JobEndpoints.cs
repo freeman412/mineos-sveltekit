@@ -14,6 +14,18 @@ public static class JobEndpoints
     {
         var jobs = api.MapGroup("/jobs");
 
+        // List all active jobs
+        jobs.MapGet("/", (IBackgroundJobService jobService) =>
+        {
+            var activeJobs = jobService.GetActiveJobs();
+            var activeModpacks = jobService.GetActiveModpackInstalls();
+            return Results.Ok(new
+            {
+                jobs = activeJobs,
+                modpackInstalls = activeModpacks
+            });
+        });
+
         // Get job status
         jobs.MapGet("/{jobId}", (
             string jobId,
