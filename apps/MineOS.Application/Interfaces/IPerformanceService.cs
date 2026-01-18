@@ -14,4 +14,5 @@ public interface IPerformanceService
         string serverName,
         TimeSpan interval,
         CancellationToken cancellationToken);
+    Task<SparkStatusDto> GetSparkStatusAsync(string serverName, CancellationToken cancellationToken);
 }

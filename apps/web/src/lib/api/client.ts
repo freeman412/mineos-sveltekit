@@ -460,6 +460,13 @@ export async function getPerformanceHistory(
 	return apiFetch(fetcher, `/api/servers/${serverName}/performance/history?${params.toString()}`);
 }
 
+export async function getSparkStatus(
+	fetcher: Fetcher,
+	serverName: string
+): Promise<ApiResult<import('./types').SparkStatus>> {
+	return apiFetch(fetcher, `/api/servers/${serverName}/performance/spark`);
+}
+
 // Forge API
 export async function getForgeVersions(
 	fetcher: Fetcher
