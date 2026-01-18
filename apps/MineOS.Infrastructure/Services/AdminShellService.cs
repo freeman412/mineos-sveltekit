@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Globalization;
 using System.Net.WebSockets;
 using System.Text;
 using System.Text.Json;
@@ -41,9 +42,16 @@ public sealed class AdminShellService : IAdminShellSession
         using var writer = process.StandardInput;
         writer.AutoFlush = true;
 
+        var ttyPath = await ResolveTtyPathAsync(process, linkedToken);
+        Func<int, int, CancellationToken, Task<bool>>? resizeHandler = null;
+        if (!string.IsNullOrWhiteSpace(ttyPath))
+        {
+            resizeHandler = (cols, rows, token) => TryResizeTtyAsync(ttyPath, cols, rows, token);
+        }
+
         var outputTask = PumpProcessOutputAsync(process.StandardOutput.BaseStream, socket, linkedToken);
         var errorTask = PumpProcessOutputAsync(process.StandardError.BaseStream, socket, linkedToken);
-        var inputTask = PumpWebSocketInputAsync(socket, writer, linkedToken);
+        var inputTask = PumpWebSocketInputAsync(socket, writer, resizeHandler, linkedToken);
         var exitTask = process.WaitForExitAsync(linkedToken);
 
         await Task.WhenAny(outputTask, errorTask, inputTask, exitTask);
@@ -175,6 +183,7 @@ public sealed class AdminShellService : IAdminShellSession
     private static async Task PumpWebSocketInputAsync(
         WebSocket socket,
         StreamWriter writer,
+        Func<int, int, CancellationToken, Task<bool>>? resizeHandler,
         CancellationToken cancellationToken)
     {
         var buffer = new byte[4096];
@@ -199,7 +208,7 @@ public sealed class AdminShellService : IAdminShellSession
             if (result.MessageType == WebSocketMessageType.Text)
             {
                 var text = Encoding.UTF8.GetString(messageBuffer.ToArray());
-                if (await TryHandleResizeAsync(text, writer, cancellationToken))
+                if (await TryHandleResizeAsync(text, resizeHandler, cancellationToken))
                 {
                     continue;
                 }
@@ -218,7 +227,7 @@ public sealed class AdminShellService : IAdminShellSession
 
     private static async Task<bool> TryHandleResizeAsync(
         string text,
-        StreamWriter writer,
+        Func<int, int, CancellationToken, Task<bool>>? resizeHandler,
         CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(text) || text.Length > 128 || text[0] != '{')
@@ -248,8 +257,12 @@ public sealed class AdminShellService : IAdminShellSession
                 return false;
             }
 
-            await writer.WriteAsync($"stty cols {cols} rows {rows}\n");
-            await writer.FlushAsync();
+            if (resizeHandler != null)
+            {
+                await resizeHandler(cols, rows, cancellationToken);
+                return true;
+            }
+
             return true;
         }
         catch (JsonException)
@@ -267,6 +280,151 @@ public sealed class AdminShellService : IAdminShellSession
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
             return true;
+        }
+    }
+
+    private static async Task<string?> ResolveTtyPathAsync(
+        Process process,
+        CancellationToken cancellationToken)
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            return null;
+        }
+
+        var pid = process.Id;
+        var attempts = 0;
+        while (!cancellationToken.IsCancellationRequested && attempts < 6)
+        {
+            var direct = TryResolveTtyPathForPid(pid);
+            if (!string.IsNullOrWhiteSpace(direct))
+            {
+                return direct;
+            }
+
+            foreach (var childPid in GetChildPids(pid))
+            {
+                var childTty = TryResolveTtyPathForPid(childPid);
+                if (!string.IsNullOrWhiteSpace(childTty))
+                {
+                    return childTty;
+                }
+            }
+
+            attempts += 1;
+            try
+            {
+                await Task.Delay(100, cancellationToken);
+            }
+            catch (OperationCanceledException)
+            {
+                break;
+            }
+        }
+
+        return null;
+    }
+
+    private static string? TryResolveTtyPathForPid(int pid)
+    {
+        var fdCandidates = new[] { "0", "1", "2" };
+        foreach (var fd in fdCandidates)
+        {
+            var path = $"/proc/{pid}/fd/{fd}";
+            try
+            {
+                var info = new FileInfo(path);
+                var target = info.ResolveLinkTarget(true);
+                var fullPath = target?.FullName;
+                if (!string.IsNullOrWhiteSpace(fullPath) && fullPath.StartsWith("/dev/pts/"))
+                {
+                    return fullPath;
+                }
+            }
+            catch
+            {
+                // Ignore and continue.
+            }
+        }
+
+        return null;
+    }
+
+    private static IEnumerable<int> GetChildPids(int pid)
+    {
+        var childrenPath = $"/proc/{pid}/task/{pid}/children";
+        if (!File.Exists(childrenPath))
+        {
+            return Array.Empty<int>();
+        }
+
+        try
+        {
+            var content = File.ReadAllText(childrenPath);
+            if (string.IsNullOrWhiteSpace(content))
+            {
+                return Array.Empty<int>();
+            }
+
+            var ids = content
+                .Split(' ', StringSplitOptions.RemoveEmptyEntries)
+                .Select(value => int.TryParse(value, out var id) ? id : -1)
+                .Where(id => id > 0)
+                .ToList();
+
+            return ids;
+        }
+        catch
+        {
+            return Array.Empty<int>();
+        }
+    }
+
+    private static async Task<bool> TryResizeTtyAsync(
+        string ttyPath,
+        int cols,
+        int rows,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(ttyPath))
+        {
+            return false;
+        }
+
+        try
+        {
+            var startInfo = new ProcessStartInfo
+            {
+                FileName = "stty",
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true
+            };
+
+            startInfo.ArgumentList.Add("-F");
+            startInfo.ArgumentList.Add(ttyPath);
+            startInfo.ArgumentList.Add("cols");
+            startInfo.ArgumentList.Add(cols.ToString(CultureInfo.InvariantCulture));
+            startInfo.ArgumentList.Add("rows");
+            startInfo.ArgumentList.Add(rows.ToString(CultureInfo.InvariantCulture));
+
+            using var resizeProcess = Process.Start(startInfo);
+            if (resizeProcess == null)
+            {
+                return false;
+            }
+
+            await resizeProcess.WaitForExitAsync(cancellationToken);
+            return resizeProcess.ExitCode == 0;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            return true;
+        }
+        catch
+        {
+            return false;
         }
     }
 }
