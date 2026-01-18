@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.Json;
 using Microsoft.Extensions.Options;
 using Microsoft.AspNetCore.Mvc;
+using MineOS.Application.Dtos;
 using MineOS.Application.Interfaces;
 
 namespace MineOS.Api.Endpoints;
@@ -239,18 +240,62 @@ public static class HostEndpoints
         host.MapGet("/imports", async (IHostService hostService, CancellationToken cancellationToken) =>
             Results.Ok(await hostService.GetImportsAsync(cancellationToken)));
 
+        host.MapPost("/imports/upload", async (
+            HttpRequest request,
+            IImportService importService,
+            CancellationToken cancellationToken) =>
+        {
+            var filename = request.Headers["X-File-Name"].ToString();
+            if (string.IsNullOrWhiteSpace(filename))
+            {
+                return Results.BadRequest(new { error = "Filename is required" });
+            }
+
+            try
+            {
+                await importService.SaveImportAsync(filename, request.Body, cancellationToken);
+                return Results.Ok(new { filename });
+            }
+            catch (ArgumentException ex)
+            {
+                return Results.BadRequest(new { error = ex.Message });
+            }
+        });
+
         host.MapPost("/imports/{filename}/create-server", async (
             string filename,
             [FromBody] ImportServerRequest request,
             IImportService importService,
             IServerService serverService,
+            IBackgroundJobService jobService,
             CancellationToken cancellationToken) =>
         {
             try
             {
-                await importService.CreateServerFromImportAsync(filename, request.ServerName, cancellationToken);
-                var server = await serverService.GetServerAsync(request.ServerName, cancellationToken);
-                return Results.Ok(server);
+                if (string.IsNullOrWhiteSpace(filename))
+                {
+                    return Results.BadRequest(new { error = "Import filename is required" });
+                }
+
+                if (string.IsNullOrWhiteSpace(request.ServerName))
+                {
+                    return Results.BadRequest(new { error = "Server name is required" });
+                }
+
+                string? jobId = null;
+                jobId = jobService.QueueJob(
+                    "import",
+                    request.ServerName,
+                    async (progress, token) =>
+                    {
+                        var resolvedJobId = jobId ?? string.Empty;
+                        progress.Report(new JobProgressDto(resolvedJobId, "import", request.ServerName, "running", 10, "Unpacking archive", DateTimeOffset.UtcNow));
+                        await importService.CreateServerFromImportAsync(filename, request.ServerName, token);
+                        progress.Report(new JobProgressDto(resolvedJobId, "import", request.ServerName, "running", 90, "Finalizing", DateTimeOffset.UtcNow));
+                        await serverService.GetServerAsync(request.ServerName, token);
+                    });
+
+                return Results.Accepted($"/api/v1/jobs/{jobId}", new { jobId });
             }
             catch (ArgumentException ex)
             {
@@ -265,6 +310,26 @@ public static class HostEndpoints
                 return Results.Conflict(new { error = ex.Message });
             }
             catch (DirectoryNotFoundException ex)
+            {
+                return Results.NotFound(new { error = ex.Message });
+            }
+        });
+
+        host.MapDelete("/imports/{filename}", async (
+            string filename,
+            IImportService importService,
+            CancellationToken cancellationToken) =>
+        {
+            try
+            {
+                await importService.DeleteImportAsync(filename, cancellationToken);
+                return Results.Ok(new { message = $"Import '{filename}' deleted" });
+            }
+            catch (ArgumentException ex)
+            {
+                return Results.BadRequest(new { error = ex.Message });
+            }
+            catch (FileNotFoundException ex)
             {
                 return Results.NotFound(new { error = ex.Message });
             }

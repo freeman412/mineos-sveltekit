@@ -156,6 +156,27 @@ public sealed class ImportService : IImportService
         }
     }
 
+    public Task DeleteImportAsync(string filename, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(filename) || Path.GetFileName(filename) != filename)
+        {
+            throw new ArgumentException("Invalid import filename");
+        }
+
+        var importPath = GetImportPath();
+        var archivePath = Path.Combine(importPath, filename);
+
+        if (!File.Exists(archivePath))
+        {
+            throw new FileNotFoundException($"Import file '{filename}' not found");
+        }
+
+        File.Delete(archivePath);
+        _logger.LogInformation("Deleted import archive {Filename}", filename);
+
+        return Task.CompletedTask;
+    }
+
     private static string ResolveExtractedRoot(string tempDir)
     {
         var directories = Directory.GetDirectories(tempDir);
