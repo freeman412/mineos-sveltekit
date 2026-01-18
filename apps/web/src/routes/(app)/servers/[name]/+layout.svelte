@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { page } from '$app/stores';
+	import StatusBadge from '$lib/components/StatusBadge.svelte';
 	import type { LayoutData } from './$types';
 
 	let { data, children }: { data: LayoutData; children: any } = $props();
@@ -42,9 +43,9 @@
 			<a href="/servers" class="breadcrumb">&lt; Back to Servers</a>
 			<h1>{data.server?.name}</h1>
 			<div class="server-meta">
-				<span class="status-badge" class:status-running={statusMeta.running}>
+				<StatusBadge variant={statusMeta.running ? 'success' : 'warning'} size="lg">
 					{statusMeta.label}
-				</span>
+				</StatusBadge>
 				{#if data.server?.javaPid}
 					<span class="meta-item">PID: {data.server.javaPid}</span>
 				{/if}
@@ -102,23 +103,6 @@
 		display: flex;
 		align-items: center;
 		gap: 16px;
-	}
-
-	.status-badge {
-		display: inline-block;
-		padding: 6px 14px;
-		border-radius: 12px;
-		font-size: 13px;
-		font-weight: 600;
-		background: rgba(139, 90, 43, 0.2);
-		color: #f4c08e;
-		border: 1px solid rgba(139, 90, 43, 0.4);
-	}
-
-	.status-running {
-		background: rgba(106, 176, 76, 0.2);
-		color: #b7f5a2;
-		border: 1px solid rgba(106, 176, 76, 0.45);
 	}
 
 	.meta-item {

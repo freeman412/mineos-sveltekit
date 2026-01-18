@@ -4,6 +4,7 @@
 	import * as api from '$lib/api/client';
 	import { modal } from '$lib/stores/modal';
 	import { formatBytes, formatUptime } from '$lib/utils/formatting';
+	import StatusBadge from '$lib/components/StatusBadge.svelte';
 	import type { PageData } from './$types';
 	import type { HostMetrics, ServerSummary } from '$lib/api/types';
 
@@ -295,7 +296,7 @@
 					</div>
 						<div class="server-status">
 							{#if server.up}
-								<span class="status-indicator status-up"></span>
+								<StatusBadge variant="success" dot />
 								<span class="status-text">Running</span>
 								{#if server.playersOnline !== null && server.playersMax !== null}
 									<span class="players-count"
@@ -318,7 +319,7 @@
 									{/if}
 								{/if}
 							{:else}
-								<span class="status-indicator status-down"></span>
+								<StatusBadge variant="error" dot />
 								<span class="status-text">Stopped</span>
 							{/if}
 							<div class="server-actions">
@@ -614,21 +615,6 @@
 		align-items: center;
 		gap: 8px;
 		flex-wrap: wrap;
-	}
-
-	.status-indicator {
-		width: 8px;
-		height: 8px;
-		border-radius: 50%;
-	}
-
-	.status-up {
-		background: var(--mc-grass);
-		box-shadow: 0 0 8px rgba(106, 176, 76, 0.4);
-	}
-
-	.status-down {
-		background: #ff9f9f;
 	}
 
 	.status-text {

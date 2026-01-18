@@ -4,6 +4,7 @@
 	import * as api from '$lib/api/client';
 	import type { CurseForgeSearchResult, ForgeVersion } from '$lib/api/types';
 	import ProgressBar from '$lib/components/ProgressBar.svelte';
+	import StatusBadge from '$lib/components/StatusBadge.svelte';
 
 	let { data }: { data: PageData } = $props();
 
@@ -658,9 +659,9 @@
 										<span class="version-number">{profile.version}</span>
 										<div class="version-meta">
 											{#if profile.downloaded}
-												<span class="status-badge ready">Ready</span>
+												<StatusBadge variant="success" size="sm">Ready</StatusBadge>
 											{:else}
-												<span class="status-badge download">Will Download</span>
+												<StatusBadge variant="info" size="sm">Will Download</StatusBadge>
 											{/if}
 										</div>
 										{#if selectedProfileId === profile.id}
@@ -1066,23 +1067,6 @@
 		display: flex;
 		align-items: center;
 		gap: 8px;
-	}
-
-	.status-badge {
-		padding: 2px 8px;
-		border-radius: 999px;
-		font-size: 10px;
-		font-weight: 600;
-	}
-
-	.status-badge.ready {
-		background: rgba(122, 230, 141, 0.2);
-		color: #7ae68d;
-	}
-
-	.status-badge.download {
-		background: rgba(88, 101, 242, 0.2);
-		color: #a5b4fc;
 	}
 
 	/* Search Section */

@@ -2,6 +2,7 @@
 	import { invalidateAll } from '$app/navigation';
 	import { modal } from '$lib/stores/modal';
 	import { formatDateOnly } from '$lib/utils/formatting';
+	import StatusBadge from '$lib/components/StatusBadge.svelte';
 	import type { PageData } from './$types';
 
 	interface User {
@@ -246,7 +247,7 @@
 										{user.role}
 									</span>
 									{#if !user.isActive}
-										<span class="status-badge inactive">Disabled</span>
+										<StatusBadge variant="error" size="sm">Disabled</StatusBadge>
 									{/if}
 								</div>
 								<div class="user-meta">
@@ -472,21 +473,6 @@
 		background: rgba(106, 176, 76, 0.15);
 		color: #b7f5a2;
 		border-color: rgba(106, 176, 76, 0.3);
-	}
-
-	.status-badge {
-		display: inline-block;
-		padding: 3px 10px;
-		border-radius: 20px;
-		font-size: 11px;
-		font-weight: 600;
-		text-transform: uppercase;
-	}
-
-	.status-badge.inactive {
-		background: rgba(255, 92, 92, 0.15);
-		color: #ff9f9f;
-		border: 1px solid rgba(255, 92, 92, 0.3);
 	}
 
 	.user-meta {

@@ -6,6 +6,7 @@
 	import { modal } from '$lib/stores/modal';
 	import { formatBytes, formatDate } from '$lib/utils/formatting';
 	import ProgressBar from '$lib/components/ProgressBar.svelte';
+	import StatusBadge from '$lib/components/StatusBadge.svelte';
 	import type { PageData } from './$types';
 	import type { ArchiveEntry, ServerSummary } from '$lib/api/types';
 
@@ -373,12 +374,12 @@
 			>
 				<div class="card-header">
 					<div class="server-title">
-						<span class="status-dot" class:status-up={server.up} class:status-down={!server.up}></span>
+						<StatusBadge variant={server.up ? 'success' : 'error'} dot size="lg" />
 						<h2>{server.name}</h2>
 					</div>
-					<span class="status-pill" class:status-up={server.up} class:status-down={!server.up}>
+					<StatusBadge variant={server.up ? 'success' : 'error'} size="sm">
 						{server.up ? 'Running' : 'Stopped'}
-					</span>
+					</StatusBadge>
 				</div>
 
 				<div class="card-meta">
@@ -719,38 +720,6 @@
 		margin: 0;
 		font-size: 20px;
 		font-weight: 600;
-	}
-
-	.status-dot {
-		width: 10px;
-		height: 10px;
-		border-radius: 50%;
-		box-shadow: 0 0 12px rgba(0, 0, 0, 0.4);
-	}
-
-	.status-pill {
-		display: inline-flex;
-		align-items: center;
-		gap: 6px;
-		padding: 6px 12px;
-		border-radius: 999px;
-		font-size: 12px;
-		font-weight: 600;
-		letter-spacing: 0.04em;
-		text-transform: uppercase;
-	}
-
-	.status-up {
-		background: rgba(106, 176, 76, 0.2);
-		color: #b7f5a2;
-		border: 1px solid rgba(106, 176, 76, 0.45);
-		box-shadow: 0 0 12px rgba(106, 176, 76, 0.2);
-	}
-
-	.status-down {
-		background: rgba(255, 159, 159, 0.12);
-		color: #ffb6b6;
-		border: 1px solid rgba(255, 159, 159, 0.35);
 	}
 
 	.card-meta {
