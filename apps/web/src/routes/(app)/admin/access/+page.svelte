@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { invalidateAll } from '$app/navigation';
 	import { modal } from '$lib/stores/modal';
+	import { formatDateOnly } from '$lib/utils/formatting';
 	import type { PageData } from './$types';
 
 	interface User {
@@ -146,13 +147,6 @@
 		}
 	}
 
-	function formatDate(dateStr: string): string {
-		return new Date(dateStr).toLocaleDateString('en-US', {
-			year: 'numeric',
-			month: 'short',
-			day: 'numeric'
-		});
-	}
 </script>
 
 <div class="page-header">
@@ -256,7 +250,7 @@
 									{/if}
 								</div>
 								<div class="user-meta">
-									Created {formatDate(user.createdAt)}
+									Created {formatDateOnly(user.createdAt)}
 								</div>
 							</div>
 							<div class="user-actions">

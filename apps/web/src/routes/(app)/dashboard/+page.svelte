@@ -3,6 +3,7 @@
 	import { goto, invalidateAll } from '$app/navigation';
 	import * as api from '$lib/api/client';
 	import { modal } from '$lib/stores/modal';
+	import { formatBytes, formatUptime } from '$lib/utils/formatting';
 	import type { PageData } from './$types';
 	import type { HostMetrics, ServerSummary } from '$lib/api/types';
 
@@ -19,23 +20,6 @@
 
 	const maxMemoryPoints = 30;
 
-	const formatBytes = (bytes: number): string => {
-		if (bytes === 0) return '0 B';
-		const k = 1024;
-		const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
-		const i = Math.floor(Math.log(bytes) / Math.log(k));
-		return `${(bytes / Math.pow(k, i)).toFixed(1)} ${sizes[i]}`;
-	};
-
-	const formatUptime = (seconds: number): string => {
-		const days = Math.floor(seconds / 86400);
-		const hours = Math.floor((seconds % 86400) / 3600);
-		const minutes = Math.floor((seconds % 3600) / 60);
-
-		if (days > 0) return `${days}d ${hours}h`;
-		if (hours > 0) return `${hours}h ${minutes}m`;
-		return `${minutes}m`;
-	};
 
 	const totalServers = $derived(servers.length ?? 0);
 	const runningServers = $derived(

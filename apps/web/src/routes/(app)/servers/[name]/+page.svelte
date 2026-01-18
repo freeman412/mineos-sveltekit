@@ -4,6 +4,7 @@
 	import '@xterm/xterm/css/xterm.css';
 	import * as api from '$lib/api/client';
 	import { modal } from '$lib/stores/modal';
+	import { formatBytes, formatDate } from '$lib/utils/formatting';
 	import type { PageData } from './$types';
 	import type { LayoutData } from './$types';
 
@@ -81,13 +82,6 @@
 		}
 	}
 
-	const formatBytes = (value: number | null) => {
-		if (!value) return 'N/A';
-		const units = ['B', 'KB', 'MB', 'GB', 'TB'];
-		const i = Math.floor(Math.log(value) / Math.log(1024));
-		return `${(value / Math.pow(1024, i)).toFixed(1)} ${units[i]}`;
-	};
-
 	function buildSparkline(values: number[], width = 200, height = 60) {
 		if (!values || values.length < 2) return '';
 		const min = Math.min(...values);
@@ -110,11 +104,6 @@
 		}
 		memoryHistory = next;
 	}
-
-	const formatDate = (dateStr: string) => {
-		const date = new Date(dateStr);
-		return date.toLocaleDateString() + ' ' + date.toLocaleTimeString();
-	};
 
 	function formatJarFile(jarFile: string | null): string {
 		if (!jarFile) return 'N/A';

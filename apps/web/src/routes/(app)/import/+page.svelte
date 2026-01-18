@@ -2,6 +2,7 @@
 	import { invalidateAll } from '$app/navigation';
 	import { modal } from '$lib/stores/modal';
 	import { uploads, uploadFiles } from '$lib/stores/uploads';
+	import { formatBytes, formatDate } from '$lib/utils/formatting';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
@@ -17,18 +18,6 @@
 	});
 
 	const hasActiveUploads = $derived($uploads.some((u) => u.status === 'uploading'));
-
-	function formatSize(bytes: number): string {
-		if (bytes === 0) return '0 B';
-		const k = 1024;
-		const sizes = ['B', 'KB', 'MB', 'GB'];
-		const i = Math.floor(Math.log(bytes) / Math.log(k));
-		return `${(bytes / Math.pow(k, i)).toFixed(2)} ${sizes[i]}`;
-	}
-
-	function formatDate(date: string): string {
-		return new Date(date).toLocaleString();
-	}
 
 	async function uploadArchives(files: FileList | File[]) {
 		if (!files || files.length === 0) return;
@@ -160,7 +149,7 @@
 				{#each data.imports.data as entry}
 					<tr>
 						<td class="mono">{entry.filename}</td>
-						<td>{formatSize(entry.size)}</td>
+						<td>{formatBytes(entry.size)}</td>
 						<td>{formatDate(entry.time)}</td>
 						<td>
 							<input

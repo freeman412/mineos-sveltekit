@@ -4,6 +4,7 @@
 	import { env } from '$env/dynamic/public';
 	import * as api from '$lib/api/client';
 	import { modal } from '$lib/stores/modal';
+	import { formatBytes, formatDate } from '$lib/utils/formatting';
 	import type { PageData } from './$types';
 	import type { ArchiveEntry, ServerSummary } from '$lib/api/types';
 
@@ -36,25 +37,6 @@
 		importsError = data.imports.error;
 	});
 
-	const formatBytes = (value?: number | null) => {
-		if (!value || value <= 0) return '--';
-		const units = ['B', 'KB', 'MB', 'GB', 'TB'];
-		const index = Math.floor(Math.log(value) / Math.log(1024));
-		const normalized = value / Math.pow(1024, index);
-		return `${normalized.toFixed(1)} ${units[index]}`;
-	};
-
-	function formatFileSize(bytes: number): string {
-		if (bytes === 0) return '0 B';
-		const k = 1024;
-		const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
-		const i = Math.floor(Math.log(bytes) / Math.log(k));
-		return `${(bytes / Math.pow(k, i)).toFixed(2)} ${sizes[i]}`;
-	}
-
-	function formatDate(date: string): string {
-		return new Date(date).toLocaleString();
-	}
 
 	function buildSparkline(values: number[], width = 120, height = 32) {
 		if (!values || values.length < 2) return '';
@@ -573,7 +555,7 @@
 					{#each imports as entry}
 						<tr>
 							<td class="mono">{entry.filename}</td>
-							<td>{formatFileSize(entry.size)}</td>
+							<td>{formatBytes(entry.size)}</td>
 							<td>{formatDate(entry.time)}</td>
 							<td>
 								<input

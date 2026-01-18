@@ -1,7 +1,8 @@
 <script lang="ts">
+	import { modal } from '$lib/stores/modal';
+	import { formatBytes, formatDate } from '$lib/utils/formatting';
 	import type { PageData } from './$types';
 	import type { LayoutData } from '../$layout';
-	import { modal } from '$lib/stores/modal';
 
 	let { data }: { data: PageData & { server: LayoutData['server'] } } = $props();
 
@@ -173,17 +174,6 @@
 		}
 	}
 
-	function formatSize(bytes: number): string {
-		if (bytes === 0) return '0 B';
-		const k = 1024;
-		const sizes = ['B', 'KB', 'MB', 'GB'];
-		const i = Math.floor(Math.log(bytes) / Math.log(k));
-		return `${(bytes / Math.pow(k, i)).toFixed(2)} ${sizes[i]}`;
-	}
-
-	function formatDate(date: string): string {
-		return new Date(date).toLocaleString();
-	}
 </script>
 
 <div class="file-browser">
@@ -234,7 +224,7 @@
 										{file.isDirectory ? '📁' : '📄'} {file.name}
 									</button>
 								</td>
-								<td>{file.isDirectory ? '-' : formatSize(file.size)}</td>
+								<td>{file.isDirectory ? '-' : formatBytes(file.size)}</td>
 								<td>{formatDate(file.modified)}</td>
 								<td>
 									{#if !file.isDirectory}

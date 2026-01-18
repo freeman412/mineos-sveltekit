@@ -2,6 +2,7 @@
 	import { invalidateAll } from '$app/navigation';
 	import * as api from '$lib/api/client';
 	import { modal } from '$lib/stores/modal';
+	import { formatBytes, formatDate } from '$lib/utils/formatting';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
@@ -15,19 +16,6 @@
 	let uploadNewProgress = $state<number>(0);
 
 	const isServerRunning = $derived(data.server?.status === 'running');
-
-	function formatBytes(bytes: number): string {
-		if (bytes === 0) return '0 B';
-		const k = 1024;
-		const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
-		const i = Math.floor(Math.log(bytes) / Math.log(k));
-		return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
-	}
-
-	function formatDate(dateStr: string | null): string {
-		if (!dateStr) return 'Never';
-		return new Date(dateStr).toLocaleString();
-	}
 
 	async function handleDownload(worldName: string) {
 		downloading = worldName;
