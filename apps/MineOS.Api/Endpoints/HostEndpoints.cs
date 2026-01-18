@@ -2,6 +2,7 @@ using System.Text.Json;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.Json;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using Microsoft.AspNetCore.Mvc;
 using MineOS.Application.Dtos;
@@ -265,8 +266,6 @@ public static class HostEndpoints
         host.MapPost("/imports/{filename}/create-server", async (
             string filename,
             [FromBody] ImportServerRequest request,
-            IImportService importService,
-            IServerService serverService,
             IBackgroundJobService jobService,
             CancellationToken cancellationToken) =>
         {
@@ -286,9 +285,11 @@ public static class HostEndpoints
                 jobId = jobService.QueueJob(
                     "import",
                     request.ServerName,
-                    async (progress, token) =>
+                    async (services, progress, token) =>
                     {
                         var resolvedJobId = jobId ?? string.Empty;
+                        var importService = services.GetRequiredService<IImportService>();
+                        var serverService = services.GetRequiredService<IServerService>();
                         progress.Report(new JobProgressDto(resolvedJobId, "import", request.ServerName, "running", 10, "Unpacking archive", DateTimeOffset.UtcNow));
                         await importService.CreateServerFromImportAsync(filename, request.ServerName, token);
                         progress.Report(new JobProgressDto(resolvedJobId, "import", request.ServerName, "running", 90, "Finalizing", DateTimeOffset.UtcNow));

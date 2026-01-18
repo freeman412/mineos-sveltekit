@@ -32,7 +32,10 @@ public sealed class BackgroundJobService : IBackgroundJobService, IHostedService
         _jobs = new ConcurrentDictionary<string, JobState>();
     }
 
-    public string QueueJob(string type, string serverName, Func<IProgress<JobProgressDto>, CancellationToken, Task> work)
+    public string QueueJob(
+        string type,
+        string serverName,
+        Func<IServiceProvider, IProgress<JobProgressDto>, CancellationToken, Task> work)
     {
         var jobId = Guid.NewGuid().ToString("N");
         var job = new BackgroundJob(jobId, type, serverName, work);
@@ -167,7 +170,9 @@ public sealed class BackgroundJobService : IBackgroundJobService, IHostedService
         }
     }
 
-    public string QueueModpackInstall(string serverName, Func<IModpackInstallState, CancellationToken, Task> work)
+    public string QueueModpackInstall(
+        string serverName,
+        Func<IServiceProvider, IModpackInstallState, CancellationToken, Task> work)
     {
         var jobId = Guid.NewGuid().ToString("N");
         var state = new ModpackInstallState(jobId, serverName);
@@ -279,7 +284,8 @@ public sealed class BackgroundJobService : IBackgroundJobService, IHostedService
 
         try
         {
-            await job.Work(progress, stoppingToken);
+            await using var scope = _scopeFactory.CreateAsyncScope();
+            await job.Work(scope.ServiceProvider, progress, stoppingToken);
 
             state.Status = "completed";
             state.Percentage = 100;
@@ -307,7 +313,8 @@ public sealed class BackgroundJobService : IBackgroundJobService, IHostedService
 
         try
         {
-            await job.Work(state, stoppingToken);
+            await using var scope = _scopeFactory.CreateAsyncScope();
+            await job.Work(scope.ServiceProvider, state, stoppingToken);
 
             state.MarkCompleted();
             _logger.LogInformation("Modpack install job {JobId} completed successfully", job.JobId);
@@ -334,14 +341,14 @@ public sealed class BackgroundJobService : IBackgroundJobService, IHostedService
         string JobId,
         string Type,
         string ServerName,
-        Func<IProgress<JobProgressDto>, CancellationToken, Task> Work
+        Func<IServiceProvider, IProgress<JobProgressDto>, CancellationToken, Task> Work
     );
 
     private record ModpackJob(
         string JobId,
         string ServerName,
         ModpackInstallState State,
-        Func<IModpackInstallState, CancellationToken, Task> Work
+        Func<IServiceProvider, IModpackInstallState, CancellationToken, Task> Work
     );
 
     private class JobState
@@ -417,14 +424,14 @@ public sealed class BackgroundJobService : IBackgroundJobService, IHostedService
 
     private async Task<Domain.Entities.JobRecord?> GetJobRecordAsync(string jobId, CancellationToken cancellationToken)
     {
-        using var scope = _scopeFactory.CreateScope();
+        await using var scope = _scopeFactory.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
         return await db.Jobs.AsNoTracking().FirstOrDefaultAsync(j => j.JobId == jobId, cancellationToken);
     }
 
     private async Task UpsertJobAsync(JobState state, CancellationToken cancellationToken)
     {
-        using var scope = _scopeFactory.CreateScope();
+        await using var scope = _scopeFactory.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
         var startedAt = state.StartedAt.ToString("O");
         var completedAt = state.CompletedAt?.ToString("O");

@@ -20,13 +20,18 @@ public interface IModpackInstallState
 
 public interface IBackgroundJobService
 {
-    string QueueJob(string type, string serverName, Func<IProgress<JobProgressDto>, CancellationToken, Task> work);
+    string QueueJob(
+        string type,
+        string serverName,
+        Func<IServiceProvider, IProgress<JobProgressDto>, CancellationToken, Task> work);
     JobStatusDto? GetJobStatus(string jobId);
     IAsyncEnumerable<JobProgressDto> StreamJobProgressAsync(string jobId, CancellationToken cancellationToken);
     IReadOnlyList<JobStatusDto> GetActiveJobs();
 
     // Modpack-specific methods
-    string QueueModpackInstall(string serverName, Func<IModpackInstallState, CancellationToken, Task> work);
+    string QueueModpackInstall(
+        string serverName,
+        Func<IServiceProvider, IModpackInstallState, CancellationToken, Task> work);
     ModpackInstallProgressDto? GetModpackInstallStatus(string jobId);
     IAsyncEnumerable<ModpackInstallProgressDto> StreamModpackProgressAsync(string jobId, CancellationToken cancellationToken);
     IReadOnlyList<ModpackInstallProgressDto> GetActiveModpackInstalls();

@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.DependencyInjection;
 using MineOS.Application.Interfaces;
 
 namespace MineOS.Api.Endpoints;
@@ -126,11 +127,11 @@ public static class ModEndpoints
         servers.MapPost("/{name}/mods/install-from-curseforge", async (
             string name,
             [FromBody] InstallModRequest request,
-            IModService modService,
             IBackgroundJobService jobService) =>
         {
-            var jobId = jobService.QueueJob("mod-install", name, async (progress, ct) =>
+            var jobId = jobService.QueueJob("mod-install", name, async (services, progress, ct) =>
             {
+                var modService = services.GetRequiredService<IModService>();
                 await modService.InstallModFromCurseForgeAsync(name, request.ModId, request.FileId, progress, ct);
             });
 
@@ -140,11 +141,11 @@ public static class ModEndpoints
         servers.MapPost("/{name}/modpacks/install", async (
             string name,
             [FromBody] InstallModpackRequest request,
-            IModService modService,
             IBackgroundJobService jobService) =>
         {
-            var jobId = jobService.QueueJob("modpack-install", name, async (progress, ct) =>
+            var jobId = jobService.QueueJob("modpack-install", name, async (services, progress, ct) =>
             {
+                var modService = services.GetRequiredService<IModService>();
                 await modService.InstallModpackAsync(name, request.ModpackId, request.FileId, progress, ct);
             });
 
@@ -155,11 +156,11 @@ public static class ModEndpoints
         servers.MapPost("/{name}/modpacks/install-enhanced", async (
             string name,
             [FromBody] InstallModpackEnhancedRequest request,
-            IModService modService,
             IBackgroundJobService jobService) =>
         {
-            var jobId = jobService.QueueModpackInstall(name, async (state, ct) =>
+            var jobId = jobService.QueueModpackInstall(name, async (services, state, ct) =>
             {
+                var modService = services.GetRequiredService<IModService>();
                 await modService.InstallModpackWithStateAsync(
                     name,
                     request.ModpackId,

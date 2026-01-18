@@ -1,3 +1,4 @@
+using Microsoft.Extensions.DependencyInjection;
 using MineOS.Application.Interfaces;
 
 namespace MineOS.Api.Endpoints;
@@ -18,11 +19,11 @@ public static class ArchiveEndpoints
 
         servers.MapPost("/{name}/archives", async (
             string name,
-            IArchiveService archiveService,
             IBackgroundJobService jobService) =>
         {
-            var jobId = jobService.QueueJob("archive", name, async (progress, ct) =>
+            var jobId = jobService.QueueJob("archive", name, async (services, progress, ct) =>
             {
+                var archiveService = services.GetRequiredService<IArchiveService>();
                 await archiveService.CreateArchiveAsync(name, ct);
             });
 
