@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Net.WebSockets;
 using System.Text;
+using System.Text.Json;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using MineOS.Application.Interfaces;
@@ -198,6 +199,10 @@ public sealed class AdminShellService : IAdminShellSession
             if (result.MessageType == WebSocketMessageType.Text)
             {
                 var text = Encoding.UTF8.GetString(messageBuffer.ToArray());
+                if (await TryHandleResizeAsync(text, writer, cancellationToken))
+                {
+                    continue;
+                }
                 await writer.WriteAsync(text);
                 continue;
             }
@@ -208,6 +213,60 @@ public sealed class AdminShellService : IAdminShellSession
                 await messageBuffer.CopyToAsync(writer.BaseStream, cancellationToken);
                 await writer.FlushAsync();
             }
+        }
+    }
+
+    private static async Task<bool> TryHandleResizeAsync(
+        string text,
+        StreamWriter writer,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(text) || text.Length > 128 || text[0] != '{')
+        {
+            return false;
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(text);
+            if (!document.RootElement.TryGetProperty("type", out var typeElement) ||
+                typeElement.GetString() != "resize")
+            {
+                return false;
+            }
+
+            if (!document.RootElement.TryGetProperty("cols", out var colsElement) ||
+                !document.RootElement.TryGetProperty("rows", out var rowsElement))
+            {
+                return false;
+            }
+
+            var cols = colsElement.GetInt32();
+            var rows = rowsElement.GetInt32();
+            if (cols <= 0 || rows <= 0)
+            {
+                return false;
+            }
+
+            await writer.WriteAsync($"stty cols {cols} rows {rows}\n");
+            await writer.FlushAsync();
+            return true;
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
+        catch (FormatException)
+        {
+            return false;
+        }
+        catch (InvalidOperationException)
+        {
+            return false;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            return true;
         }
     }
 }

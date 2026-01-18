@@ -15,6 +15,7 @@
 	let fitAddonCtor: FitAddonCtor | null = null;
 	let socket: WebSocket | null = null;
 	let resizeObserver: ResizeObserver | null = null;
+	let lastResize = { cols: 0, rows: 0 };
 
 	let status = $state('disconnected');
 	let errorMessage = $state('');
@@ -50,6 +51,16 @@
 		return `${wsBase}/api/v1/admin/shell/ws`;
 	};
 
+	function sendResize(cols?: number, rows?: number) {
+		if (!terminal || socket?.readyState !== WebSocket.OPEN) return;
+		const nextCols = cols ?? terminal.cols;
+		const nextRows = rows ?? terminal.rows;
+		if (!nextCols || !nextRows) return;
+		if (nextCols === lastResize.cols && nextRows === lastResize.rows) return;
+		lastResize = { cols: nextCols, rows: nextRows };
+		socket.send(JSON.stringify({ type: 'resize', cols: nextCols, rows: nextRows }));
+	}
+
 	function connect() {
 		if (!terminal) return;
 		errorMessage = '';
@@ -63,6 +74,7 @@
 			status = 'connected';
 			terminal?.writeln('\x1b[1;32m[Connected]\x1b[0m');
 			terminal?.focus();
+			sendResize();
 		};
 
 		socket.onclose = () => {
@@ -116,6 +128,7 @@
 			terminal.loadAddon(fitAddon);
 			terminal.open(terminalContainer);
 			fitAddon.fit();
+			sendResize();
 
 			terminal.writeln('\x1b[1;36m=== MineOS Admin Shell ===\x1b[0m');
 			terminal.writeln('\x1b[90mConnected to container TTY\x1b[0m');
@@ -127,7 +140,14 @@
 				}
 			});
 
-			resizeObserver = new ResizeObserver(() => fitAddon?.fit());
+			terminal.onResize(({ cols, rows }) => {
+				sendResize(cols, rows);
+			});
+
+			resizeObserver = new ResizeObserver(() => {
+				fitAddon?.fit();
+				sendResize();
+			});
 			resizeObserver.observe(terminalContainer);
 
 			connect();
