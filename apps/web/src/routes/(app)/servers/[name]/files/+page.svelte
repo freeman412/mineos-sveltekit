@@ -240,8 +240,22 @@
 									{#if !file.isDirectory}
 										<button onclick={() => viewFile(file.name)} class="btn-small">View</button>
 									{/if}
-									<button onclick={() => deleteFile(file.name)} class="btn-small btn-danger">
-										Delete
+									<button
+										onclick={() => deleteFile(file.name)}
+										class="btn-small btn-danger icon-button"
+										title="Delete file"
+										aria-label="Delete file"
+									>
+										<svg viewBox="0 0 24 24" aria-hidden="true">
+											<path
+												d="M4 7h16M9 7V5h6v2M10 11v6M14 11v6M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12"
+												fill="none"
+												stroke="currentColor"
+												stroke-width="1.8"
+												stroke-linecap="round"
+												stroke-linejoin="round"
+											/>
+										</svg>
 									</button>
 								</td>
 							</tr>
@@ -262,8 +276,22 @@
 								Save
 							</button>
 						{:else}
-							<button onclick={() => (editMode = true)} class="btn-small btn-primary">
-								Edit
+							<button
+								onclick={() => (editMode = true)}
+								class="btn-small btn-primary icon-button"
+								title="Edit file"
+								aria-label="Edit file"
+							>
+								<svg viewBox="0 0 24 24" aria-hidden="true">
+									<path
+										d="M4 20h4l10-10-4-4L4 16v4zM14 6l4 4"
+										fill="none"
+										stroke="currentColor"
+										stroke-width="1.8"
+										stroke-linecap="round"
+										stroke-linejoin="round"
+									/>
+								</svg>
 							</button>
 						{/if}
 					</div>
@@ -481,6 +509,20 @@
 	.btn-small {
 		padding: 0.25rem 0.5rem;
 		font-size: 0.8rem;
+	}
+
+	.icon-button {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		gap: 0;
+		line-height: 0;
+		padding: 0.3rem;
+	}
+
+	.icon-button svg {
+		width: 14px;
+		height: 14px;
 	}
 
 	.btn:hover,
