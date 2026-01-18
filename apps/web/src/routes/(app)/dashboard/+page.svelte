@@ -4,6 +4,7 @@
 	import * as api from '$lib/api/client';
 	import { modal } from '$lib/stores/modal';
 	import { formatBytes, formatUptime } from '$lib/utils/formatting';
+	import { createEventStream, type EventStreamHandle } from '$lib/utils/eventStream';
 	import StatusBadge from '$lib/components/StatusBadge.svelte';
 	import type { PageData } from './$types';
 	import type { HostMetrics, ServerSummary } from '$lib/api/types';
@@ -14,8 +15,8 @@
 	let serversError = $state<string | null>(data.servers.error);
 	let hostMetrics = $state<HostMetrics | null>(data.hostMetrics.data ?? null);
 	let hostMetricsError = $state<string | null>(data.hostMetrics.error);
-	let serversStream: EventSource | null = null;
-	let metricsStream: EventSource | null = null;
+	let serversStream: EventStreamHandle | null = null;
+	let metricsStream: EventStreamHandle | null = null;
 	let memoryHistory = $state<Record<string, number[]>>({});
 	let actionLoading = $state<Record<string, boolean>>({});
 
@@ -111,35 +112,29 @@
 
 	onMount(() => {
 		updateMemoryHistory(servers);
-		serversStream = new EventSource('/api/host/servers/stream');
-		serversStream.onmessage = (event) => {
-			try {
-				const nextServers = JSON.parse(event.data) as ServerSummary[];
+
+		serversStream = createEventStream<ServerSummary[]>({
+			url: '/api/host/servers/stream',
+			onMessage: (nextServers) => {
 				servers = nextServers;
 				updateMemoryHistory(nextServers);
 				serversError = null;
-			} catch (err) {
-				console.error('Failed to parse servers stream:', err);
+			},
+			onClose: () => {
+				serversStream = null;
 			}
-		};
-		serversStream.onerror = () => {
-			serversStream?.close();
-			serversStream = null;
-		};
+		});
 
-		metricsStream = new EventSource('/api/host/metrics/stream');
-		metricsStream.onmessage = (event) => {
-			try {
-				hostMetrics = JSON.parse(event.data) as HostMetrics;
+		metricsStream = createEventStream<HostMetrics>({
+			url: '/api/host/metrics/stream',
+			onMessage: (data) => {
+				hostMetrics = data;
 				hostMetricsError = null;
-			} catch (err) {
-				console.error('Failed to parse metrics stream:', err);
+			},
+			onClose: () => {
+				metricsStream = null;
 			}
-		};
-		metricsStream.onerror = () => {
-			metricsStream?.close();
-			metricsStream = null;
-		};
+		});
 
 		return () => {
 			serversStream?.close();

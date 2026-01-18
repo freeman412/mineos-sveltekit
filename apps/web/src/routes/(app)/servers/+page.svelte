@@ -5,6 +5,7 @@
 	import * as api from '$lib/api/client';
 	import { modal } from '$lib/stores/modal';
 	import { formatBytes, formatDate } from '$lib/utils/formatting';
+	import { createEventStream, type EventStreamHandle } from '$lib/utils/eventStream';
 	import ProgressBar from '$lib/components/ProgressBar.svelte';
 	import StatusBadge from '$lib/components/StatusBadge.svelte';
 	import type { PageData } from './$types';
@@ -16,7 +17,7 @@
 	let importLoading = $state<Record<string, boolean>>({});
 	let servers = $state<ServerSummary[]>(data.servers.data ?? []);
 	let serversError = $state<string | null>(data.servers.error);
-	let serversStream: EventSource | null = null;
+	let serversStream: EventStreamHandle | null = null;
 	let memoryHistory = $state<Record<string, number[]>>({});
 	let imports = $state<ArchiveEntry[]>(data.imports.data ?? []);
 	let importsError = $state<string | null>(data.imports.error);
@@ -322,21 +323,18 @@
 
 	onMount(() => {
 		updateMemoryHistory(servers);
-		serversStream = new EventSource('/api/host/servers/stream');
-		serversStream.onmessage = (event) => {
-			try {
-				const nextServers = JSON.parse(event.data) as ServerSummary[];
+
+		serversStream = createEventStream<ServerSummary[]>({
+			url: '/api/host/servers/stream',
+			onMessage: (nextServers) => {
 				servers = nextServers;
 				updateMemoryHistory(nextServers);
 				serversError = null;
-			} catch (err) {
-				console.error('Failed to parse servers stream:', err);
+			},
+			onClose: () => {
+				serversStream = null;
 			}
-		};
-		serversStream.onerror = () => {
-			serversStream?.close();
-			serversStream = null;
-		};
+		});
 
 		return () => {
 			serversStream?.close();
