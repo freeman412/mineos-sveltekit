@@ -109,15 +109,55 @@
 	}
 
 	:global(:root) {
+		/* Minecraft-inspired theme colors */
 		--mc-grass: #6ab04c;
 		--mc-grass-dark: #4a8b34;
 		--mc-dirt: #8b5a2b;
 		--mc-dirt-dark: #5d3b1f;
 		--mc-sky: #6fb5ff;
 		--mc-stone: #2b2f45;
-		--mc-panel: #1a1e2f;
+
+		/* Panel backgrounds (darkest to lightest) */
+		--mc-panel-darkest: #0d1117;
 		--mc-panel-dark: #141827;
+		--mc-panel: #1a1e2f;
+		--mc-panel-light: #2a2f47;
+		--mc-panel-lighter: #3a3f5a;
+
+		/* Text colors */
+		--mc-text: #eef0f8;
+		--mc-text-secondary: #c4cff5;
 		--mc-text-muted: #9aa2c5;
+		--mc-text-dim: #7c87b2;
+
+		/* Status colors */
+		--color-success: #6ab04c;
+		--color-success-light: #7ae68d;
+		--color-success-bg: rgba(106, 176, 76, 0.15);
+		--color-success-border: rgba(106, 176, 76, 0.3);
+
+		--color-error: #ff6b6b;
+		--color-error-light: #ff9f9f;
+		--color-error-bg: rgba(255, 92, 92, 0.15);
+		--color-error-border: rgba(255, 92, 92, 0.3);
+
+		--color-warning: #ffb74d;
+		--color-warning-light: #ffcc80;
+		--color-warning-bg: rgba(255, 183, 77, 0.15);
+		--color-warning-border: rgba(255, 183, 77, 0.3);
+
+		--color-info: #5b9eff;
+		--color-info-light: #a5b4fc;
+		--color-info-bg: rgba(91, 158, 255, 0.15);
+		--color-info-border: rgba(91, 158, 255, 0.3);
+
+		/* Border colors */
+		--border-color: #2a2f47;
+		--border-color-light: rgba(42, 47, 71, 0.5);
+
+		/* Focus states */
+		--focus-color: rgba(106, 176, 76, 0.5);
+		--focus-shadow: 0 0 0 2px rgba(106, 176, 76, 0.1);
 	}
 
 	:global(select) {

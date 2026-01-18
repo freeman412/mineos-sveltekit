@@ -88,58 +88,58 @@
 
 	/* Color variants - dots */
 	.status-dot.success {
-		background: #6ab04c;
-		box-shadow: 0 0 6px rgba(106, 176, 76, 0.5);
+		background: var(--color-success);
+		box-shadow: 0 0 6px var(--color-success-border);
 	}
 
 	.status-dot.error {
-		background: #ff6b6b;
-		box-shadow: 0 0 6px rgba(255, 107, 107, 0.5);
+		background: var(--color-error);
+		box-shadow: 0 0 6px var(--color-error-border);
 	}
 
 	.status-dot.warning {
-		background: #ffb74d;
-		box-shadow: 0 0 6px rgba(255, 183, 77, 0.5);
+		background: var(--color-warning);
+		box-shadow: 0 0 6px var(--color-warning-border);
 	}
 
 	.status-dot.info {
-		background: #5b9eff;
-		box-shadow: 0 0 6px rgba(91, 158, 255, 0.5);
+		background: var(--color-info);
+		box-shadow: 0 0 6px var(--color-info-border);
 	}
 
 	.status-dot.neutral {
-		background: #9aa2c5;
+		background: var(--mc-text-muted);
 		box-shadow: 0 0 6px rgba(154, 162, 197, 0.5);
 	}
 
 	/* Color variants - badges */
 	.status-badge.success {
-		background: rgba(106, 176, 76, 0.15);
-		color: #7ae68d;
-		border: 1px solid rgba(106, 176, 76, 0.3);
+		background: var(--color-success-bg);
+		color: var(--color-success-light);
+		border: 1px solid var(--color-success-border);
 	}
 
 	.status-badge.error {
-		background: rgba(255, 92, 92, 0.15);
-		color: #ff9f9f;
-		border: 1px solid rgba(255, 92, 92, 0.3);
+		background: var(--color-error-bg);
+		color: var(--color-error-light);
+		border: 1px solid var(--color-error-border);
 	}
 
 	.status-badge.warning {
-		background: rgba(255, 183, 77, 0.15);
-		color: #ffcc80;
-		border: 1px solid rgba(255, 183, 77, 0.3);
+		background: var(--color-warning-bg);
+		color: var(--color-warning-light);
+		border: 1px solid var(--color-warning-border);
 	}
 
 	.status-badge.info {
-		background: rgba(91, 158, 255, 0.15);
-		color: #a5b4fc;
-		border: 1px solid rgba(91, 158, 255, 0.3);
+		background: var(--color-info-bg);
+		color: var(--color-info-light);
+		border: 1px solid var(--color-info-border);
 	}
 
 	.status-badge.neutral {
 		background: rgba(154, 162, 197, 0.15);
-		color: #c4cff5;
+		color: var(--mc-text-secondary);
 		border: 1px solid rgba(154, 162, 197, 0.3);
 	}
 

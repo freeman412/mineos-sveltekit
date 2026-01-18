@@ -91,19 +91,19 @@
 
 	/* Color variants */
 	.progress-fill.green {
-		background: linear-gradient(90deg, rgba(106, 176, 76, 0.8), rgba(124, 212, 114, 0.9));
+		background: linear-gradient(90deg, var(--color-success), var(--color-success-light));
 	}
 
 	.progress-fill.blue {
-		background: linear-gradient(90deg, #5b9eff, #79c0ff);
+		background: linear-gradient(90deg, var(--color-info), var(--color-info-light));
 	}
 
 	.progress-fill.orange {
-		background: linear-gradient(90deg, #f6b26b, #ffc77d);
+		background: linear-gradient(90deg, var(--color-warning), var(--color-warning-light));
 	}
 
 	.progress-fill.red {
-		background: linear-gradient(90deg, #ff5c5c, #ff7a7a);
+		background: linear-gradient(90deg, var(--color-error), var(--color-error-light));
 	}
 
 	/* Indeterminate animation */
