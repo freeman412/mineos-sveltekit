@@ -19,12 +19,10 @@
 		{ href: '/servers', label: 'Servers', icon: '[S]' },
 		{ href: '/profiles', label: 'Profiles', icon: '[P]' },
 		{ href: '/profiles/buildtools', label: 'BuildTools', icon: '[B]' },
-		{ href: '/import', label: 'Import', icon: '[I]' },
 		{ href: '/curseforge', label: 'CurseForge', icon: '[C]' },
 		{ href: '/admin/access', label: 'Users', icon: '[U]', requiresAdmin: true },
 		{ href: '/admin/settings', label: 'Settings', icon: '[G]', requiresAdmin: true },
-		{ href: '/admin/shell', label: 'Admin Shell', icon: '[T]', requiresAdmin: true },
-		{ href: '/about', label: 'About', icon: '[?]' }
+		{ href: '/admin/shell', label: 'Admin Shell', icon: '[T]', requiresAdmin: true }
 	];
 
 	function isActive(href: string) {
@@ -69,6 +67,10 @@
 		</ul>
 
 	<div class="sidebar-footer">
+		<a href="/about" class="footer-link">
+			<span class="icon">[?]</span>
+			<span>About</span>
+		</a>
 		<a
 			class="coffee-btn"
 			href="https://buymeacoffee.com/freemancraft"
@@ -309,12 +311,36 @@
 		background: rgba(246, 178, 107, 0.12);
 	}
 
+	.footer-link {
+		width: 100%;
+		display: flex;
+		align-items: center;
+		gap: 12px;
+		padding: 12px 16px;
+		border-radius: 8px;
+		background: transparent;
+		color: #aab2d3;
+		text-decoration: none;
+		transition: all 0.2s;
+		font-size: 15px;
+		box-sizing: border-box;
+	}
+
+	.footer-link:hover {
+		background: rgba(106, 176, 76, 0.12);
+		color: #eef0f8;
+	}
+
 	.main-wrapper {
 		flex: 1;
 		margin-left: 260px;
 		display: flex;
 		flex-direction: column;
 		min-height: 100vh;
+		min-width: 0; /* Allow flexbox shrinking */
+		width: calc(100vw - 260px);
+		max-width: calc(100vw - 260px);
+		overflow-x: hidden;
 	}
 
 	.main-content {
@@ -322,6 +348,8 @@
 		padding: 32px;
 		max-width: 1400px;
 		width: 100%;
+		min-width: 0; /* Allow flexbox shrinking */
+		box-sizing: border-box;
 	}
 
 	@media (max-width: 768px) {
@@ -331,6 +359,8 @@
 
 		.main-wrapper {
 			margin-left: 200px;
+			width: calc(100vw - 200px);
+			max-width: calc(100vw - 200px);
 		}
 
 		.main-content {

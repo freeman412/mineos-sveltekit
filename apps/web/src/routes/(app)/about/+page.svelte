@@ -50,6 +50,29 @@
 	</div>
 
 	<div class="cards-grid">
+		<section class="card ai-built tech-stack">
+			<div class="card-icon">🤖</div>
+			<h3>AI-Assisted Development</h3>
+			<p>
+				This project is primarily AI-generated code, maintained and guided by a human developer.
+				We use Claude and other AI assistants to rapidly develop and iterate on features.
+			</p>
+			<p>
+				<strong>Want to contribute?</strong> You can help by donating your AI tokens!
+				Clone the repository, point your AI coding assistant at an open issue, and submit a pull request.
+			</p>
+			<div class="contribute-steps">
+				<ol>
+					<li>Fork the <a href="https://github.com/freeman412/mineos-sveltekit" target="_blank" rel="noopener noreferrer">repository</a></li>
+					<li>Pick an <a href="https://github.com/freeman412/mineos-sveltekit/issues" target="_blank" rel="noopener noreferrer">open issue</a></li>
+					<li>Run your AI agent (Claude Code, Cursor, Copilot, etc.)</li>
+					<li>Submit a pull request with your changes</li>
+				</ol>
+			</div>
+			<p class="ai-note">
+				Every contribution helps, whether it's fixing a bug, adding a feature, or improving documentation!
+			</p>
+		</section>
 		<section class="card tribute">
 			<div class="card-icon">🙏</div>
 			<h3>Standing on the Shoulders of Giants</h3>
@@ -72,6 +95,8 @@
 				</a>
 			</div>
 		</section>
+
+		
 
 		<section class="card tech-stack">
 			<div class="card-icon">⚡</div>
@@ -172,46 +197,6 @@
 					View on GitHub
 				</a>
 			</div>
-		</section>
-
-		<section class="card support">
-			<div class="card-icon">💚</div>
-			<h3>Support & Community</h3>
-			<p>
-				Need help? Have a feature request? Found a bug?
-			</p>
-			<div class="support-links">
-				<a href="https://github.com/freeman412/mineos-sveltekit/issues" target="_blank" rel="noopener noreferrer" class="support-link">
-					🐛 Report an Issue
-				</a>
-				<a href="https://github.com/freeman412/mineos-sveltekit/discussions" target="_blank" rel="noopener noreferrer" class="support-link">
-					💬 Discussions
-				</a>
-			</div>
-		</section>
-
-		<section class="card ai-built">
-			<div class="card-icon">🤖</div>
-			<h3>AI-Assisted Development</h3>
-			<p>
-				This project is primarily AI-generated code, maintained and guided by a human developer.
-				We use Claude and other AI assistants to rapidly develop and iterate on features.
-			</p>
-			<p>
-				<strong>Want to contribute?</strong> You can help by donating your AI tokens!
-				Clone the repository, point your AI coding assistant at an open issue, and submit a pull request.
-			</p>
-			<div class="contribute-steps">
-				<ol>
-					<li>Fork the <a href="https://github.com/freeman412/mineos-sveltekit" target="_blank" rel="noopener noreferrer">repository</a></li>
-					<li>Pick an <a href="https://github.com/freeman412/mineos-sveltekit/issues" target="_blank" rel="noopener noreferrer">open issue</a></li>
-					<li>Run your AI agent (Claude Code, Cursor, Copilot, etc.)</li>
-					<li>Submit a pull request with your changes</li>
-				</ol>
-			</div>
-			<p class="ai-note">
-				Every contribution helps, whether it's fixing a bug, adding a feature, or improving documentation!
-			</p>
 		</section>
 
 		<section class="card roadmap full-width">
@@ -579,6 +564,22 @@
 	}
 
 	/* AI-Built Section */
+	.ai-built.full-width {
+		grid-column: 1 / -1;
+	}
+
+	.ai-built.full-width .contribute-steps {
+		display: grid;
+		grid-template-columns: 1fr;
+	}
+
+	.ai-built.full-width .contribute-steps ol {
+		display: grid;
+		grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+		gap: 8px 24px;
+		padding-left: 24px;
+	}
+
 	.ai-built .contribute-steps {
 		background: rgba(88, 101, 242, 0.1);
 		border: 1px solid rgba(88, 101, 242, 0.2);
