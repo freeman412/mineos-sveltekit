@@ -227,6 +227,9 @@ public static class ServerEndpoints
         servers.MapBackupEndpoints();
         servers.MapArchiveEndpoints();
 
+        // Phase 2b: Client package endpoints
+        servers.MapClientPackageEndpoints();
+
         // Phase 3: Console and monitoring endpoints
         servers.MapConsoleEndpoints();
         servers.MapMonitoringEndpoints();

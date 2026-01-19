@@ -47,6 +47,8 @@ public record AdminShellStatusDto(
 
 public record ArchiveEntryDto(DateTimeOffset Time, long Size, string Filename);
 
+public record ClientPackageEntryDto(DateTimeOffset Time, long Size, string Filename);
+
 public record IncrementEntryDto(DateTimeOffset Time, string Step, long? Size, long? CumulativeSize);
 
 public record HostUserDto(string Username, int Uid, int Gid, string Home);
