@@ -33,7 +33,7 @@ services:
       - Cors__AllowedOrigins__0=${WEB_ORIGIN:-http://localhost:${WEB_PORT:-3000}}
       - Cors__AllowedOrigins__1=${WEB_ORIGIN_DEV:-http://localhost:5174}
     volumes:
-      - ${Host__BaseDirectory:-/var/games/minecraft}:/var/games/minecraft
+      - ${HOST_BASE_DIRECTORY:-/var/games/minecraft}:/var/games/minecraft
       - ${Data__Directory:-./data}:/app/data
       - /var/run/docker.sock:/var/run/docker.sock  # For Docker management (optional)
     ports:

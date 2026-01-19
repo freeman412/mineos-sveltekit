@@ -57,7 +57,7 @@ Data Locations
 --------------
 
 - SQLite database: `./data/mineos.db`
-- Minecraft files: path configured by `Host__BaseDirectory` in `.env`
+- Minecraft files: path configured by `HOST_BASE_DIRECTORY` in `.env` (default: `./minecraft`)
 
 Notes
 -----

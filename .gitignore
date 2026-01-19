@@ -40,6 +40,9 @@ obj
 *.db-wal
 apps/MineOS.Api/data/
 
+# Local Minecraft data
+/minecraft/
+
 # Claude settings
 .claude/settings.local.json
 .claude/settings.json
