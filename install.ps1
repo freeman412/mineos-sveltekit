@@ -1073,11 +1073,11 @@ function Do-Update {
 function Show-Menu {
     Clear-Host
     Write-Host ""
-    Write-Host "  __  __ _            ___  ____  " -ForegroundColor Green
-    Write-Host " |  \/  (_)_ __   ___|_ _|/ ___| " -ForegroundColor Green
-    Write-Host " | |\/| | | '_ \ / _ \| | \___ \ " -ForegroundColor Green
-    Write-Host " | |  | | | | | |  __/| |  ___) |" -ForegroundColor Green
-    Write-Host " |_|  |_|_|_| |_|\___|___||____/ " -ForegroundColor Green
+    Write-Host "  __  __ _             ___  ____  " -ForegroundColor Green
+    Write-Host " |  \/  (_)_ __   ___ / _ \/ ___| " -ForegroundColor Green
+    Write-Host " | |\/| | | '_ \ / _ \ | | \___ \ " -ForegroundColor Green
+    Write-Host " | |  | | | | | |  __/ |_| |___) |" -ForegroundColor Green
+    Write-Host " |_|  |_|_|_| |_|\___|\___/|____/ " -ForegroundColor Green
     Write-Host ""
     Write-Host " Minecraft Server Management" -ForegroundColor Cyan
     Write-Host ""
