@@ -144,6 +144,7 @@ public sealed class CurseForgeClient
     private async Task<string> GetApiKeyAsync(CancellationToken cancellationToken)
     {
         var apiKey = await _settingsService.GetAsync(SettingsService.Keys.CurseForgeApiKey, cancellationToken);
+        apiKey = apiKey?.Trim();
         if (string.IsNullOrWhiteSpace(apiKey))
         {
             throw new InvalidOperationException("CurseForge API key is not configured. Please configure it in Admin > Settings.");
