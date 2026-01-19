@@ -40,6 +40,12 @@ export type ArchiveEntry = {
 	filename: string;
 };
 
+export type ClientPackageEntry = {
+	time: string;
+	size: number;
+	filename: string;
+};
+
 export type ApiResult<T> = {
 	data: T | null;
 	error: string | null;
