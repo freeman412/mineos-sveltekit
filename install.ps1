@@ -482,10 +482,11 @@ function Load-ExistingConfig {
     if ([string]::IsNullOrWhiteSpace($script:webPort)) { $script:webPort = "3000" }
     $script:mcPortRange = Get-EnvValue "MC_PORT_RANGE"
     if ([string]::IsNullOrWhiteSpace($script:mcPortRange)) { $script:mcPortRange = "25565-25570" }
-    $script:baseDir = Get-EnvValue "Host__BaseDirectory"
-    if ([string]::IsNullOrWhiteSpace($script:baseDir)) { $script:baseDir = "C:/minecraft" }
+    $script:baseDir = Get-EnvValue "HOST_BASE_DIRECTORY"
+    if ([string]::IsNullOrWhiteSpace($script:baseDir)) { $script:baseDir = Get-EnvValue "Host__BaseDirectory" }
+    if ([string]::IsNullOrWhiteSpace($script:baseDir)) { $script:baseDir = ".\\minecraft" }
     $script:dataDir = Get-EnvValue "Data__Directory"
-    if ([string]::IsNullOrWhiteSpace($script:dataDir)) { $script:dataDir = "$baseDir/data" }
+    if ([string]::IsNullOrWhiteSpace($script:dataDir)) { $script:dataDir = ".\\data" }
 }
 
 function Assert-PortNumber {
@@ -833,11 +834,11 @@ function Start-ConfigWizard {
         if ([string]::IsNullOrWhiteSpace($script:adminPass)) { Write-Error-Custom "Password cannot be empty" }
     } while ([string]::IsNullOrWhiteSpace($script:adminPass))
 
-    $script:baseDir = Read-Host "Base directory for Minecraft servers (default: C:\minecraft)"
-    if ([string]::IsNullOrWhiteSpace($script:baseDir)) { $script:baseDir = "C:\minecraft" }
+    $script:baseDir = Read-Host "Local storage directory for Minecraft servers (relative, default: .\\minecraft)"
+    if ([string]::IsNullOrWhiteSpace($script:baseDir)) { $script:baseDir = ".\\minecraft" }
 
-    $script:dataDir = Read-Host "Database directory (default: $baseDir\data)"
-    if ([string]::IsNullOrWhiteSpace($script:dataDir)) { $script:dataDir = "$baseDir\data" }
+    $script:dataDir = Read-Host "Database directory (relative, default: .\\data)"
+    if ([string]::IsNullOrWhiteSpace($script:dataDir)) { $script:dataDir = ".\\data" }
 
     $script:apiPort = Read-Host "API port (default: 5078)"
     if ([string]::IsNullOrWhiteSpace($script:apiPort)) { $script:apiPort = "5078" }
@@ -877,7 +878,8 @@ Auth__JwtExpiryHours=24
 ApiKey__SeedKey=$apiKey
 
 # Host Configuration
-Host__BaseDirectory=$($baseDir -replace '\\', '/')
+HOST_BASE_DIRECTORY=$($baseDir -replace '\\', '/')
+Host__BaseDirectory=/var/games/minecraft
 Data__Directory=$($dataDir -replace '\\', '/')
 Host__ServersPathSegment=servers
 Host__ProfilesPathSegment=profiles
