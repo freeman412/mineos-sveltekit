@@ -1,5 +1,6 @@
 <script lang="ts">
 	import CurseForgeSearch from '$lib/components/CurseForgeSearch.svelte';
+	import ModrinthSearch from '$lib/components/ModrinthSearch.svelte';
 	import ProgressBar from '$lib/components/ProgressBar.svelte';
 	import { modal } from '$lib/stores/modal';
 	import { formatBytes, formatDate } from '$lib/utils/formatting';
@@ -576,6 +577,12 @@
 		<h3>Install from CurseForge</h3>
 		<CurseForgeSearch serverName={data.server?.name ?? ''} onInstallComplete={loadMods} />
 	</div>
+
+	<!-- Modrinth Install -->
+	<div class="modrinth-section">
+		<h3>Install from Modrinth</h3>
+		<ModrinthSearch serverName={data.server?.name ?? ''} onInstallComplete={loadMods} />
+	</div>
 </div>
 
 <style>
@@ -656,7 +663,7 @@
 		display: none;
 	}
 
-	.mods-section, .curseforge-section {
+	.mods-section, .curseforge-section, .modrinth-section {
 		background: #1a1e2f;
 		border-radius: 16px;
 		padding: 20px;
@@ -665,6 +672,7 @@
 		flex-direction: column;
 		gap: 16px;
 	}
+
 
 	.mod-list table {
 		width: 100%;

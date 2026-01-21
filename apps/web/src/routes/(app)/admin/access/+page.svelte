@@ -11,6 +11,20 @@
 		role: string;
 		isActive: boolean;
 		createdAt: string;
+		minecraftUsername?: string | null;
+		minecraftUuid?: string | null;
+		serverAccesses?: ServerAccess[];
+	}
+
+	interface ServerAccess {
+		serverName: string;
+		canView: boolean;
+		canControl: boolean;
+		canConsole: boolean;
+	}
+
+	interface ServerSummary {
+		name: string;
 	}
 
 	let { data }: { data: PageData } = $props();
@@ -19,13 +33,43 @@
 	let username = $state('');
 	let password = $state('');
 	let role = $state('user');
+	let minecraftUsername = $state('');
+	let createAccesses = $state<ServerAccess[]>([]);
 
 	let editingUser = $state<User | null>(null);
 	let editPassword = $state('');
 	let editRole = $state('');
 	let editActive = $state(true);
+	let editMinecraftUsername = $state('');
+	let editAccesses = $state<ServerAccess[]>([]);
 	let saving = $state(false);
 	let deleting = $state<number | null>(null);
+
+	$effect(() => {
+		createAccesses = buildAccessDefaults();
+	});
+
+	function buildAccessDefaults(existing: ServerAccess[] = []) {
+		const servers = (data.servers?.data as ServerSummary[] | null) ?? [];
+		return servers.map((server) => {
+			const match = existing.find((access) => access.serverName === server.name);
+			return {
+				serverName: server.name,
+				canView: match?.canView ?? false,
+				canControl: match?.canControl ?? false,
+				canConsole: match?.canConsole ?? false
+			};
+		});
+	}
+
+	function normalizeAccesses(accesses: ServerAccess[]) {
+		return accesses
+			.map((access) => ({
+				...access,
+				canView: access.canView || access.canControl || access.canConsole
+			}))
+			.filter((access) => access.canView || access.canControl || access.canConsole);
+	}
 
 	async function createUser() {
 		formError = '';
@@ -39,7 +83,13 @@
 			const res = await fetch('/api/auth/users', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ username: username.trim(), password: password.trim(), role })
+				body: JSON.stringify({
+					username: username.trim(),
+					password: password.trim(),
+					role,
+					minecraftUsername: minecraftUsername.trim() || null,
+					serverAccesses: normalizeAccesses(createAccesses)
+				})
 			});
 
 			if (!res.ok) {
@@ -49,6 +99,8 @@
 				username = '';
 				password = '';
 				role = 'user';
+				minecraftUsername = '';
+				createAccesses = buildAccessDefaults();
 				await invalidateAll();
 			}
 		} finally {
@@ -61,6 +113,8 @@
 		editPassword = '';
 		editRole = user.role;
 		editActive = user.isActive;
+		editMinecraftUsername = user.minecraftUsername ?? '';
+		editAccesses = buildAccessDefaults(user.serverAccesses ?? []);
 	}
 
 	function cancelEdit() {
@@ -68,6 +122,8 @@
 		editPassword = '';
 		editRole = '';
 		editActive = true;
+		editMinecraftUsername = '';
+		editAccesses = [];
 	}
 
 	async function saveEdit() {
@@ -75,7 +131,13 @@
 
 		saving = true;
 		try {
-			const payload: { password?: string; role?: string; isActive?: boolean } = {};
+			const payload: {
+				password?: string;
+				role?: string;
+				isActive?: boolean;
+				minecraftUsername?: string | null;
+				serverAccesses?: ServerAccess[];
+			} = {};
 
 			if (editPassword.trim()) {
 				payload.password = editPassword.trim();
@@ -86,6 +148,13 @@
 			if (editActive !== editingUser.isActive) {
 				payload.isActive = editActive;
 			}
+			const trimmedMinecraft = editMinecraftUsername.trim();
+			const currentMinecraft = editingUser.minecraftUsername ?? '';
+			if (trimmedMinecraft !== currentMinecraft) {
+				payload.minecraftUsername = trimmedMinecraft || null;
+			}
+
+			payload.serverAccesses = normalizeAccesses(editAccesses);
 
 			const res = await fetch(`/api/auth/users/${editingUser.id}`, {
 				method: 'PATCH',
@@ -176,12 +245,49 @@
 				<input type="password" bind:value={password} placeholder="Enter password" />
 			</label>
 			<label>
+				<span class="label-text">Minecraft Username (optional)</span>
+				<input
+					type="text"
+					bind:value={minecraftUsername}
+					placeholder="Link to Mojang username"
+				/>
+			</label>
+			<label>
 				<span class="label-text">Role</span>
 				<select bind:value={role}>
 					<option value="user">User</option>
+					<option value="manager">Manager</option>
 					<option value="admin">Admin</option>
 				</select>
 			</label>
+			<div class="access-panel">
+				<span class="label-text">Server Access</span>
+				{#if data.servers?.error}
+					<p class="error">{data.servers.error}</p>
+				{:else if (data.servers?.data ?? []).length === 0}
+					<p class="muted">No servers available yet.</p>
+				{:else}
+					<div class="access-grid">
+						{#each createAccesses as access}
+							<div class="access-row">
+								<span class="access-name">{access.serverName}</span>
+								<label class="access-toggle">
+									<input type="checkbox" bind:checked={access.canView} />
+									<span>View</span>
+								</label>
+								<label class="access-toggle">
+									<input type="checkbox" bind:checked={access.canControl} />
+									<span>Control</span>
+								</label>
+								<label class="access-toggle">
+									<input type="checkbox" bind:checked={access.canConsole} />
+									<span>Console</span>
+								</label>
+							</div>
+						{/each}
+					</div>
+				{/if}
+			</div>
 			<button class="btn-primary" type="submit" disabled={creating}>
 				{creating ? 'Creating...' : 'Create User'}
 			</button>
@@ -216,11 +322,20 @@
 										placeholder="Leave blank to keep current"
 									/>
 								</label>
+								<label>
+									<span class="label-text">Minecraft Username</span>
+									<input
+										type="text"
+										bind:value={editMinecraftUsername}
+										placeholder="Link to Mojang username"
+									/>
+								</label>
 
 								<label>
 									<span class="label-text">Role</span>
 									<select bind:value={editRole}>
 										<option value="user">User</option>
+										<option value="manager">Manager</option>
 										<option value="admin">Admin</option>
 									</select>
 								</label>
@@ -229,6 +344,34 @@
 									<input type="checkbox" bind:checked={editActive} />
 									<span>Active</span>
 								</label>
+								<div class="access-panel">
+									<span class="label-text">Server Access</span>
+									{#if data.servers?.error}
+										<p class="error">{data.servers.error}</p>
+									{:else if (data.servers?.data ?? []).length === 0}
+										<p class="muted">No servers available yet.</p>
+									{:else}
+										<div class="access-grid">
+											{#each editAccesses as access}
+												<div class="access-row">
+													<span class="access-name">{access.serverName}</span>
+													<label class="access-toggle">
+														<input type="checkbox" bind:checked={access.canView} />
+														<span>View</span>
+													</label>
+													<label class="access-toggle">
+														<input type="checkbox" bind:checked={access.canControl} />
+														<span>Control</span>
+													</label>
+													<label class="access-toggle">
+														<input type="checkbox" bind:checked={access.canConsole} />
+														<span>Console</span>
+													</label>
+												</div>
+											{/each}
+										</div>
+									{/if}
+								</div>
 
 								<div class="edit-actions">
 									<button class="btn-primary" onclick={saveEdit} disabled={saving}>
@@ -243,7 +386,11 @@
 							<div class="user-info">
 								<div class="user-main">
 									<span class="username">{user.username}</span>
-									<span class="role-badge" class:admin={user.role === 'admin'}>
+									<span
+										class="role-badge"
+										class:admin={user.role === 'admin'}
+										class:manager={user.role === 'manager'}
+									>
 										{user.role}
 									</span>
 									{#if !user.isActive}
@@ -252,6 +399,9 @@
 								</div>
 								<div class="user-meta">
 									Created {formatDateOnly(user.createdAt)}
+									{#if user.minecraftUsername}
+										<span class="meta-item">MC: {user.minecraftUsername}</span>
+									{/if}
 								</div>
 							</div>
 							<div class="user-actions">
@@ -295,7 +445,8 @@
 		<h3>Role Permissions</h3>
 		<ul>
 			<li><strong>Admin:</strong> Full access to all features including user management, settings, and admin shell</li>
-			<li><strong>User:</strong> Can manage servers, view profiles, and access basic features</li>
+			<li><strong>Manager:</strong> Access only to assigned servers with view/control/console permissions</li>
+			<li><strong>User:</strong> Basic access; use server assignments to grant permissions</li>
 		</ul>
 	</div>
 </div>
@@ -475,9 +626,22 @@
 		border-color: rgba(106, 176, 76, 0.3);
 	}
 
+	.role-badge.manager {
+		background: rgba(76, 164, 230, 0.15);
+		color: #b7dbf5;
+		border-color: rgba(76, 164, 230, 0.35);
+	}
+
 	.user-meta {
 		font-size: 12px;
 		color: #7c87b2;
+		display: flex;
+		gap: 12px;
+		flex-wrap: wrap;
+	}
+
+	.meta-item {
+		color: #9aa2c5;
 	}
 
 	.user-actions {
@@ -559,6 +723,54 @@
 		margin: 0;
 	}
 
+	.muted {
+		color: #8890b1;
+		font-size: 13px;
+		margin: 0;
+	}
+
+	.access-panel {
+		display: flex;
+		flex-direction: column;
+		gap: 10px;
+	}
+
+	.access-grid {
+		display: flex;
+		flex-direction: column;
+		gap: 10px;
+	}
+
+	.access-row {
+		display: grid;
+		grid-template-columns: 1fr repeat(3, auto);
+		align-items: center;
+		gap: 12px;
+		background: #141827;
+		border: 1px solid #2a2f47;
+		border-radius: 10px;
+		padding: 10px 12px;
+	}
+
+	.access-name {
+		font-size: 13px;
+		color: #eef0f8;
+	}
+
+	.access-toggle {
+		display: inline-flex;
+		align-items: center;
+		gap: 6px;
+		font-size: 12px;
+		color: #aab2d3;
+		white-space: nowrap;
+	}
+
+	.access-toggle input {
+		width: 16px;
+		height: 16px;
+	}
+
 	.error-box {
 		background: rgba(255, 92, 92, 0.1);
 		border: 1px solid rgba(255, 92, 92, 0.3);
@@ -609,6 +821,11 @@
 	@media (max-width: 900px) {
 		.users-layout {
 			grid-template-columns: 1fr;
+		}
+
+		.access-row {
+			grid-template-columns: 1fr;
+			align-items: flex-start;
 		}
 	}
 </style>

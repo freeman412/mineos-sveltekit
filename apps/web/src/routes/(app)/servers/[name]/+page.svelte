@@ -1,8 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { invalidateAll } from '$app/navigation';
 	import '@xterm/xterm/css/xterm.css';
-	import * as api from '$lib/api/client';
 	import { modal } from '$lib/stores/modal';
 	import { formatBytes, formatDate } from '$lib/utils/formatting';
 	import type { PageData } from './$types';
@@ -13,7 +11,6 @@
 
 	let { data }: { data: PageData & { server: LayoutData['server'] } } = $props();
 
-	let actionLoading = $state(false);
 	let terminalContainer: HTMLDivElement;
 	let terminal: TerminalType | null = $state(null);
 	let fitAddon: FitAddonType | null = null;
@@ -21,6 +18,7 @@
 	let eventSource: EventSource | null = null;
 	let command = $state('');
 	let sending = $state(false);
+	let clearingLogs = $state(false);
 	let heartbeat = $state(data.heartbeat.data ?? null);
 	let heartbeatError = $state<string | null>(data.heartbeat.error);
 	let heartbeatSource: EventSource | null = null;
@@ -32,55 +30,6 @@
 
 	const resolveModule = <T>(module: T | { default: T }): T =>
 		(module as { default?: T }).default ?? (module as T);
-
-	async function handleAction(action: 'start' | 'stop' | 'restart' | 'kill') {
-		if (!data.server) return;
-
-		actionLoading = true;
-		try {
-			let result;
-			switch (action) {
-				case 'start':
-					result = await api.startServer(fetch, data.server.name);
-					break;
-				case 'stop':
-					result = await api.stopServer(fetch, data.server.name);
-					break;
-				case 'restart':
-					result = await api.restartServer(fetch, data.server.name);
-					break;
-				case 'kill':
-					result = await api.killServer(fetch, data.server.name);
-					break;
-			}
-
-			if (result.error) {
-				await modal.error(`Failed to ${action} server: ${result.error}`);
-			} else {
-				// Wait for the action to complete, then refresh
-				setTimeout(() => invalidateAll(), 2000);
-			}
-		} finally {
-			actionLoading = false;
-		}
-	}
-
-	async function handleAcceptEula() {
-		if (!data.server) return;
-
-		actionLoading = true;
-		try {
-			const result = await api.acceptEula(fetch, data.server.name);
-			if (result.error) {
-				await modal.error(`Failed to accept EULA: ${result.error}`);
-			} else {
-				await modal.success('EULA accepted successfully! You can now start the server.');
-				await invalidateAll();
-			}
-		} finally {
-			actionLoading = false;
-		}
-	}
 
 	function buildSparkline(values: number[], width = 200, height = 60) {
 		if (!values || values.length < 2) return '';
@@ -247,42 +196,37 @@
 			sending = false;
 		}
 	}
+
+	async function clearLogs() {
+		if (!data.server || clearingLogs) return;
+		const confirmed = await modal.confirm(
+			'Clear server console logs? This cannot be undone.',
+			'Clear Console Logs'
+		);
+		if (!confirmed) return;
+
+		clearingLogs = true;
+		try {
+			const res = await fetch(`/api/servers/${data.server.name}/console?source=all`, {
+				method: 'DELETE'
+			});
+			if (!res.ok) {
+				const payload = await res.json().catch(() => ({}));
+				await modal.error(payload.error || 'Failed to clear logs');
+				return;
+			}
+
+			terminal?.clear();
+			terminal?.writeln('\x1b[1;33m[Logs cleared]\x1b[0m');
+		} catch (err) {
+			await modal.error(err instanceof Error ? err.message : 'Failed to clear logs');
+		} finally {
+			clearingLogs = false;
+		}
+	}
 </script>
 
 <div class="dashboard">
-	<section class="section">
-		<h2>Quick Actions</h2>
-		{#if data.server?.needsRestart}
-			<div class="alert alert-warning">
-				Server files changed. Restart required to apply updates.
-			</div>
-		{/if}
-		<div class="action-buttons">
-			{#if isRunning}
-				<button class="btn btn-warning" onclick={() => handleAction('stop')} disabled={actionLoading}>
-					Stop Server
-				</button>
-				<button class="btn btn-primary" onclick={() => handleAction('restart')} disabled={actionLoading}>
-					Restart Server
-				</button>
-				<button class="btn btn-danger" onclick={() => handleAction('kill')} disabled={actionLoading}>
-					Kill Server
-				</button>
-			{:else}
-				<button class="btn btn-success" onclick={() => handleAction('start')} disabled={actionLoading}>
-					Start Server
-				</button>
-				<button
-					class="btn btn-secondary"
-					onclick={handleAcceptEula}
-					disabled={actionLoading || data.server?.eulaAccepted}
-				>
-					{data.server?.eulaAccepted ? 'EULA Accepted' : 'Accept EULA'}
-				</button>
-			{/if}
-		</div>
-	</section>
-
 	<div class="grid">
 		<div class="card">
 			<h3>Server Information</h3>
@@ -400,7 +344,12 @@
 
 	<!-- Console Section -->
 	<section class="section console-section">
-		<h2>Console</h2>
+		<div class="console-header">
+			<h2>Console</h2>
+			<button class="btn btn-danger" onclick={clearLogs} disabled={clearingLogs}>
+				{clearingLogs ? 'Clearing...' : 'Clear Logs'}
+			</button>
+		</div>
 		<div class="console-container">
 			<div class="terminal-wrapper">
 				<div bind:this={terminalContainer} class="terminal"></div>
@@ -438,10 +387,12 @@
 		font-weight: 600;
 	}
 
-	.action-buttons {
+	.console-header {
 		display: flex;
+		align-items: center;
+		justify-content: space-between;
 		gap: 12px;
-		flex-wrap: wrap;
+		margin-bottom: 16px;
 	}
 
 	.btn {
@@ -530,19 +481,6 @@
 		border-radius: 16px;
 		padding: 20px;
 		box-shadow: 0 20px 40px rgba(0, 0, 0, 0.35);
-	}
-
-	.alert {
-		padding: 12px 16px;
-		border-radius: 10px;
-		font-size: 13px;
-		margin-bottom: 16px;
-	}
-
-	.alert-warning {
-		background: rgba(255, 200, 87, 0.15);
-		border: 1px solid rgba(255, 200, 87, 0.3);
-		color: #f4c08e;
 	}
 
 	.card h3 {

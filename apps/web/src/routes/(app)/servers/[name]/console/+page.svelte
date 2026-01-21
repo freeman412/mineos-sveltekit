@@ -3,6 +3,7 @@
 	import '@xterm/xterm/css/xterm.css';
 	import type { PageData } from './$types';
 	import type { LayoutData } from '../$layout';
+	import { modal } from '$lib/stores/modal';
 
 	type TerminalType = import('@xterm/xterm').Terminal;
 	type FitAddonType = import('@xterm/addon-fit').FitAddon;
@@ -30,6 +31,7 @@
 	let activeTab = $state<LogTab>('server');
 	let command = $state('');
 	let sending = $state(false);
+	let clearing = $state(false);
 
 	const resolveModule = <T>(module: T | { default: T }): T =>
 		(module as { default?: T }).default ?? (module as T);
@@ -219,6 +221,34 @@
 			sendCommand();
 		}
 	}
+
+	async function clearLogs() {
+		if (!data.server || clearing) return;
+		const tabLabel = activeTab === 'java' ? 'Java logs' : 'server logs';
+		const confirmed = await modal.confirm(`Clear ${tabLabel}? This cannot be undone.`, 'Clear Logs');
+		if (!confirmed) return;
+
+		clearing = true;
+		try {
+			const source = activeTab === 'java' ? 'java' : 'server';
+			const res = await fetch(`/api/servers/${data.server.name}/console?source=${source}`, {
+				method: 'DELETE'
+			});
+			if (!res.ok) {
+				const payload = await res.json().catch(() => ({}));
+				await modal.error(payload.error || 'Failed to clear logs');
+				return;
+			}
+
+			const terminal = activeTab === 'java' ? javaTerminal : serverTerminal;
+			terminal?.clear();
+			terminal?.writeln('\x1b[1;33m[Logs cleared]\x1b[0m');
+		} catch (err) {
+			await modal.error(err instanceof Error ? err.message : 'Failed to clear logs');
+		} finally {
+			clearing = false;
+		}
+	}
 </script>
 
 <div class="console-container">
@@ -239,6 +269,9 @@
 				Java Logs
 			</button>
 		</div>
+		<button class="clear-button" onclick={clearLogs} disabled={clearing}>
+			{clearing ? 'Clearing...' : 'Clear Logs'}
+		</button>
 	</div>
 
 	<div bind:this={terminalWrapper} class="terminal-wrapper">
@@ -369,6 +402,28 @@
 
 	.send-button:disabled {
 		opacity: 0.5;
+		cursor: not-allowed;
+	}
+
+	.clear-button {
+		background: rgba(255, 92, 92, 0.2);
+		color: #ffb3b3;
+		border: 1px solid rgba(255, 92, 92, 0.3);
+		border-radius: 8px;
+		padding: 0.5rem 1rem;
+		font-size: 0.85rem;
+		font-weight: 600;
+		cursor: pointer;
+		transition: background 0.2s, color 0.2s;
+	}
+
+	.clear-button:hover:not(:disabled) {
+		background: rgba(255, 92, 92, 0.3);
+		color: #ffd6d6;
+	}
+
+	.clear-button:disabled {
+		opacity: 0.6;
 		cursor: not-allowed;
 	}
 </style>

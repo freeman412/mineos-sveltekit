@@ -164,34 +164,49 @@
 	});
 </script>
 
-<div class="page-header">
-	<div>
-		<h1>Admin Shell</h1>
-		<p class="subtitle">Direct interactive TTY on the running container.</p>
-	</div>
-	<div class="header-actions">
-		<div class="status-pill" class:status-running={status === 'connected'}>
-			{status}
+<div class="shell-page">
+	<div class="page-header">
+		<div>
+			<h1>Admin Shell</h1>
+			<p class="subtitle">Direct interactive TTY on the running container.</p>
 		</div>
-		<button class="btn-secondary" onclick={connect} disabled={status === 'connected'}>
-			Reconnect
-		</button>
+		<div class="header-actions">
+			<div class="status-pill" class:status-running={status === 'connected'}>
+				{status}
+			</div>
+			<button class="btn-secondary" onclick={connect} disabled={status === 'connected'}>
+				Reconnect
+			</button>
+		</div>
 	</div>
-</div>
 
-<div class="shell-panel">
-	<div class="terminal" bind:this={terminalContainer}></div>
-	{#if errorMessage}
-		<p class="error">{errorMessage}</p>
-	{/if}
+	<div class="shell-panel">
+		<div class="terminal" bind:this={terminalContainer}></div>
+		{#if errorMessage}
+			<p class="error">{errorMessage}</p>
+		{/if}
+	</div>
 </div>
 
 <style>
+	:global(.main-content) {
+		display: flex;
+		flex-direction: column;
+		min-height: 0;
+	}
+
+	.shell-page {
+		display: flex;
+		flex-direction: column;
+		flex: 1;
+		min-height: 0;
+		gap: 24px;
+	}
+
 	.page-header {
 		display: flex;
 		justify-content: space-between;
 		align-items: center;
-		margin-bottom: 24px;
 		gap: 16px;
 	}
 
@@ -235,10 +250,15 @@
 		padding: 20px;
 		border: 1px solid rgba(106, 176, 76, 0.12);
 		box-shadow: 0 20px 40px rgba(0, 0, 0, 0.35);
+		flex: 1;
+		min-height: 0;
+		display: flex;
+		flex-direction: column;
 	}
 
 	.terminal {
-		height: 520px;
+		flex: 1;
+		min-height: 0;
 		background: #0d1117;
 		border-radius: 12px;
 		overflow: hidden;

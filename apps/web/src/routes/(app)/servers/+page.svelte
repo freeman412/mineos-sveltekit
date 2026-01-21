@@ -9,7 +9,7 @@
 	import ProgressBar from '$lib/components/ProgressBar.svelte';
 	import StatusBadge from '$lib/components/StatusBadge.svelte';
 	import type { PageData } from './$types';
-	import type { ArchiveEntry, ServerSummary } from '$lib/api/types';
+	import type { ArchiveEntry, ForgeInstallStatus, ServerSummary } from '$lib/api/types';
 
 	let { data }: { data: PageData } = $props();
 
@@ -28,12 +28,17 @@
 	let uploadProgress = $state(0);
 	let uploadFileName = $state('');
 	let uploadStatus = $state('');
+	let activeForgeInstalls = $state<ForgeInstallStatus[]>([]);
 	let importJobs = $state<
 		Record<string, { jobId: string; status: string; percentage: number; message?: string | null }>
 	>({});
 	const importStreams = new Map<string, EventSource>();
+	let jobsInterval: ReturnType<typeof setInterval> | null = null;
 
 	const maxMemoryPoints = 30;
+	const creatingServers = $derived.by(
+		() => new Set(activeForgeInstalls.map((install) => install.serverName))
+	);
 
 	$effect(() => {
 		imports = data.imports.data ?? [];
@@ -70,10 +75,12 @@
 	}
 
 	function handleCardClick(serverName: string) {
+		if (creatingServers.has(serverName)) return;
 		goto(`/servers/${encodeURIComponent(serverName)}`);
 	}
 
 	function handleCardKeydown(event: KeyboardEvent, serverName: string) {
+		if (creatingServers.has(serverName)) return;
 		if (event.key === 'Enter' || event.key === ' ') {
 			event.preventDefault();
 			handleCardClick(serverName);
@@ -87,6 +94,7 @@
 	) {
 		event?.stopPropagation();
 		event?.preventDefault();
+		if (creatingServers.has(serverName)) return;
 
 		actionLoading[serverName] = true;
 		try {
@@ -115,6 +123,18 @@
 		} finally {
 			delete actionLoading[serverName];
 			actionLoading = { ...actionLoading };
+		}
+	}
+
+	async function loadActiveTasks() {
+		try {
+			const res = await fetch('/api/jobs');
+			if (res.ok) {
+				const payload = await res.json();
+				activeForgeInstalls = payload.forgeInstalls ?? [];
+			}
+		} catch (err) {
+			console.error('Failed to load active tasks:', err);
 		}
 	}
 
@@ -323,6 +343,8 @@
 
 	onMount(() => {
 		updateMemoryHistory(servers);
+		loadActiveTasks();
+		jobsInterval = setInterval(loadActiveTasks, 5000);
 
 		serversStream = createEventStream<ServerSummary[]>({
 			url: '/api/host/servers/stream',
@@ -342,6 +364,9 @@
 				source.close();
 			}
 			importStreams.clear();
+			if (jobsInterval) {
+				clearInterval(jobsInterval);
+			}
 		};
 	});
 </script>
@@ -363,24 +388,30 @@
 {:else if servers.length > 0}
 	<div class="server-grid">
 		{#each servers as server}
+			{@const isCreating = creatingServers.has(server.name)}
 			<div
 				class="server-card"
+				class:creating={isCreating}
 				role="link"
-				tabindex="0"
+				tabindex={isCreating ? -1 : 0}
+				aria-disabled={isCreating}
 				onclick={() => handleCardClick(server.name)}
 				onkeydown={(event) => handleCardKeydown(event, server.name)}
 			>
 				<div class="card-header">
 					<div class="server-title">
-						<StatusBadge variant={server.up ? 'success' : 'error'} dot size="lg" />
+						<StatusBadge variant={isCreating ? 'warning' : server.up ? 'success' : 'error'} dot size="lg" />
 						<h2>{server.name}</h2>
 					</div>
-					<StatusBadge variant={server.up ? 'success' : 'error'} size="sm">
-						{server.up ? 'Running' : 'Stopped'}
+					<StatusBadge variant={isCreating ? 'warning' : server.up ? 'success' : 'error'} size="sm">
+						{isCreating ? 'Creating' : server.up ? 'Running' : 'Stopped'}
 					</StatusBadge>
 				</div>
 
 				<div class="card-meta">
+					{#if isCreating}
+						<span class="badge badge-warning">Creating</span>
+					{/if}
 					{#if server.profile}
 						<span class="badge">Profile: {server.profile}</span>
 					{/if}
@@ -401,7 +432,7 @@
 					</div>
 					<div class="metric">
 						<span class="metric-label">Status</span>
-						<span class="metric-value">{server.up ? 'Online' : 'Offline'}</span>
+						<span class="metric-value">{isCreating ? 'Creating' : server.up ? 'Online' : 'Offline'}</span>
 					</div>
 					<div class="metric memory">
 						<span class="metric-label">Memory</span>
@@ -426,21 +457,21 @@
 						<button
 							class="btn-action btn-warning"
 							onclick={(event) => handleAction(server.name, 'stop', event)}
-							disabled={actionLoading[server.name]}
+							disabled={actionLoading[server.name] || isCreating}
 						>
 							Stop
 						</button>
 						<button
 							class="btn-action"
 							onclick={(event) => handleAction(server.name, 'restart', event)}
-							disabled={actionLoading[server.name]}
+							disabled={actionLoading[server.name] || isCreating}
 						>
 							Restart
 						</button>
 						<button
 							class="btn-action btn-danger"
 							onclick={(event) => handleAction(server.name, 'kill', event)}
-							disabled={actionLoading[server.name]}
+							disabled={actionLoading[server.name] || isCreating}
 						>
 							Kill
 						</button>
@@ -448,7 +479,7 @@
 						<button
 							class="btn-action btn-success"
 							onclick={(event) => handleAction(server.name, 'start', event)}
-							disabled={actionLoading[server.name]}
+							disabled={actionLoading[server.name] || isCreating}
 						>
 							Start
 						</button>
@@ -456,7 +487,7 @@
 					<button
 						class="btn-action btn-danger"
 						onclick={(event) => handleDelete(server.name, event)}
-						disabled={actionLoading[server.name]}
+						disabled={actionLoading[server.name] || isCreating}
 					>
 						Delete
 					</button>
@@ -683,6 +714,12 @@
 		gap: 16px;
 		cursor: pointer;
 		transition: transform 0.2s ease, box-shadow 0.2s ease;
+	}
+
+	.server-card.creating {
+		opacity: 0.6;
+		cursor: progress;
+		pointer-events: none;
 	}
 
 	.server-card:hover {

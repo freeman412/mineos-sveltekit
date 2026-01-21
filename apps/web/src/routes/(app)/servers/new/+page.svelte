@@ -100,6 +100,9 @@
 	let forgeInstallStep = $state('');
 	let forgeInstallOutput = $state('');
 	let forgeOutputExpanded = $state(false);
+	let forgeWatching = $state(false);
+	let forgeInstallCompleted = $state(false);
+	let forgeWatchError = $state('');
 
 	// Filter profiles by selected type
 	const filteredProfiles = $derived.by(() => {
@@ -341,6 +344,8 @@
 			if (selectedType === 'forge' && selectedForgeVersion) {
 				forgeInstallStep = 'Starting Forge installation...';
 				forgeInstallProgress = 0;
+				forgeInstallCompleted = false;
+				forgeWatchError = '';
 
 				const installResult = await api.installForge(
 					fetch,
@@ -355,8 +360,8 @@
 
 				if (installResult.data) {
 					forgeInstallId = installResult.data.installId;
-					// Poll for installation status
-					await pollForgeInstallation(installResult.data.installId);
+					await invalidateAll();
+					return;
 				}
 			}
 
@@ -374,14 +379,14 @@
 			buildToolsRunning = false;
 			downloadingProfile = false;
 			forgeInstallId = '';
+			forgeWatching = false;
+			forgeInstallCompleted = false;
+			forgeWatchError = '';
 		}
 	}
 
 	async function pollForgeInstallation(installId: string) {
-		const maxAttempts = 300; // 5 minutes with 1s intervals
-		let attempts = 0;
-
-		while (attempts < maxAttempts) {
+		while (true) {
 			const statusResult = await api.getForgeInstallStatus(fetch, installId);
 
 			if (statusResult.error) {
@@ -404,11 +409,26 @@
 				}
 			}
 
-			await new Promise(resolve => setTimeout(resolve, 1000));
-			attempts++;
+			await new Promise((resolve) => setTimeout(resolve, 1000));
 		}
+	}
 
-		throw new Error('Forge installation timed out');
+	function startForgeWatch() {
+		if (!forgeInstallId || forgeWatching) return;
+		forgeWatching = true;
+		forgeWatchError = '';
+		pollForgeInstallation(forgeInstallId)
+			.then(() => {
+				forgeInstallCompleted = true;
+			})
+			.catch((err) => {
+				forgeWatchError = err instanceof Error ? err.message : 'Forge installation failed';
+			});
+	}
+
+	function sendForgeToBackground() {
+		forgeWatching = false;
+		goto('/servers');
 	}
 
 	function goBack() {
@@ -741,8 +761,31 @@
 							This will only take a moment
 						{/if}
 					</p>
+					{#if forgeInstallId}
+						<p class="step-hint">
+							Forge install runs in the background. You can leave this page and track it in
+							Notifications.
+						</p>
+					{/if}
 					{#if forgeInstallId && forgeInstallProgress > 0}
 						<ProgressBar value={forgeInstallProgress} color="green" size="md" showLabel />
+					{/if}
+					{#if forgeInstallId}
+						<div class="forge-actions">
+							{#if !forgeWatching}
+								<button class="btn-secondary" onclick={startForgeWatch}>
+									Stay and watch
+								</button>
+							{/if}
+							<button class="btn-primary" onclick={sendForgeToBackground}>
+								Send to background
+							</button>
+						</div>
+					{/if}
+					{#if forgeInstallCompleted}
+						<div class="success-box">Forge install completed.</div>
+					{:else if forgeWatchError}
+						<div class="error-box">{forgeWatchError}</div>
 					{/if}
 					{#if forgeInstallId && forgeInstallOutput}
 						<div class="output-section">
@@ -917,6 +960,32 @@
 		margin: 0 0 28px;
 		color: #9aa2c5;
 		font-size: 14px;
+	}
+
+	.step-hint {
+		margin: -18px 0 24px;
+		color: #7f88ac;
+		font-size: 13px;
+		text-align: center;
+		max-width: 520px;
+	}
+
+	.forge-actions {
+		display: flex;
+		gap: 12px;
+		align-items: center;
+		justify-content: center;
+		margin: 0 0 18px;
+		flex-wrap: wrap;
+	}
+
+	.success-box {
+		background: rgba(106, 176, 76, 0.1);
+		border: 1px solid rgba(106, 176, 76, 0.3);
+		border-radius: 12px;
+		padding: 14px 18px;
+		color: #b7f5a2;
+		margin: 0 0 18px;
 	}
 
 	/* Server Type Grid */

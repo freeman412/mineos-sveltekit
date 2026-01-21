@@ -1,5 +1,5 @@
 <script lang="ts">
-	import type { SystemNotification, JobStatus, ModpackInstallProgress } from '$lib/api/types';
+	import type { SystemNotification, JobStatus, ModpackInstallProgress, ForgeInstallStatus } from '$lib/api/types';
 	import { onMount } from 'svelte';
 	import { modal } from '$lib/stores/modal';
 	import { uploads, type UploadEntry } from '$lib/stores/uploads';
@@ -8,32 +8,70 @@
 	let notifications = $state<SystemNotification[]>([]);
 	let activeJobs = $state<JobStatus[]>([]);
 	let activeModpacks = $state<ModpackInstallProgress[]>([]);
+	let activeForgeInstalls = $state<ForgeInstallStatus[]>([]);
 	let isOpen = $state(false);
 	let loading = $state(false);
+	let notificationsSource: EventSource | null = null;
+	let jobsSource: EventSource | null = null;
 
 	const activeUploads = $derived($uploads.filter((u) => u.status === 'uploading'));
-	const activeTaskCount = $derived(activeJobs.length + activeModpacks.length + activeUploads.length);
+	const activeTaskCount = $derived(
+		activeJobs.length + activeModpacks.length + activeForgeInstalls.length + activeUploads.length
+	);
 	const unreadCount = $derived(notifications.filter((n) => !n.isRead && !n.dismissedAt).length);
 	const totalBadgeCount = $derived(unreadCount + activeTaskCount);
 
 	onMount(() => {
 		loadNotifications();
 		loadActiveJobs();
-		// Poll for new notifications every 30 seconds
-		const notificationInterval = setInterval(loadNotifications, 30000);
-		// Poll for active jobs more frequently (every 5 seconds)
-		const jobsInterval = setInterval(loadActiveJobs, 5000);
+		connectNotificationStream();
+		connectJobsStream();
 		return () => {
-			clearInterval(notificationInterval);
-			clearInterval(jobsInterval);
+			notificationsSource?.close();
+			jobsSource?.close();
 		};
 	});
+
+	function connectNotificationStream() {
+		notificationsSource?.close();
+		notificationsSource = new EventSource('/api/notifications/stream?includeDismissed=false');
+		notificationsSource.onmessage = (event) => {
+			try {
+				notifications = JSON.parse(event.data);
+			} catch (err) {
+				console.error('Failed to parse notification stream:', err);
+			}
+		};
+		notificationsSource.onerror = () => {
+			notificationsSource?.close();
+			setTimeout(connectNotificationStream, 3000);
+		};
+	}
+
+	function connectJobsStream() {
+		jobsSource?.close();
+		jobsSource = new EventSource('/api/jobs/stream');
+		jobsSource.onmessage = (event) => {
+			try {
+				const data = JSON.parse(event.data);
+				activeJobs = data.jobs ?? [];
+				activeModpacks = data.modpackInstalls ?? [];
+				activeForgeInstalls = data.forgeInstalls ?? [];
+			} catch (err) {
+				console.error('Failed to parse jobs stream:', err);
+			}
+		};
+		jobsSource.onerror = () => {
+			jobsSource?.close();
+			setTimeout(connectJobsStream, 3000);
+		};
+	}
 
 	async function loadNotifications() {
 		if (loading) return;
 		loading = true;
 		try {
-			const res = await fetch('/api/notifications?includeDismissed=false');
+			const res = await fetch('/api/notifications?includeDismissed=false', { cache: 'no-store' });
 			if (res.ok) {
 				notifications = await res.json();
 			}
@@ -46,11 +84,12 @@
 
 	async function loadActiveJobs() {
 		try {
-			const res = await fetch('/api/jobs');
+			const res = await fetch('/api/jobs', { cache: 'no-store' });
 			if (res.ok) {
 				const data = await res.json();
 				activeJobs = data.jobs ?? [];
 				activeModpacks = data.modpackInstalls ?? [];
+				activeForgeInstalls = data.forgeInstalls ?? [];
 			}
 		} catch (err) {
 			console.error('Failed to load active jobs:', err);
@@ -61,10 +100,9 @@
 		try {
 			const res = await fetch(`/api/notifications/${id}/read`, { method: 'PATCH' });
 			if (res.ok) {
-				const notification = notifications.find((n) => n.id === id);
-				if (notification) {
-					notification.isRead = true;
-				}
+				notifications = notifications.map((notification) =>
+					notification.id === id ? { ...notification, isRead: true } : notification
+				);
 			}
 		} catch (err) {
 			console.error('Failed to mark as read:', err);
@@ -216,6 +254,11 @@
 								<span class="task-type">{getJobTypeLabel(job.type)}</span>
 								<span class="task-server">{job.serverName}</span>
 							</div>
+							{#if job.serverName}
+								<a class="task-link" href={`/servers/${encodeURIComponent(job.serverName)}`}>
+									Details
+								</a>
+							{/if}
 							<ProgressBar value={job.percentage} color="blue" size="sm" showLabel />
 							{#if job.message}
 								<span class="task-message">{job.message}</span>
@@ -228,6 +271,9 @@
 								<span class="task-type">Modpack Install</span>
 								<span class="task-server">{modpack.serverName}</span>
 							</div>
+							<a class="task-link" href={`/servers/${encodeURIComponent(modpack.serverName)}`}>
+								Details
+							</a>
 							<ProgressBar
 								value={modpack.percentage}
 								color="blue"
@@ -237,6 +283,21 @@
 							/>
 							{#if modpack.currentModName}
 								<span class="task-message">{modpack.currentModName}</span>
+							{/if}
+						</div>
+					{/each}
+					{#each activeForgeInstalls as forgeInstall (forgeInstall.installId)}
+						<div class="task-item">
+							<div class="task-info">
+								<span class="task-type">Forge Install</span>
+								<span class="task-server">{forgeInstall.serverName}</span>
+							</div>
+							<a class="task-link" href={`/servers/${encodeURIComponent(forgeInstall.serverName)}`}>
+								Details
+							</a>
+							<ProgressBar value={forgeInstall.progress} color="blue" size="sm" showLabel />
+							{#if forgeInstall.currentStep}
+								<span class="task-message">{forgeInstall.currentStep}</span>
 							{/if}
 						</div>
 					{/each}
@@ -559,6 +620,29 @@
 		align-items: center;
 		gap: 8px;
 		margin-bottom: 8px;
+	}
+
+	.task-link {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		align-self: flex-start;
+		margin-bottom: 8px;
+		padding: 4px 10px;
+		border-radius: 6px;
+		border: 1px solid #2a2f47;
+		background: #141827;
+		color: #9aa2c5;
+		font-size: 11px;
+		font-weight: 600;
+		text-decoration: none;
+		transition: color 0.2s, border-color 0.2s, background 0.2s;
+	}
+
+	.task-link:hover {
+		color: #eef0f8;
+		border-color: #3b4264;
+		background: #1a1f33;
 	}
 
 	.task-type {

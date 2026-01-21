@@ -121,6 +121,73 @@ export type InstalledMod = {
 	isDisabled: boolean;
 };
 
+export type InstalledPlugin = {
+	fileName: string;
+	sizeBytes: number;
+	modifiedAt: string;
+	isDisabled: boolean;
+};
+
+export type ModrinthProjectHit = {
+	projectId: string;
+	slug: string;
+	title: string;
+	description: string;
+	iconUrl: string | null;
+	downloads: number;
+	versions: string[];
+	categories: string[];
+};
+
+export type ModrinthSearchResult = {
+	index: number;
+	pageSize: number;
+	totalHits: number;
+	results: ModrinthProjectHit[];
+};
+
+export type ModrinthProject = {
+	id: string;
+	slug: string;
+	title: string;
+	description: string;
+	body: string | null;
+	projectType: string;
+	downloads: number;
+	categories: string[];
+	gameVersions: string[];
+	loaders: string[];
+	iconUrl: string | null;
+	clientSide?: string | null;
+	serverSide?: string | null;
+};
+
+export type ModrinthVersionFile = {
+	url: string;
+	fileName: string;
+	size: number;
+	primary: boolean;
+};
+
+export type ModrinthVersion = {
+	id: string;
+	projectId?: string;
+	name: string;
+	versionNumber: string;
+	datePublished: string;
+	downloads: number;
+	gameVersions: string[];
+	loaders: string[];
+	files: ModrinthVersionFile[];
+	dependencies?: ModrinthDependency[];
+};
+
+export type ModrinthDependency = {
+	projectId: string | null;
+	versionId: string | null;
+	dependencyType: string;
+};
+
 export type CurseForgeCategory = {
 	id: number;
 	name: string;

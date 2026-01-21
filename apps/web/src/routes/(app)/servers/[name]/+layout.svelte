@@ -1,23 +1,27 @@
 <script lang="ts">
+	import { onMount } from 'svelte';
 	import { page } from '$app/stores';
 	import StatusBadge from '$lib/components/StatusBadge.svelte';
+	import ServerQuickActions from '$lib/components/ServerQuickActions.svelte';
 	import type { LayoutData } from './$types';
 
 	let { data, children }: { data: LayoutData; children: any } = $props();
+	let server = $state(data.server);
 
-	const tabs = [
-		{ href: `/servers/${data.server?.name}`, label: 'Dashboard', exact: true },
-		{ href: `/servers/${data.server?.name}/config`, label: 'Properties' },
-		{ href: `/servers/${data.server?.name}/advanced`, label: 'Config' },
-		{ href: `/servers/${data.server?.name}/backups`, label: 'Backups' },
-		{ href: `/servers/${data.server?.name}/archives`, label: 'Archives' },
-		{ href: `/servers/${data.server?.name}/files`, label: 'Files' },
-		{ href: `/servers/${data.server?.name}/performance`, label: 'Performance' },
-		{ href: `/servers/${data.server?.name}/worlds`, label: 'Worlds' },
-		{ href: `/servers/${data.server?.name}/players`, label: 'Players' },
-		{ href: `/servers/${data.server?.name}/mods`, label: 'Mods' },
-		{ href: `/servers/${data.server?.name}/cron`, label: 'Cron Jobs' }
-	];
+	const tabs = $derived.by(() => [
+		{ href: `/servers/${server?.name}`, label: 'Dashboard', exact: true },
+		{ href: `/servers/${server?.name}/config`, label: 'Properties' },
+		{ href: `/servers/${server?.name}/advanced`, label: 'Config' },
+		{ href: `/servers/${server?.name}/backups`, label: 'Backups' },
+		{ href: `/servers/${server?.name}/archives`, label: 'Archives' },
+		{ href: `/servers/${server?.name}/files`, label: 'Files' },
+		{ href: `/servers/${server?.name}/performance`, label: 'Performance' },
+		{ href: `/servers/${server?.name}/worlds`, label: 'Worlds' },
+		{ href: `/servers/${server?.name}/players`, label: 'Players' },
+		{ href: `/servers/${server?.name}/mods`, label: 'Mods' },
+		{ href: `/servers/${server?.name}/plugins`, label: 'Plugins' },
+		{ href: `/servers/${server?.name}/cron`, label: 'Cron Jobs' }
+	]);
 
 	function isActiveTab(href: string, exact = false) {
 		if (exact) {
@@ -34,22 +38,73 @@
 		return { label: status, running: false };
 	}
 
-	const statusMeta = normalizeStatus(data.server?.status);
+	const statusMeta = $derived(normalizeStatus(server?.status));
+
+	$effect(() => {
+		server = data.server;
+	});
+
+	let statusSource: EventSource | null = null;
+
+	function scheduleBurstRefresh() {
+		statusSource?.close();
+		connectStatusStream();
+	}
+
+	onMount(() => {
+		let cancelled = false;
+		connectStatusStream();
+
+		return () => {
+			cancelled = true;
+			statusSource?.close();
+			statusSource = null;
+		};
+	});
+
+	function connectStatusStream() {
+		if (!server?.name) return;
+		statusSource?.close();
+		statusSource = new EventSource(
+			`/api/servers/${encodeURIComponent(server.name)}/heartbeat/stream`
+		);
+		statusSource.onmessage = (event) => {
+			try {
+				const heartbeat = JSON.parse(event.data);
+				server = {
+					...server,
+					status: heartbeat.status,
+					javaPid: heartbeat.javaPid,
+					screenPid: heartbeat.screenPid
+				};
+			} catch (err) {
+				console.error('Failed to parse heartbeat:', err);
+			}
+		};
+		statusSource.onerror = () => {
+			statusSource?.close();
+			statusSource = null;
+			setTimeout(connectStatusStream, 2000);
+		};
+	}
 </script>
 
 <div class="server-container">
 	<div class="server-header">
-		<div>
+		<div class="server-info">
 			<a href="/servers" class="breadcrumb">&lt; Back to Servers</a>
-			<h1>{data.server?.name}</h1>
+			<h1>{server?.name}</h1>
 			<div class="server-meta">
 				<StatusBadge variant={statusMeta.running ? 'success' : 'warning'} size="lg">
 					{statusMeta.label}
 				</StatusBadge>
-				{#if data.server?.javaPid}
-					<span class="meta-item">PID: {data.server.javaPid}</span>
+				{#if server?.javaPid}
+					<span class="meta-item">PID: {server.javaPid}</span>
 				{/if}
 			</div>
+		</div>
+		<div class="server-actions">
+			<ServerQuickActions server={server} on:refresh={scheduleBurstRefresh} />
 		</div>
 	</div>
 
@@ -78,6 +133,15 @@
 		justify-content: space-between;
 		align-items: flex-start;
 		gap: 24px;
+		flex-wrap: wrap;
+	}
+
+	.server-info {
+		min-width: 240px;
+	}
+
+	.server-actions {
+		margin-left: auto;
 	}
 
 	.breadcrumb {
@@ -142,6 +206,11 @@
 	}
 
 	@media (max-width: 640px) {
+		.server-actions {
+			width: 100%;
+			margin-left: 0;
+		}
+
 		.tabs {
 			overflow-x: scroll;
 		}
