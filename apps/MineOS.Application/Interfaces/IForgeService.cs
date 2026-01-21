@@ -6,6 +6,7 @@ public interface IForgeService
     Task<IReadOnlyList<ForgeVersionDto>> GetVersionsForMinecraftAsync(string minecraftVersion, CancellationToken cancellationToken);
     Task<ForgeInstallResultDto> InstallForgeAsync(string minecraftVersion, string forgeVersion, string serverName, CancellationToken cancellationToken);
     Task<ForgeInstallStatusDto?> GetInstallStatusAsync(string installId, CancellationToken cancellationToken);
+    IReadOnlyList<ForgeInstallStatusDto> GetActiveInstalls();
 }
 
 public record ForgeVersionDto(

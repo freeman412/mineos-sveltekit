@@ -4,7 +4,9 @@ public sealed class InstalledModpack
 {
     public int Id { get; set; }
     public required string ServerName { get; set; }
-    public int CurseForgeProjectId { get; set; }
+    public int? CurseForgeProjectId { get; set; }
+    public string Source { get; set; } = "curseforge";
+    public string? SourceProjectId { get; set; }
     public required string Name { get; set; }
     public string? Version { get; set; }
     public string? LogoUrl { get; set; }

@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using MineOS.Infrastructure.Persistence;
 
@@ -10,9 +11,11 @@ using MineOS.Infrastructure.Persistence;
 namespace MineOS.Infrastructure.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260119154429_AddServerAccessAndMinecraftLink")]
+    partial class AddServerAccessAndMinecraftLink
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder.HasAnnotation("ProductVersion", "8.0.13");
@@ -218,7 +221,7 @@ namespace MineOS.Infrastructure.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("INTEGER");
 
-                    b.Property<int?>("CurseForgeProjectId")
+                    b.Property<int>("CurseForgeProjectId")
                         .HasColumnType("INTEGER");
 
                     b.Property<DateTimeOffset>("InstalledAt")
@@ -241,22 +244,13 @@ namespace MineOS.Infrastructure.Migrations
                         .HasMaxLength(256)
                         .HasColumnType("TEXT");
 
-                    b.Property<string>("Source")
-                        .IsRequired()
-                        .HasMaxLength(32)
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("SourceProjectId")
-                        .HasMaxLength(64)
-                        .HasColumnType("TEXT");
-
                     b.Property<string>("Version")
                         .HasMaxLength(64)
                         .HasColumnType("TEXT");
 
                     b.HasKey("Id");
 
-                    b.HasIndex("ServerName", "Source", "SourceProjectId")
+                    b.HasIndex("ServerName", "CurseForgeProjectId")
                         .IsUnique();
 
                     b.ToTable("InstalledModpacks");

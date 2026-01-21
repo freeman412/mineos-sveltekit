@@ -13,6 +13,7 @@ public sealed class AppDbContext : DbContext
     // Core entities
     public DbSet<User> Users => Set<User>();
     public DbSet<JobRecord> Jobs => Set<JobRecord>();
+    public DbSet<ServerAccess> ServerAccesses => Set<ServerAccess>();
 
     // Server management
     public DbSet<ServerNote> ServerNotes => Set<ServerNote>();
@@ -71,6 +72,19 @@ public sealed class AppDbContext : DbContext
             entity.HasIndex(x => x.Username).IsUnique();
             entity.Property(x => x.Username).HasMaxLength(128);
             entity.Property(x => x.PasswordHash).IsRequired();
+            entity.Property(x => x.MinecraftUsername).HasMaxLength(32);
+            entity.Property(x => x.MinecraftUuid).HasMaxLength(36);
+        });
+
+        modelBuilder.Entity<ServerAccess>(entity =>
+        {
+            entity.HasKey(x => x.Id);
+            entity.HasIndex(x => new { x.UserId, x.ServerName }).IsUnique();
+            entity.Property(x => x.ServerName).HasMaxLength(256);
+            entity.HasOne<User>()
+                .WithMany()
+                .HasForeignKey(x => x.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
         });
 
         modelBuilder.Entity<JobRecord>(entity =>
@@ -225,11 +239,13 @@ public sealed class AppDbContext : DbContext
         modelBuilder.Entity<InstalledModpack>(entity =>
         {
             entity.HasKey(x => x.Id);
-            entity.HasIndex(x => new { x.ServerName, x.CurseForgeProjectId }).IsUnique();
+            entity.HasIndex(x => new { x.ServerName, x.Source, x.SourceProjectId }).IsUnique();
             entity.Property(x => x.ServerName).HasMaxLength(256);
             entity.Property(x => x.Name).HasMaxLength(256);
             entity.Property(x => x.Version).HasMaxLength(64);
             entity.Property(x => x.LogoUrl).HasMaxLength(512);
+            entity.Property(x => x.Source).HasMaxLength(32);
+            entity.Property(x => x.SourceProjectId).HasMaxLength(64);
         });
 
         modelBuilder.Entity<InstalledModRecord>(entity =>

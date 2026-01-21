@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Microsoft.AspNetCore.Mvc;
+using MineOS.Api.Authorization;
 using MineOS.Application.Dtos;
 using MineOS.Application.Interfaces;
 
@@ -30,7 +31,19 @@ public static class ConsoleEndpoints
             {
                 return Results.Conflict(new { error = ex.Message });
             }
-        });
+        }).WithMetadata(new ServerAccessRequirement(ServerPermission.Console));
+
+        // Clear console logs
+        servers.MapDelete("/{name}/console", async (
+            string name,
+            [FromQuery] string? source,
+            IConsoleService consoleService,
+            CancellationToken cancellationToken) =>
+        {
+            var logSource = ParseLogSource(source);
+            await consoleService.ClearLogsAsync(name, logSource, cancellationToken);
+            return Results.NoContent();
+        }).WithMetadata(new ServerAccessRequirement(ServerPermission.Console));
 
         // Stream console logs via SSE
         servers.MapGet("/{name}/console/stream", async (
@@ -60,7 +73,7 @@ public static class ConsoleEndpoints
             {
                 // Client disconnected or request aborted.
             }
-        });
+        }).WithMetadata(new ServerAccessRequirement(ServerPermission.Console));
 
         return servers;
     }

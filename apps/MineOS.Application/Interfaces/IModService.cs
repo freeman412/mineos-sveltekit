@@ -22,6 +22,16 @@ public interface IModService
         IProgress<JobProgressDto> progress,
         CancellationToken cancellationToken);
 
+    Task InstallModrinthModpackAsync(
+        string serverName,
+        string projectId,
+        string versionId,
+        string? projectName,
+        string? projectVersion,
+        string? logoUrl,
+        IProgress<JobProgressDto> progress,
+        CancellationToken cancellationToken);
+
     // Enhanced modpack methods with state tracking and rollback
     Task InstallModpackWithStateAsync(
         string serverName,

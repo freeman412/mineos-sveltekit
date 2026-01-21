@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using MineOS.Domain.Entities;
@@ -7,6 +8,11 @@ namespace MineOS.Api.Endpoints;
 
 public static class NotificationEndpoints
 {
+    private static readonly JsonSerializerOptions JsonOptions = new()
+    {
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+    };
+
     public static RouteGroupBuilder MapNotificationEndpoints(this RouteGroupBuilder api)
     {
         var notifications = api.MapGroup("/notifications").WithTags("Notifications");
@@ -45,6 +51,59 @@ public static class NotificationEndpoints
                 .ToListAsync(cancellationToken);
 
             return Results.Ok(notifications);
+        });
+
+        // Stream notifications via SSE
+        notifications.MapGet("/stream", async (
+            HttpContext context,
+            [FromQuery] string? serverName,
+            [FromQuery] bool? includeRead,
+            [FromQuery] bool? includeDismissed,
+            AppDbContext db,
+            CancellationToken cancellationToken) =>
+        {
+            context.Response.Headers.ContentType = "text/event-stream";
+            context.Response.Headers.CacheControl = "no-cache";
+            context.Response.Headers.Connection = "keep-alive";
+
+            await context.Response.StartAsync(cancellationToken);
+
+            string? lastPayload = null;
+
+            while (!cancellationToken.IsCancellationRequested)
+            {
+                var query = db.SystemNotifications.AsNoTracking().AsQueryable();
+
+                if (!string.IsNullOrEmpty(serverName))
+                {
+                    query = query.Where(n => n.ServerName == serverName || n.ServerName == null);
+                }
+
+                if (includeRead == false)
+                {
+                    query = query.Where(n => !n.IsRead);
+                }
+
+                if (includeDismissed == false)
+                {
+                    query = query.Where(n => n.DismissedAt == null);
+                }
+
+                var snapshot = await query
+                    .OrderByDescending(n => n.CreatedAt)
+                    .Take(100)
+                    .ToListAsync(cancellationToken);
+
+                var payload = JsonSerializer.Serialize(snapshot, JsonOptions);
+                if (!string.Equals(payload, lastPayload, StringComparison.Ordinal))
+                {
+                    await context.Response.WriteAsync($"data: {payload}\n\n", cancellationToken);
+                    await context.Response.Body.FlushAsync(cancellationToken);
+                    lastPayload = payload;
+                }
+
+                await Task.Delay(TimeSpan.FromSeconds(5), cancellationToken);
+            }
         });
 
         // Get notification by ID

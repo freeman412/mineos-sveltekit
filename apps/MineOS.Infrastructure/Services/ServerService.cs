@@ -487,21 +487,27 @@ public class ServerService : IServerService
         var content = await File.ReadAllTextAsync(configPath, cancellationToken);
         var sections = IniParser.ParseWithSections(content);
 
-        var javaSection = sections.GetValueOrDefault("java", new Dictionary<string, string>());
-        var minecraftSection = sections.GetValueOrDefault("minecraft", new Dictionary<string, string>());
-        var onrebootSection = sections.GetValueOrDefault("onreboot", new Dictionary<string, string>());
+        var javaSection = sections.TryGetValue("java", out var javaSectionRaw)
+            ? javaSectionRaw
+            : new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var minecraftSection = sections.TryGetValue("minecraft", out var minecraftSectionRaw)
+            ? minecraftSectionRaw
+            : new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var onrebootSection = sections.TryGetValue("onreboot", out var onrebootSectionRaw)
+            ? onrebootSectionRaw
+            : new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
         var java = new JavaConfigDto(
             javaSection.GetValueOrDefault("java_binary", ""),
             int.TryParse(javaSection.GetValueOrDefault("java_xmx", "4096"), out var xmx) ? xmx : 4096,
             int.TryParse(javaSection.GetValueOrDefault("java_xms", "4096"), out var xms) ? xms : 4096,
-            javaSection.GetValueOrDefault("java_tweaks", null),
-            javaSection.GetValueOrDefault("jarfile", null),
-            javaSection.GetValueOrDefault("jar_args", null)
+            GetOptionalValue(javaSection, "java_tweaks"),
+            GetOptionalValue(javaSection, "jarfile"),
+            GetOptionalValue(javaSection, "jar_args")
         );
 
         var minecraft = new MinecraftConfigDto(
-            minecraftSection.GetValueOrDefault("profile", null),
+            GetOptionalValue(minecraftSection, "profile"),
             bool.TryParse(minecraftSection.GetValueOrDefault("unconventional", "false"), out var unconventional) && unconventional
         );
 
@@ -637,6 +643,11 @@ public class ServerService : IServerService
         }
 
         _logger.LogInformation("FTB installer completed for server {ServerName}", name);
+    }
+
+    private static string? GetOptionalValue(IReadOnlyDictionary<string, string> section, string key)
+    {
+        return section.TryGetValue(key, out var value) ? value : null;
     }
 
     private static string ResolveJarPath(string serverPath, string jarFile)

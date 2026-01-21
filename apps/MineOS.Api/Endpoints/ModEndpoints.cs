@@ -1,3 +1,4 @@
+using System.Linq;
 using System.Text.Json;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.DependencyInjection;
@@ -285,7 +286,267 @@ public static class ModEndpoints
             return Results.Empty;
         });
 
+        var modrinth = servers.MapGroup("/{name}/mods/modrinth");
+
+        modrinth.MapGet("/search", async (
+            string name,
+            [FromQuery] string query,
+            [FromQuery] int? index,
+            [FromQuery] int? pageSize,
+            [FromQuery] string? loader,
+            [FromQuery] string? gameVersion,
+            IModrinthService modrinthService,
+            IServerService serverService,
+            IProfileService profileService,
+            CancellationToken cancellationToken) =>
+        {
+            if (string.IsNullOrWhiteSpace(query) || query.Trim().Length < 2)
+            {
+                return Results.Ok(new { index = 0, pageSize = 0, totalHits = 0, results = Array.Empty<object>() });
+            }
+
+            var (defaultVersion, defaultLoader) = await ResolveServerDefaultsAsync(
+                name,
+                serverService,
+                profileService,
+                cancellationToken);
+
+            var effectiveLoader = string.IsNullOrWhiteSpace(loader) ? defaultLoader : loader;
+            var effectiveVersion = string.IsNullOrWhiteSpace(gameVersion) ? defaultVersion : gameVersion;
+
+            var result = await modrinthService.SearchModsAsync(
+                query.Trim(),
+                index ?? 0,
+                pageSize ?? 20,
+                effectiveLoader,
+                effectiveVersion,
+                cancellationToken);
+
+            return Results.Ok(result);
+        });
+
+        modrinth.MapGet("/project/{projectId}", async (
+            string projectId,
+            IModrinthService modrinthService,
+            CancellationToken cancellationToken) =>
+        {
+            var project = await modrinthService.GetProjectAsync(projectId, cancellationToken);
+            return project == null
+                ? Results.NotFound(new { error = "Project not found" })
+                : Results.Ok(project);
+        });
+
+        modrinth.MapGet("/project/{projectId}/versions", async (
+            string name,
+            string projectId,
+            [FromQuery] string? loader,
+            [FromQuery] string? gameVersion,
+            IModrinthService modrinthService,
+            IServerService serverService,
+            IProfileService profileService,
+            CancellationToken cancellationToken) =>
+        {
+            var (defaultVersion, defaultLoader) = await ResolveServerDefaultsAsync(
+                name,
+                serverService,
+                profileService,
+                cancellationToken);
+
+            var effectiveLoader = string.IsNullOrWhiteSpace(loader) ? defaultLoader : loader;
+            var effectiveVersion = string.IsNullOrWhiteSpace(gameVersion) ? defaultVersion : gameVersion;
+
+            var versions = await modrinthService.GetProjectVersionsAsync(
+                projectId,
+                effectiveLoader,
+                effectiveVersion,
+                cancellationToken);
+
+            return Results.Ok(versions);
+        });
+
+        modrinth.MapPost("/install", async (
+            string name,
+            [FromBody] ModrinthInstallRequest request,
+            IModrinthService modrinthService,
+            IModService modService,
+            CancellationToken cancellationToken) =>
+        {
+            if (string.IsNullOrWhiteSpace(request.VersionId))
+            {
+                return Results.BadRequest(new { error = "VersionId is required" });
+            }
+
+            var version = await modrinthService.GetVersionAsync(request.VersionId, cancellationToken);
+            if (version == null)
+            {
+                return Results.NotFound(new { error = "Version not found" });
+            }
+
+            var file = version.Files.FirstOrDefault(f => f.Primary) ?? version.Files.FirstOrDefault();
+            if (file == null)
+            {
+                return Results.BadRequest(new { error = "No files available for this version" });
+            }
+
+            await using var stream = await modrinthService.OpenDownloadStreamAsync(file.Url, cancellationToken);
+            await modService.SaveModAsync(name, file.FileName, stream, cancellationToken);
+            return Results.Ok(new { message = $"Installed mod '{file.FileName}'" });
+        });
+
+        var modrinthModpacks = servers.MapGroup("/{name}/mods/modrinth/modpacks");
+
+        modrinthModpacks.MapGet("/search", async (
+            string name,
+            [FromQuery] string query,
+            [FromQuery] int? index,
+            [FromQuery] int? pageSize,
+            [FromQuery] string? loader,
+            [FromQuery] string? gameVersion,
+            IModrinthService modrinthService,
+            IServerService serverService,
+            IProfileService profileService,
+            CancellationToken cancellationToken) =>
+        {
+            if (string.IsNullOrWhiteSpace(query) || query.Trim().Length < 2)
+            {
+                return Results.Ok(new { index = 0, pageSize = 0, totalHits = 0, results = Array.Empty<object>() });
+            }
+
+            var (defaultVersion, defaultLoader) = await ResolveServerDefaultsAsync(
+                name,
+                serverService,
+                profileService,
+                cancellationToken);
+
+            var effectiveLoader = string.IsNullOrWhiteSpace(loader) ? defaultLoader : loader;
+            var effectiveVersion = string.IsNullOrWhiteSpace(gameVersion) ? defaultVersion : gameVersion;
+
+            var result = await modrinthService.SearchModpacksAsync(
+                query.Trim(),
+                index ?? 0,
+                pageSize ?? 20,
+                effectiveLoader,
+                effectiveVersion,
+                cancellationToken);
+
+            return Results.Ok(result);
+        });
+
+        modrinthModpacks.MapGet("/project/{projectId}", async (
+            string projectId,
+            IModrinthService modrinthService,
+            CancellationToken cancellationToken) =>
+        {
+            var project = await modrinthService.GetProjectAsync(projectId, cancellationToken);
+            return project == null
+                ? Results.NotFound(new { error = "Project not found" })
+                : Results.Ok(project);
+        });
+
+        modrinthModpacks.MapGet("/project/{projectId}/versions", async (
+            string name,
+            string projectId,
+            [FromQuery] string? loader,
+            [FromQuery] string? gameVersion,
+            IModrinthService modrinthService,
+            IServerService serverService,
+            IProfileService profileService,
+            CancellationToken cancellationToken) =>
+        {
+            var (defaultVersion, defaultLoader) = await ResolveServerDefaultsAsync(
+                name,
+                serverService,
+                profileService,
+                cancellationToken);
+
+            var effectiveLoader = string.IsNullOrWhiteSpace(loader) ? defaultLoader : loader;
+            var effectiveVersion = string.IsNullOrWhiteSpace(gameVersion) ? defaultVersion : gameVersion;
+
+            var versions = await modrinthService.GetProjectVersionsAsync(
+                projectId,
+                effectiveLoader,
+                effectiveVersion,
+                cancellationToken);
+
+            return Results.Ok(versions);
+        });
+
+        modrinthModpacks.MapPost("/install", async (
+            string name,
+            [FromBody] ModrinthModpackInstallRequest request,
+            IModrinthService modrinthService,
+            IBackgroundJobService jobService) =>
+        {
+            if (string.IsNullOrWhiteSpace(request.ProjectId) || string.IsNullOrWhiteSpace(request.VersionId))
+            {
+                return Results.BadRequest(new { error = "ProjectId and VersionId are required" });
+            }
+
+            var project = await modrinthService.GetProjectAsync(request.ProjectId, CancellationToken.None);
+            var jobId = jobService.QueueJob("modrinth-modpack-install", name, async (services, progress, ct) =>
+            {
+                var modService = services.GetRequiredService<IModService>();
+                await modService.InstallModrinthModpackAsync(
+                    name,
+                    request.ProjectId,
+                    request.VersionId,
+                    request.ProjectName ?? project?.Title,
+                    request.ProjectVersion,
+                    request.LogoUrl ?? project?.IconUrl,
+                    progress,
+                    ct);
+            });
+
+            return Results.Accepted($"/api/v1/jobs/{jobId}", new { jobId, message = "Modrinth modpack install queued" });
+        });
+
         return servers;
+    }
+
+    private static async Task<(string? GameVersion, string? Loader)> ResolveServerDefaultsAsync(
+        string serverName,
+        IServerService serverService,
+        IProfileService profileService,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var config = await serverService.GetServerConfigAsync(serverName, cancellationToken);
+            if (string.IsNullOrWhiteSpace(config.Minecraft.Profile))
+            {
+                return (null, null);
+            }
+
+            var profile = await profileService.GetProfileAsync(config.Minecraft.Profile, cancellationToken);
+            if (profile == null)
+            {
+                return (null, null);
+            }
+
+            return (profile.Version, MapModLoader(profile.Group));
+        }
+        catch
+        {
+            return (null, null);
+        }
+    }
+
+    private static string? MapModLoader(string? profileGroup)
+    {
+        if (string.IsNullOrWhiteSpace(profileGroup))
+        {
+            return null;
+        }
+
+        return profileGroup.Trim().ToLowerInvariant() switch
+        {
+            "forge" => "forge",
+            "fabric" => "fabric",
+            "quilt" => "quilt",
+            "neoforge" => "neoforge",
+            "ftb" => "forge",
+            _ => null
+        };
     }
 }
 
@@ -298,4 +559,11 @@ public record InstallModpackEnhancedRequest(
     int? FileId,
     string ModpackName,
     string? ModpackVersion,
+    string? LogoUrl);
+
+public record ModrinthModpackInstallRequest(
+    string ProjectId,
+    string VersionId,
+    string? ProjectName,
+    string? ProjectVersion,
     string? LogoUrl);

@@ -4,6 +4,7 @@ using Microsoft.Extensions.Options;
 using MineOS.Application.Dtos;
 using MineOS.Application.Interfaces;
 using MineOS.Application.Options;
+using MineOS.Infrastructure.Utilities;
 
 namespace MineOS.Infrastructure.Services;
 
@@ -41,6 +42,29 @@ public sealed class ConsoleService : IConsoleService
             _hostOptions.RunAsGid,
             cancellationToken);
         _logger.LogInformation("Sent command '{Command}' to server {ServerName}", command, serverName);
+    }
+
+    public Task ClearLogsAsync(string serverName, ConsoleLogSource source, CancellationToken cancellationToken)
+    {
+        var logPath = GetLogPath(serverName);
+        var startupLogPath = GetStartupLogPath(serverName);
+
+        switch (source)
+        {
+            case ConsoleLogSource.Java:
+                TruncateLog(startupLogPath);
+                break;
+            case ConsoleLogSource.Server:
+                TruncateLog(logPath);
+                break;
+            case ConsoleLogSource.Combined:
+            default:
+                TruncateLog(logPath);
+                TruncateLog(startupLogPath);
+                break;
+        }
+
+        return Task.CompletedTask;
     }
 
     public async IAsyncEnumerable<LogEntryDto> StreamLogsAsync(
@@ -285,6 +309,28 @@ public sealed class ConsoleService : IConsoleService
         catch
         {
             return Array.Empty<string>();
+        }
+    }
+
+    private void TruncateLog(string path)
+    {
+        try
+        {
+            var directory = Path.GetDirectoryName(path);
+            if (!string.IsNullOrWhiteSpace(directory))
+            {
+                Directory.CreateDirectory(directory);
+                OwnershipHelper.TrySetOwnership(directory, _hostOptions.RunAsUid, _hostOptions.RunAsGid, _logger);
+            }
+
+            using var stream = new FileStream(path, FileMode.OpenOrCreate, FileAccess.Write, FileShare.ReadWrite);
+            stream.SetLength(0);
+            OwnershipHelper.TrySetOwnership(path, _hostOptions.RunAsUid, _hostOptions.RunAsGid, _logger);
+            _logger.LogInformation("Cleared log file {LogPath}", path);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to clear log file {LogPath}", path);
         }
     }
 }

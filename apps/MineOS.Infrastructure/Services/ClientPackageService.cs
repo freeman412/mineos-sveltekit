@@ -92,9 +92,15 @@ public sealed class ClientPackageService : IClientPackageService
         var packageFullPath = Path.Combine(packagePath, packageFilename);
 
         var sourceFolders = ClientOverrideFolders
-            .Select(folder => new { Name = folder, Path = Path.Combine(serverPath, folder) })
-            .Where(folder => Directory.Exists(folder.Path))
+            .Select(folder => new PackageSource(Path.Combine(serverPath, folder), Path.Combine("overrides", folder)))
+            .Where(folder => Directory.Exists(folder.SourcePath))
             .ToList();
+
+        var clientModsPath = Path.Combine(serverPath, "client-mods", "mods");
+        if (Directory.Exists(clientModsPath))
+        {
+            sourceFolders.Add(new PackageSource(clientModsPath, Path.Combine("overrides", "mods")));
+        }
 
         if (sourceFolders.Count == 0)
         {
@@ -103,6 +109,7 @@ public sealed class ClientPackageService : IClientPackageService
 
         var manifest = BuildCurseForgeManifest(serverName, metadata);
         var addedFiles = 0;
+        var addedEntries = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         try
         {
             using var archive = ZipFile.Open(packageFullPath, ZipArchiveMode.Create);
@@ -112,8 +119,9 @@ public sealed class ClientPackageService : IClientPackageService
             {
                 addedFiles += AddDirectoryToArchive(
                     archive,
-                    folder.Path,
-                    Path.Combine("overrides", folder.Name),
+                    folder.SourcePath,
+                    folder.EntryRoot,
+                    addedEntries,
                     cancellationToken);
             }
         }
@@ -382,7 +390,12 @@ public sealed class ClientPackageService : IClientPackageService
         JsonSerializer.Serialize(stream, manifest, JsonOptions);
     }
 
-    private static int AddDirectoryToArchive(ZipArchive archive, string sourcePath, string entryRoot, CancellationToken cancellationToken)
+    private static int AddDirectoryToArchive(
+        ZipArchive archive,
+        string sourcePath,
+        string entryRoot,
+        ISet<string> addedEntries,
+        CancellationToken cancellationToken)
     {
         var files = Directory.GetFiles(sourcePath, "*", SearchOption.AllDirectories);
         var added = 0;
@@ -392,12 +405,19 @@ public sealed class ClientPackageService : IClientPackageService
             cancellationToken.ThrowIfCancellationRequested();
             var relativePath = Path.GetRelativePath(sourcePath, file);
             var entryName = Path.Combine(entryRoot, relativePath).Replace('\\', '/');
+            if (addedEntries.Contains(entryName))
+            {
+                continue;
+            }
             archive.CreateEntryFromFile(file, entryName, CompressionLevel.Optimal);
+            addedEntries.Add(entryName);
             added++;
         }
 
         return added;
     }
+
+    private sealed record PackageSource(string SourcePath, string EntryRoot);
 
     private sealed record CurseForgeMetadata(
         string MinecraftVersion,
