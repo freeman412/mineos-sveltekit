@@ -930,6 +930,8 @@ function Start-Services {
 
     if ($Rebuild) {
         Write-Info "Building images (this may take a few minutes)..."
+        $env:PUBLIC_BUILD_ID = (Get-Date -Format "yyyyMMddHHmmss")
+        Write-Info "Build ID: $env:PUBLIC_BUILD_ID"
         if (-not $script:composeExe) { Set-ComposeCommand }
         $buildArgs = @("build")
         if ($script:composeExe -eq "docker") { $buildArgs = @("--progress", "plain", "build") }

@@ -2,8 +2,8 @@ services:
   # MineOS API
   api:
     build:
-      context: .
-      dockerfile: apps/MineOS.Api/Dockerfile
+      context: ./apps
+      dockerfile: MineOS.Api/Dockerfile
     container_name: mineos-api
     restart: unless-stopped
     environment:
@@ -52,8 +52,10 @@ services:
   # MineOS Web UI
   web:
     build:
-      context: .
-      dockerfile: apps/web/Dockerfile
+      context: ./apps/web
+      dockerfile: Dockerfile
+      args:
+        PUBLIC_BUILD_ID: ${PUBLIC_BUILD_ID:-dev}
     container_name: mineos-web
     restart: unless-stopped
     environment:

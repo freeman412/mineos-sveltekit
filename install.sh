@@ -330,6 +330,9 @@ build_services() {
     fi
 
     info "Building Docker images..."
+    PUBLIC_BUILD_ID=$(date +%Y%m%d%H%M%S)
+    export PUBLIC_BUILD_ID
+    info "Build ID: ${PUBLIC_BUILD_ID}"
     if [ "${COMPOSE_CMD[0]}" = "docker" ]; then
         "${COMPOSE_CMD[@]}" build --progress plain
     else

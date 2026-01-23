@@ -3,20 +3,19 @@ FROM mcr.microsoft.com/dotnet/sdk:8.0 AS build
 WORKDIR /src
 
 # Copy solution and project files
-COPY ["mineos-sveltkit.sln", "./"]
-COPY ["apps/MineOS.Api/MineOS.Api.csproj", "apps/MineOS.Api/"]
-COPY ["apps/MineOS.Application/MineOS.Application.csproj", "apps/MineOS.Application/"]
-COPY ["apps/MineOS.Domain/MineOS.Domain.csproj", "apps/MineOS.Domain/"]
-COPY ["apps/MineOS.Infrastructure/MineOS.Infrastructure.csproj", "apps/MineOS.Infrastructure/"]
+COPY ["MineOS.Api/MineOS.Api.csproj", "MineOS.Api/"]
+COPY ["MineOS.Application/MineOS.Application.csproj", "MineOS.Application/"]
+COPY ["MineOS.Domain/MineOS.Domain.csproj", "MineOS.Domain/"]
+COPY ["MineOS.Infrastructure/MineOS.Infrastructure.csproj", "MineOS.Infrastructure/"]
 
 # Restore dependencies
-RUN dotnet restore "apps/MineOS.Api/MineOS.Api.csproj"
+RUN dotnet restore "MineOS.Api/MineOS.Api.csproj"
 
 # Copy everything else
 COPY . .
 
 # Build
-WORKDIR "/src/apps/MineOS.Api"
+WORKDIR "/src/MineOS.Api"
 RUN dotnet build "MineOS.Api.csproj" -c Release -o /app/build
 
 # Publish
@@ -46,8 +45,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && echo "deb [signed-by=/etc/apt/keyrings/adoptium.gpg] https://packages.adoptium.net/artifactory/deb $(. /etc/os-release && echo $VERSION_CODENAME) main" \
        > /etc/apt/sources.list.d/adoptium.list \
     && apt-get update \
-    && apt-get install -y --no-install-recommends temurin-21-jre temurin-8-jre \
+    && apt-get install -y --no-install-recommends temurin-21-jdk temurin-8-jre \
     && rm -rf /var/lib/apt/lists/*
+
+# Default to JDK 21 for toolchains like BuildTools; servers can still target other Java versions.
+ENV JAVA_HOME=/usr/lib/jvm/temurin-21-jdk-amd64
+ENV PATH="${JAVA_HOME}/bin:${PATH}"
 
 # Create minecraft user with UID 1000 and GID 1000
 # This matches the default Host__OwnerUid and Host__OwnerGid settings
