@@ -4,6 +4,7 @@
 	import type { LayoutData } from './$types';
 	import TopBar from '$lib/components/TopBar.svelte';
 	import FeedbackButton from '$lib/components/FeedbackButton.svelte';
+	import MinecraftSheepPet from '$lib/components/MinecraftSheepPet.svelte';
 
 	let { data, children }: { data: LayoutData; children: any } = $props();
 
@@ -95,6 +96,7 @@
 	</div>
 
 	<FeedbackButton />
+	<MinecraftSheepPet />
 </div>
 
 <style>
