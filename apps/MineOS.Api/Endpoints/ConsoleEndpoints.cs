@@ -90,6 +90,8 @@ public static class ConsoleEndpoints
             "java" => ConsoleLogSource.Java,
             "combined" => ConsoleLogSource.Combined,
             "all" => ConsoleLogSource.Combined,
+            "crash" => ConsoleLogSource.CrashReports,
+            "crash-reports" => ConsoleLogSource.CrashReports,
             "server" => ConsoleLogSource.Server,
             _ => ConsoleLogSource.Server
         };

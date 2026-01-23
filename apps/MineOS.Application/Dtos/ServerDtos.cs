@@ -67,6 +67,8 @@ public record ConsoleCommandDto(string Command);
 
 public record CreateServerRequest(string Name, int OwnerUid, int OwnerGid);
 
+public record CloneServerRequest(string NewName);
+
 public record DeleteServerRequest(bool DeleteLive, bool DeleteBackups, bool DeleteArchives);
 
 public record ActionRequest(string? Step, int? Niceness);

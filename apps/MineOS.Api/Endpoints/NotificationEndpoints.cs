@@ -62,47 +62,54 @@ public static class NotificationEndpoints
             AppDbContext db,
             CancellationToken cancellationToken) =>
         {
-            context.Response.Headers.ContentType = "text/event-stream";
-            context.Response.Headers.CacheControl = "no-cache";
-            context.Response.Headers.Connection = "keep-alive";
-
-            await context.Response.StartAsync(cancellationToken);
-
-            string? lastPayload = null;
-
-            while (!cancellationToken.IsCancellationRequested)
+            try
             {
-                var query = db.SystemNotifications.AsNoTracking().AsQueryable();
+                context.Response.Headers.ContentType = "text/event-stream";
+                context.Response.Headers.CacheControl = "no-cache";
+                context.Response.Headers.Connection = "keep-alive";
 
-                if (!string.IsNullOrEmpty(serverName))
+                await context.Response.StartAsync(cancellationToken);
+
+                string? lastPayload = null;
+
+                while (!cancellationToken.IsCancellationRequested)
                 {
-                    query = query.Where(n => n.ServerName == serverName || n.ServerName == null);
+                    var query = db.SystemNotifications.AsNoTracking().AsQueryable();
+
+                    if (!string.IsNullOrEmpty(serverName))
+                    {
+                        query = query.Where(n => n.ServerName == serverName || n.ServerName == null);
+                    }
+
+                    if (includeRead == false)
+                    {
+                        query = query.Where(n => !n.IsRead);
+                    }
+
+                    if (includeDismissed == false)
+                    {
+                        query = query.Where(n => n.DismissedAt == null);
+                    }
+
+                    var snapshot = await query
+                        .OrderByDescending(n => n.CreatedAt)
+                        .Take(100)
+                        .ToListAsync(cancellationToken);
+
+                    var payload = JsonSerializer.Serialize(snapshot, JsonOptions);
+                    if (!string.Equals(payload, lastPayload, StringComparison.Ordinal))
+                    {
+                        await context.Response.WriteAsync($"data: {payload}\n\n", cancellationToken);
+                        await context.Response.Body.FlushAsync(cancellationToken);
+                        lastPayload = payload;
+                    }
+
+                    await Task.Delay(TimeSpan.FromSeconds(5), cancellationToken);
                 }
-
-                if (includeRead == false)
-                {
-                    query = query.Where(n => !n.IsRead);
-                }
-
-                if (includeDismissed == false)
-                {
-                    query = query.Where(n => n.DismissedAt == null);
-                }
-
-                var snapshot = await query
-                    .OrderByDescending(n => n.CreatedAt)
-                    .Take(100)
-                    .ToListAsync(cancellationToken);
-
-                var payload = JsonSerializer.Serialize(snapshot, JsonOptions);
-                if (!string.Equals(payload, lastPayload, StringComparison.Ordinal))
-                {
-                    await context.Response.WriteAsync($"data: {payload}\n\n", cancellationToken);
-                    await context.Response.Body.FlushAsync(cancellationToken);
-                    lastPayload = payload;
-                }
-
-                await Task.Delay(TimeSpan.FromSeconds(5), cancellationToken);
+            }
+            catch (OperationCanceledException) when (
+                cancellationToken.IsCancellationRequested || context.RequestAborted.IsCancellationRequested)
+            {
             }
         });
 

@@ -565,6 +565,7 @@ public sealed class BackgroundJobService : IBackgroundJobService, IHostedService
             "backup" => "Backup",
             "restore" => "Restore",
             "download" => "Download",
+            "buildtools" => "BuildTools",
             "mod-install" => "Mod Install",
             "modpack-install" => "Modpack Install",
             "modrinth-modpack-install" => "Modrinth Modpack Install",

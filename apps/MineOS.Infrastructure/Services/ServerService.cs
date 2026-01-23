@@ -158,6 +158,64 @@ public class ServerService : IServerService
         return await GetServerAsync(request.Name, cancellationToken);
     }
 
+    public async Task<ServerDetailDto> CloneServerAsync(
+        string sourceName,
+        string newName,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(newName))
+        {
+            throw new ArgumentException("New server name is required.");
+        }
+
+        var sourcePath = GetServerPath(sourceName);
+        if (!Directory.Exists(sourcePath))
+        {
+            throw new DirectoryNotFoundException($"Server '{sourceName}' not found");
+        }
+
+        var targetPath = GetServerPath(newName);
+        if (Directory.Exists(targetPath))
+        {
+            throw new InvalidOperationException($"Server '{newName}' already exists");
+        }
+
+        var isRunning = await _processManager.IsServerRunningAsync(sourceName, cancellationToken);
+        if (isRunning)
+        {
+            throw new InvalidOperationException($"Cannot clone running server '{sourceName}'");
+        }
+
+        Directory.CreateDirectory(targetPath);
+        CopyDirectory(sourcePath, targetPath, cancellationToken, new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "logs",
+            "crash-reports"
+        });
+
+        var backupPath = GetBackupPath(newName);
+        var archivePath = GetArchivePath(newName);
+        Directory.CreateDirectory(backupPath);
+        Directory.CreateDirectory(archivePath);
+
+        var propertiesPath = GetPropertiesPath(newName);
+        if (File.Exists(propertiesPath))
+        {
+            var properties = await GetServerPropertiesAsync(newName, cancellationToken);
+            var usedPorts = await GetUsedPortsAsync(excludeName: null, cancellationToken);
+            var defaultPort = GetNextAvailablePort(usedPorts, 25565);
+            properties["server-port"] = defaultPort.ToString();
+            await UpdateServerPropertiesAsync(newName, properties, cancellationToken);
+        }
+
+        OwnershipHelper.TrySetOwnership(targetPath, _options.RunAsUid, _options.RunAsGid, _logger, recursive: true);
+        OwnershipHelper.TrySetOwnership(backupPath, _options.RunAsUid, _options.RunAsGid, _logger, recursive: true);
+        OwnershipHelper.TrySetOwnership(archivePath, _options.RunAsUid, _options.RunAsGid, _logger, recursive: true);
+
+        _logger.LogInformation("Cloned server {SourceServer} to {TargetServer}", sourceName, newName);
+        return await GetServerAsync(newName, cancellationToken);
+    }
+
     public async Task DeleteServerAsync(string name, CancellationToken cancellationToken)
     {
         var isRunning = await _processManager.IsServerRunningAsync(name, cancellationToken);
@@ -880,5 +938,34 @@ public class ServerService : IServerService
         }
 
         return port;
+    }
+
+    private static void CopyDirectory(
+        string sourcePath,
+        string targetPath,
+        CancellationToken cancellationToken,
+        HashSet<string> excludedDirectories)
+    {
+        foreach (var directory in Directory.GetDirectories(sourcePath))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var directoryName = Path.GetFileName(directory);
+            if (directoryName != null && excludedDirectories.Contains(directoryName))
+            {
+                continue;
+            }
+
+            var targetDirectory = Path.Combine(targetPath, directoryName ?? string.Empty);
+            Directory.CreateDirectory(targetDirectory);
+            CopyDirectory(directory, targetDirectory, cancellationToken, excludedDirectories);
+        }
+
+        foreach (var file in Directory.GetFiles(sourcePath))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var fileName = Path.GetFileName(file);
+            var targetFile = Path.Combine(targetPath, fileName);
+            File.Copy(file, targetFile, overwrite: true);
+        }
     }
 }

@@ -35,32 +35,39 @@ public static class JobEndpoints
             IForgeService forgeService,
             CancellationToken cancellationToken) =>
         {
-            context.Response.Headers.ContentType = "text/event-stream";
-            context.Response.Headers.CacheControl = "no-cache";
-            context.Response.Headers.Connection = "keep-alive";
-
-            await context.Response.StartAsync(cancellationToken);
-
-            string? lastPayload = null;
-
-            while (!cancellationToken.IsCancellationRequested)
+            try
             {
-                var snapshot = new
-                {
-                    jobs = jobService.GetActiveJobs(),
-                    modpackInstalls = jobService.GetActiveModpackInstalls(),
-                    forgeInstalls = forgeService.GetActiveInstalls()
-                };
+                context.Response.Headers.ContentType = "text/event-stream";
+                context.Response.Headers.CacheControl = "no-cache";
+                context.Response.Headers.Connection = "keep-alive";
 
-                var payload = JsonSerializer.Serialize(snapshot, JsonOptions);
-                if (!string.Equals(payload, lastPayload, StringComparison.Ordinal))
+                await context.Response.StartAsync(cancellationToken);
+
+                string? lastPayload = null;
+
+                while (!cancellationToken.IsCancellationRequested)
                 {
-                    await context.Response.WriteAsync($"data: {payload}\n\n", cancellationToken);
-                    await context.Response.Body.FlushAsync(cancellationToken);
-                    lastPayload = payload;
+                    var snapshot = new
+                    {
+                        jobs = jobService.GetActiveJobs(),
+                        modpackInstalls = jobService.GetActiveModpackInstalls(),
+                        forgeInstalls = forgeService.GetActiveInstalls()
+                    };
+
+                    var payload = JsonSerializer.Serialize(snapshot, JsonOptions);
+                    if (!string.Equals(payload, lastPayload, StringComparison.Ordinal))
+                    {
+                        await context.Response.WriteAsync($"data: {payload}\n\n", cancellationToken);
+                        await context.Response.Body.FlushAsync(cancellationToken);
+                        lastPayload = payload;
+                    }
+
+                    await Task.Delay(TimeSpan.FromSeconds(5), cancellationToken);
                 }
-
-                await Task.Delay(TimeSpan.FromSeconds(5), cancellationToken);
+            }
+            catch (OperationCanceledException) when (
+                cancellationToken.IsCancellationRequested || context.RequestAborted.IsCancellationRequested)
+            {
             }
         });
 
@@ -80,17 +87,24 @@ public static class JobEndpoints
             IBackgroundJobService jobService,
             CancellationToken cancellationToken) =>
         {
-            context.Response.Headers.ContentType = "text/event-stream";
-            context.Response.Headers.CacheControl = "no-cache";
-            context.Response.Headers.Connection = "keep-alive";
-
-            await context.Response.StartAsync(cancellationToken);
-
-            await foreach (var progress in jobService.StreamJobProgressAsync(jobId, cancellationToken))
+            try
             {
-                var json = JsonSerializer.Serialize(progress, JsonOptions);
-                await context.Response.WriteAsync($"data: {json}\n\n", cancellationToken);
-                await context.Response.Body.FlushAsync(cancellationToken);
+                context.Response.Headers.ContentType = "text/event-stream";
+                context.Response.Headers.CacheControl = "no-cache";
+                context.Response.Headers.Connection = "keep-alive";
+
+                await context.Response.StartAsync(cancellationToken);
+
+                await foreach (var progress in jobService.StreamJobProgressAsync(jobId, cancellationToken))
+                {
+                    var json = JsonSerializer.Serialize(progress, JsonOptions);
+                    await context.Response.WriteAsync($"data: {json}\n\n", cancellationToken);
+                    await context.Response.Body.FlushAsync(cancellationToken);
+                }
+            }
+            catch (OperationCanceledException) when (
+                cancellationToken.IsCancellationRequested || context.RequestAborted.IsCancellationRequested)
+            {
             }
         });
 

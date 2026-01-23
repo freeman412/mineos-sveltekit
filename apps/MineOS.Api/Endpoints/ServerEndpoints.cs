@@ -40,6 +40,38 @@ public static class ServerEndpoints
             }
         });
 
+        servers.MapPost("/{name}/clone", async (
+            string name,
+            [FromBody] CloneServerRequest request,
+            IServerService serverService,
+            HttpContext context,
+            CancellationToken cancellationToken) =>
+        {
+            try
+            {
+                if (!IsAdminOrApiKey(context))
+                {
+                    return Results.Forbid();
+                }
+
+                if (string.IsNullOrWhiteSpace(request.NewName))
+                {
+                    return Results.BadRequest(new { error = "New server name is required." });
+                }
+
+                var server = await serverService.CloneServerAsync(name, request.NewName.Trim(), cancellationToken);
+                return Results.Ok(server);
+            }
+            catch (InvalidOperationException ex)
+            {
+                return Results.Conflict(new { error = ex.Message });
+            }
+            catch (DirectoryNotFoundException ex)
+            {
+                return Results.NotFound(new { error = ex.Message });
+            }
+        });
+
         servers.MapGet("/list", async (
             IServerService serverService,
             IServerAccessService serverAccessService,

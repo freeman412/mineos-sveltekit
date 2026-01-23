@@ -25,38 +25,45 @@ public static class HostEndpoints
                 IOptions<Microsoft.AspNetCore.Http.Json.JsonOptions> jsonOptions,
                 CancellationToken cancellationToken) =>
             {
-                // Configure SSE headers
-                context.Response.ContentType = "text/event-stream";
-                context.Response.Headers["Cache-Control"] = "no-cache";
-                context.Response.Headers["Connection"] = "keep-alive";
-                context.Response.Headers["X-Accel-Buffering"] = "no";
-                context.Response.Headers.Remove("Content-Length");
-
-                // Start the response immediately to send headers and prevent buffering
-                await context.Response.StartAsync(cancellationToken);
-
-                var intervalMs = 2000;
-                if (int.TryParse(context.Request.Query["intervalMs"], out var parsed) && parsed > 100)
+                try
                 {
-                    intervalMs = parsed;
+                    // Configure SSE headers
+                    context.Response.ContentType = "text/event-stream";
+                    context.Response.Headers["Cache-Control"] = "no-cache";
+                    context.Response.Headers["Connection"] = "keep-alive";
+                    context.Response.Headers["X-Accel-Buffering"] = "no";
+                    context.Response.Headers.Remove("Content-Length");
+
+                    // Start the response immediately to send headers and prevent buffering
+                    await context.Response.StartAsync(cancellationToken);
+
+                    var intervalMs = 2000;
+                    if (int.TryParse(context.Request.Query["intervalMs"], out var parsed) && parsed > 100)
+                    {
+                        intervalMs = parsed;
+                    }
+
+                    var interval = TimeSpan.FromMilliseconds(intervalMs);
+                    while (!cancellationToken.IsCancellationRequested)
+                    {
+                        var metrics = await hostService.GetMetricsAsync(cancellationToken);
+                        var payload = JsonSerializer.Serialize(metrics, jsonOptions.Value.SerializerOptions);
+                        await context.Response.WriteAsync($"data: {payload}\n\n", cancellationToken);
+                        await context.Response.Body.FlushAsync(cancellationToken);
+
+                        try
+                        {
+                            await Task.Delay(interval, cancellationToken);
+                        }
+                        catch (OperationCanceledException)
+                        {
+                            break;
+                        }
+                    }
                 }
-
-                var interval = TimeSpan.FromMilliseconds(intervalMs);
-                while (!cancellationToken.IsCancellationRequested)
+                catch (OperationCanceledException) when (
+                    cancellationToken.IsCancellationRequested || context.RequestAborted.IsCancellationRequested)
                 {
-                    var metrics = await hostService.GetMetricsAsync(cancellationToken);
-                    var payload = JsonSerializer.Serialize(metrics, jsonOptions.Value.SerializerOptions);
-                    await context.Response.WriteAsync($"data: {payload}\n\n", cancellationToken);
-                    await context.Response.Body.FlushAsync(cancellationToken);
-
-                    try
-                    {
-                        await Task.Delay(interval, cancellationToken);
-                    }
-                    catch (OperationCanceledException)
-                    {
-                        break;
-                    }
                 }
             });
 
@@ -69,36 +76,43 @@ public static class HostEndpoints
                 IOptions<Microsoft.AspNetCore.Http.Json.JsonOptions> jsonOptions,
                 CancellationToken cancellationToken) =>
             {
-                context.Response.ContentType = "text/event-stream";
-                context.Response.Headers["Cache-Control"] = "no-cache";
-                context.Response.Headers["Connection"] = "keep-alive";
-                context.Response.Headers["X-Accel-Buffering"] = "no";
-                context.Response.Headers.Remove("Content-Length");
-
-                await context.Response.StartAsync(cancellationToken);
-
-                var intervalMs = 2000;
-                if (int.TryParse(context.Request.Query["intervalMs"], out var parsed) && parsed > 100)
+                try
                 {
-                    intervalMs = parsed;
+                    context.Response.ContentType = "text/event-stream";
+                    context.Response.Headers["Cache-Control"] = "no-cache";
+                    context.Response.Headers["Connection"] = "keep-alive";
+                    context.Response.Headers["X-Accel-Buffering"] = "no";
+                    context.Response.Headers.Remove("Content-Length");
+
+                    await context.Response.StartAsync(cancellationToken);
+
+                    var intervalMs = 2000;
+                    if (int.TryParse(context.Request.Query["intervalMs"], out var parsed) && parsed > 100)
+                    {
+                        intervalMs = parsed;
+                    }
+
+                    var interval = TimeSpan.FromMilliseconds(intervalMs);
+                    while (!cancellationToken.IsCancellationRequested)
+                    {
+                        var servers = await hostService.GetServersAsync(cancellationToken);
+                        var payload = JsonSerializer.Serialize(servers, jsonOptions.Value.SerializerOptions);
+                        await context.Response.WriteAsync($"data: {payload}\n\n", cancellationToken);
+                        await context.Response.Body.FlushAsync(cancellationToken);
+
+                        try
+                        {
+                            await Task.Delay(interval, cancellationToken);
+                        }
+                        catch (OperationCanceledException)
+                        {
+                            break;
+                        }
+                    }
                 }
-
-                var interval = TimeSpan.FromMilliseconds(intervalMs);
-                while (!cancellationToken.IsCancellationRequested)
+                catch (OperationCanceledException) when (
+                    cancellationToken.IsCancellationRequested || context.RequestAborted.IsCancellationRequested)
                 {
-                    var servers = await hostService.GetServersAsync(cancellationToken);
-                    var payload = JsonSerializer.Serialize(servers, jsonOptions.Value.SerializerOptions);
-                    await context.Response.WriteAsync($"data: {payload}\n\n", cancellationToken);
-                    await context.Response.Body.FlushAsync(cancellationToken);
-
-                    try
-                    {
-                        await Task.Delay(interval, cancellationToken);
-                    }
-                    catch (OperationCanceledException)
-                    {
-                        break;
-                    }
                 }
             });
 
@@ -181,19 +195,26 @@ public static class HostEndpoints
                     return;
                 }
 
-                context.Response.ContentType = "text/event-stream";
-                context.Response.Headers["Cache-Control"] = "no-cache";
-                context.Response.Headers["Connection"] = "keep-alive";
-                context.Response.Headers["X-Accel-Buffering"] = "no";
-                context.Response.Headers.Remove("Content-Length");
-
-                await context.Response.StartAsync(cancellationToken);
-
-                await foreach (var entry in profileService.StreamBuildToolsLogAsync(runId, cancellationToken))
+                try
                 {
-                    var payload = JsonSerializer.Serialize(entry, jsonOptions.Value.SerializerOptions);
-                    await context.Response.WriteAsync($"data: {payload}\n\n", cancellationToken);
-                    await context.Response.Body.FlushAsync(cancellationToken);
+                    context.Response.ContentType = "text/event-stream";
+                    context.Response.Headers["Cache-Control"] = "no-cache";
+                    context.Response.Headers["Connection"] = "keep-alive";
+                    context.Response.Headers["X-Accel-Buffering"] = "no";
+                    context.Response.Headers.Remove("Content-Length");
+
+                    await context.Response.StartAsync(cancellationToken);
+
+                    await foreach (var entry in profileService.StreamBuildToolsLogAsync(runId, cancellationToken))
+                    {
+                        var payload = JsonSerializer.Serialize(entry, jsonOptions.Value.SerializerOptions);
+                        await context.Response.WriteAsync($"data: {payload}\n\n", cancellationToken);
+                        await context.Response.Body.FlushAsync(cancellationToken);
+                    }
+                }
+                catch (OperationCanceledException) when (
+                    cancellationToken.IsCancellationRequested || context.RequestAborted.IsCancellationRequested)
+                {
                 }
             });
 
