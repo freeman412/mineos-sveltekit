@@ -17,8 +17,11 @@
 	// Animation timing
 	let animationFrame: number;
 	let lastTime = 0;
-	const FRAME_DURATION = 150; // ms per animation frame
+	const FRAME_DURATION = 220; // ms per animation frame
 	const TILE_SIZE = 64;
+	const WALK_SPEED = 0.8;
+	const GRAVITY = 0.35;
+	const ACTION_CHANGE_CHANCE = 0.001;
 
 	// Screen bounds
 	let screenWidth = $state(browser ? window.innerWidth : 1920);
@@ -78,7 +81,7 @@
 		if (!isDragging) {
 			// Apply gravity when falling
 			if (action === 'fall') {
-				velocityY += 0.5; // gravity
+				velocityY += GRAVITY;
 				y += velocityY;
 
 				// Check if landed
@@ -89,7 +92,7 @@
 					// Random chance to start walking
 					if (Math.random() > 0.5) {
 						action = 'walk';
-						velocityX = direction === 'right' ? 1.5 : -1.5;
+						velocityX = direction === 'right' ? WALK_SPEED : -WALK_SPEED;
 					}
 				}
 			} else if (action === 'walk') {
@@ -100,15 +103,15 @@
 				if (x <= 0) {
 					x = 0;
 					direction = 'right';
-					velocityX = 1.5;
+					velocityX = WALK_SPEED;
 				} else if (x >= screenWidth - TILE_SIZE) {
 					x = screenWidth - TILE_SIZE;
 					direction = 'left';
-					velocityX = -1.5;
+					velocityX = -WALK_SPEED;
 				}
 
 				// Random chance to change action
-				if (Math.random() < 0.002) {
+				if (Math.random() < ACTION_CHANGE_CHANCE) {
 					const rand = Math.random();
 					if (rand < 0.3) {
 						action = 'idle';
@@ -119,16 +122,16 @@
 					} else {
 						// Change direction
 						direction = direction === 'right' ? 'left' : 'right';
-						velocityX = direction === 'right' ? 1.5 : -1.5;
+						velocityX = direction === 'right' ? WALK_SPEED : -WALK_SPEED;
 					}
 				}
 			} else if (action === 'idle' || action === 'eat' || action === 'sleep') {
 				// Random chance to start walking
-				const wakeChance = action === 'sleep' ? 0.0005 : 0.005;
+				const wakeChance = action === 'sleep' ? 0.0003 : 0.003;
 				if (Math.random() < wakeChance) {
 					action = 'walk';
 					direction = Math.random() > 0.5 ? 'right' : 'left';
-					velocityX = direction === 'right' ? 1.5 : -1.5;
+					velocityX = direction === 'right' ? WALK_SPEED : -WALK_SPEED;
 				}
 			}
 		}
@@ -218,7 +221,7 @@
 		y = screenHeight - TILE_SIZE;
 		action = 'walk';
 		direction = Math.random() > 0.5 ? 'right' : 'left';
-		velocityX = direction === 'right' ? 1.5 : -1.5;
+		velocityX = direction === 'right' ? WALK_SPEED : -WALK_SPEED;
 
 		// Add global event listeners
 		window.addEventListener('mousemove', handleMouseMove);

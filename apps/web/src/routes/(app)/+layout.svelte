@@ -5,6 +5,7 @@
 	import TopBar from '$lib/components/TopBar.svelte';
 	import FeedbackButton from '$lib/components/FeedbackButton.svelte';
 	import MinecraftSheepPet from '$lib/components/MinecraftSheepPet.svelte';
+	import { sheepEnabled } from '$lib/stores/uiPreferences';
 
 	let { data, children }: { data: LayoutData; children: any } = $props();
 
@@ -96,7 +97,9 @@
 	</div>
 
 	<FeedbackButton />
-	<MinecraftSheepPet />
+	{#if $sheepEnabled}
+		<MinecraftSheepPet />
+	{/if}
 </div>
 
 <style>

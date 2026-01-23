@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { invalidateAll } from '$app/navigation';
 	import { modal } from '$lib/stores/modal';
+	import { sheepEnabled } from '$lib/stores/uiPreferences';
 	import type { PageData } from './$types';
 
 	interface SettingInfo {
@@ -98,6 +99,28 @@
 	<div>
 		<h1>Settings</h1>
 		<p class="subtitle">Configure system settings and integrations</p>
+	</div>
+</div>
+
+<div class="settings-list">
+	<div class="setting-card">
+		<div class="setting-view">
+			<div class="setting-header">
+				<h3>UI Preferences</h3>
+				<span class="source-badge source-config">local</span>
+			</div>
+			<p class="setting-description">Personalize the dashboard experience for this browser.</p>
+			<div class="preference-row">
+				<div>
+					<div class="preference-title">Minecraft Sheep Pet</div>
+					<div class="preference-help">Show the sheep companion on every page.</div>
+				</div>
+				<label class="toggle">
+					<input type="checkbox" bind:checked={$sheepEnabled} aria-label="Toggle sheep pet" />
+					<span class="toggle-slider"></span>
+				</label>
+			</div>
+		</div>
 	</div>
 </div>
 
@@ -329,6 +352,71 @@
 	.edit-actions {
 		display: flex;
 		gap: 10px;
+	}
+
+	.preference-row {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 16px;
+		padding: 12px 0 0;
+	}
+
+	.preference-title {
+		font-size: 15px;
+		font-weight: 600;
+		color: #eef0f8;
+	}
+
+	.preference-help {
+		margin-top: 4px;
+		color: #9aa2c5;
+		font-size: 13px;
+	}
+
+	.toggle {
+		position: relative;
+		display: inline-flex;
+		align-items: center;
+	}
+
+	.toggle input {
+		position: absolute;
+		opacity: 0;
+		width: 1px;
+		height: 1px;
+	}
+
+	.toggle-slider {
+		width: 48px;
+		height: 26px;
+		border-radius: 999px;
+		background: #2a2f47;
+		border: 1px solid #3a3f5a;
+		position: relative;
+		transition: all 0.2s;
+	}
+
+	.toggle-slider::after {
+		content: '';
+		position: absolute;
+		top: 3px;
+		left: 3px;
+		width: 18px;
+		height: 18px;
+		border-radius: 50%;
+		background: #c9d1f2;
+		transition: transform 0.2s, background 0.2s;
+	}
+
+	.toggle input:checked + .toggle-slider {
+		background: rgba(106, 176, 76, 0.35);
+		border-color: rgba(106, 176, 76, 0.7);
+	}
+
+	.toggle input:checked + .toggle-slider::after {
+		transform: translateX(22px);
+		background: #6ab04c;
 	}
 
 	label {
