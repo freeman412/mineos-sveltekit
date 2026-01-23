@@ -1,7 +1,8 @@
 <script lang="ts">
+	import { modal } from '$lib/stores/modal';
+	import { formatBytes, formatDate } from '$lib/utils/formatting';
 	import type { PageData } from './$types';
 	import type { LayoutData } from '../$types';
-	import { modal } from '$lib/stores/modal';
 
 	let { data }: { data: PageData & { server: LayoutData['server'] } } = $props();
 
@@ -73,16 +74,6 @@
 		window.location.href = `/api/servers/${data.server.name}/archives/${filename}/download`;
 	}
 
-	const formatDate = (dateStr: string) => {
-		const date = new Date(dateStr);
-		return date.toLocaleDateString() + ' ' + date.toLocaleTimeString();
-	};
-
-	const formatBytes = (bytes: number) => {
-		const units = ['B', 'KB', 'MB', 'GB', 'TB'];
-		const i = Math.floor(Math.log(bytes) / Math.log(1024));
-		return `${(bytes / Math.pow(1024, i)).toFixed(1)} ${units[i]}`;
-	};
 </script>
 
 <div class="page">

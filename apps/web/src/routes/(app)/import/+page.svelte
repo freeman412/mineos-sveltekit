@@ -1,52 +1,29 @@
 <script lang="ts">
 	import { invalidateAll } from '$app/navigation';
 	import { modal } from '$lib/stores/modal';
+	import { uploads, uploadFiles } from '$lib/stores/uploads';
+	import { formatBytes, formatDate } from '$lib/utils/formatting';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
 	let actionLoading = $state<Record<string, boolean>>({});
 	let serverNames = $state<Record<string, string>>({});
 	let dragActive = $state(false);
-	let uploadError = $state('');
-	let uploadBusy = $state(false);
 
-	function formatSize(bytes: number): string {
-		if (bytes === 0) return '0 B';
-		const k = 1024;
-		const sizes = ['B', 'KB', 'MB', 'GB'];
-		const i = Math.floor(Math.log(bytes) / Math.log(k));
-		return `${(bytes / Math.pow(k, i)).toFixed(2)} ${sizes[i]}`;
-	}
+	// Refresh when uploads complete
+	$effect(() => {
+		if ($uploads.some((u) => u.status === 'completed')) {
+			invalidateAll();
+		}
+	});
 
-	function formatDate(date: string): string {
-		return new Date(date).toLocaleString();
-	}
+	const hasActiveUploads = $derived($uploads.some((u) => u.status === 'uploading'));
 
 	async function uploadArchives(files: FileList | File[]) {
 		if (!files || files.length === 0) return;
-		uploadError = '';
-		uploadBusy = true;
-		try {
-			const formData = new FormData();
-			for (const file of Array.from(files)) {
-				formData.append('files', file, file.name);
-			}
-
-			const res = await fetch('/api/host/imports/upload', {
-				method: 'POST',
-				body: formData
-			});
-
-			if (!res.ok) {
-				const error = await res.json().catch(() => ({ error: 'Upload failed' }));
-				uploadError = error.error || 'Upload failed';
-			} else {
-				await invalidateAll();
-			}
-		} finally {
-			uploadBusy = false;
-			dragActive = false;
-		}
+		dragActive = false;
+		// Use global upload store - continues even when navigating away
+		await uploadFiles(files);
 	}
 
 	async function handleCreate(filename: string) {
@@ -73,6 +50,31 @@
 			} else {
 				serverNames[filename] = '';
 				serverNames = { ...serverNames };
+				await invalidateAll();
+			}
+		} finally {
+			delete actionLoading[filename];
+			actionLoading = { ...actionLoading };
+		}
+	}
+
+	async function handleDelete(filename: string) {
+		const confirmed = await modal.confirm(
+			`Delete import file "${filename}"?`,
+			'Delete Import'
+		);
+		if (!confirmed) return;
+
+		actionLoading[filename] = true;
+		try {
+			const res = await fetch(`/api/host/imports/${encodeURIComponent(filename)}`, {
+				method: 'DELETE'
+			});
+
+			if (!res.ok) {
+				const error = await res.json().catch(() => ({ error: 'Failed to delete import' }));
+				await modal.error(error.error || 'Failed to delete import');
+			} else {
 				await invalidateAll();
 			}
 		} finally {
@@ -123,11 +125,8 @@
 			}}
 			hidden
 		/>
-		{uploadBusy ? 'Uploading...' : 'Choose files'}
+		{hasActiveUploads ? 'Uploading...' : 'Choose files'}
 	</label>
-	{#if uploadError}
-		<p class="error">{uploadError}</p>
-	{/if}
 </div>
 
 {#if data.imports.error}
@@ -143,14 +142,14 @@
 					<th>Size</th>
 					<th>Uploaded</th>
 					<th>Server Name</th>
-					<th>Action</th>
+					<th>Actions</th>
 				</tr>
 			</thead>
 			<tbody>
 				{#each data.imports.data as entry}
 					<tr>
 						<td class="mono">{entry.filename}</td>
-						<td>{formatSize(entry.size)}</td>
+						<td>{formatBytes(entry.size)}</td>
 						<td>{formatDate(entry.time)}</td>
 						<td>
 							<input
@@ -165,13 +164,23 @@
 							/>
 						</td>
 						<td>
-							<button
-								class="btn-action"
-								onclick={() => handleCreate(entry.filename)}
-								disabled={actionLoading[entry.filename]}
-							>
-								{actionLoading[entry.filename] ? 'Creating...' : 'Create'}
-							</button>
+							<div class="actions-cell">
+								<button
+									class="btn-action"
+									onclick={() => handleCreate(entry.filename)}
+									disabled={actionLoading[entry.filename]}
+								>
+									{actionLoading[entry.filename] ? 'Creating...' : 'Create'}
+								</button>
+								<button
+									class="btn-delete"
+									onclick={() => handleDelete(entry.filename)}
+									disabled={actionLoading[entry.filename]}
+									title="Delete import"
+								>
+									🗑️
+								</button>
+							</div>
 						</td>
 					</tr>
 				{/each}
@@ -261,6 +270,32 @@
 
 	.btn-action:disabled {
 		opacity: 0.6;
+		cursor: not-allowed;
+	}
+
+	.actions-cell {
+		display: flex;
+		gap: 8px;
+		align-items: center;
+	}
+
+	.btn-delete {
+		background: transparent;
+		border: 1px solid rgba(255, 92, 92, 0.3);
+		border-radius: 6px;
+		padding: 6px 10px;
+		font-size: 14px;
+		cursor: pointer;
+		transition: all 0.2s;
+	}
+
+	.btn-delete:hover:not(:disabled) {
+		background: rgba(255, 92, 92, 0.15);
+		border-color: rgba(255, 92, 92, 0.5);
+	}
+
+	.btn-delete:disabled {
+		opacity: 0.5;
 		cursor: not-allowed;
 	}
 

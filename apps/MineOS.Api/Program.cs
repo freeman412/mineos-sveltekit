@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Http.Features;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi;
 using System.Text;
+using System.Threading;
 using MineOS.Api.Middleware;
 using MineOS.Api.Endpoints;
 using MineOS.Application.Interfaces;
@@ -141,15 +142,18 @@ builder.Services.AddScoped<IApiKeyValidator, ApiKeyValidator>();
 builder.Services.AddScoped<IHostService, HostService>();
 builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<IUserService, UserService>();
+builder.Services.AddScoped<IServerAccessService, ServerAccessService>();
 builder.Services.AddScoped<IServerService, ServerService>();
 builder.Services.AddScoped<IBackupService, BackupService>();
 builder.Services.AddScoped<IArchiveService, ArchiveService>();
+builder.Services.AddScoped<IClientPackageService, ClientPackageService>();
 builder.Services.AddScoped<IConsoleService, ConsoleService>();
 builder.Services.AddScoped<IMonitoringService, MonitoringService>();
 builder.Services.AddScoped<IPerformanceService, PerformanceService>();
 builder.Services.AddScoped<IFileService, FileService>();
 builder.Services.AddScoped<IProfileService, ProfileService>();
 builder.Services.AddScoped<IImportService, ImportService>();
+builder.Services.AddScoped<IPluginService, PluginService>();
 builder.Services.AddScoped<ICurseForgeService, CurseForgeService>();
 builder.Services.AddScoped<IWorldService, WorldService>();
 builder.Services.AddScoped<IPlayerService, PlayerService>();
@@ -164,21 +168,40 @@ builder.Services.AddSingleton<BackgroundJobService>();
 builder.Services.AddSingleton<IBackgroundJobService>(sp => sp.GetRequiredService<BackgroundJobService>());
 builder.Services.AddHostedService(sp => sp.GetRequiredService<BackgroundJobService>());
 builder.Services.AddHostedService<PerformanceCollectorService>();
+builder.Services.AddSingleton<WatchdogService>();
+builder.Services.AddSingleton<IWatchdogService>(sp => sp.GetRequiredService<WatchdogService>());
+builder.Services.AddHostedService(sp => sp.GetRequiredService<WatchdogService>());
 builder.Services.AddHttpClient<IProfileService, ProfileService>();
-builder.Services.AddHttpClient<IModService, ModService>();
+builder.Services.AddHttpClient<IModService, ModService>(client =>
+{
+    client.Timeout = Timeout.InfiniteTimeSpan;
+});
+builder.Services.AddHttpClient<IModrinthService, ModrinthService>(client =>
+{
+    client.BaseAddress = new Uri("https://api.modrinth.com/v2/");
+    client.DefaultRequestHeaders.UserAgent.ParseAdd("MineOS/1.0");
+});
 builder.Services.AddHttpClient<CurseForgeClient>();
 builder.Services.AddScoped<ApiKeySeeder>();
 builder.Services.AddScoped<UserSeeder>();
 builder.Services.AddScoped<ISettingsService, SettingsService>();
 
+var allowedOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>() ?? Array.Empty<string>();
+
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("DevCors", policy =>
     {
-        policy
-            .AllowAnyHeader()
-            .AllowAnyMethod()
-            .AllowAnyOrigin();
+        policy.AllowAnyHeader().AllowAnyMethod();
+
+        if (allowedOrigins.Length > 0)
+        {
+            policy.WithOrigins(allowedOrigins).AllowCredentials();
+        }
+        else
+        {
+            policy.AllowAnyOrigin();
+        }
     });
 });
 

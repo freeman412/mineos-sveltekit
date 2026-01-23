@@ -8,6 +8,7 @@ public interface IServerService
     Task<ServerDetailDto> GetServerAsync(string name, CancellationToken cancellationToken);
     Task<List<ServerDetailDto>> ListServersAsync(CancellationToken cancellationToken);
     Task<ServerDetailDto> CreateServerAsync(CreateServerRequest request, string username, CancellationToken cancellationToken);
+    Task<ServerDetailDto> CloneServerAsync(string sourceName, string newName, CancellationToken cancellationToken);
     Task DeleteServerAsync(string name, CancellationToken cancellationToken);
 
     // Lifecycle operations

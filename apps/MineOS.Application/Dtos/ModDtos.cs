@@ -21,7 +21,9 @@ public record CurseForgeFileDto(
     DateTimeOffset FileDate,
     string? DownloadUrl,
     IReadOnlyList<string> GameVersions,
-    int? ReleaseType
+    int? ReleaseType,
+    int? ServerPackFileId,
+    bool? IsServerPack
 );
 
 public record CurseForgeModSummaryDto(

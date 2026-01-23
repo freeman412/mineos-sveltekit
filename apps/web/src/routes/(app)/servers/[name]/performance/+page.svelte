@@ -13,6 +13,13 @@
 	let streamStatus = $state<'connecting' | 'live' | 'stopped'>('connecting');
 	let streamSource: EventSource | null = null;
 	let streamRetry: ReturnType<typeof setTimeout> | null = null;
+	let sparkStatus = $state(data.spark.data ?? null);
+	let sparkError = $state<string | null>(data.spark.error);
+
+	$effect(() => {
+		sparkStatus = data.spark.data ?? null;
+		sparkError = data.spark.error;
+	});
 
 	const latest = $derived(samples[samples.length - 1] ?? data.realtime.data ?? null);
 	const cpuSeries = $derived(samples.map((sample) => sample.cpuPercent));
@@ -121,6 +128,45 @@
 		<PerformanceChart title="TPS" unit="" color="#f5c97a" points={tpsSeries} maxValue={20} minValue={0} />
 		<PerformanceChart title="Players" unit="" color="#d98cff" points={playerSeries} minValue={0} />
 	</section>
+
+	{#if sparkStatus?.installed}
+		<section class="spark-section">
+			<div class="spark-header">
+				<h3>Spark</h3>
+				<span class="spark-pill">Installed</span>
+			</div>
+			<div class="spark-grid">
+				<div class="spark-card">
+					<span class="spark-label">Mode</span>
+					<strong>{sparkStatus.mode ?? 'plugin'}</strong>
+				</div>
+				<div class="spark-card">
+					<span class="spark-label">Jar</span>
+					<strong>{sparkStatus.jarName ?? 'spark'}</strong>
+				</div>
+				<div class="spark-card">
+					<span class="spark-label">Version</span>
+					<strong>{sparkStatus.version ?? 'Unknown'}</strong>
+				</div>
+				<div class="spark-card">
+					<span class="spark-label">Reports</span>
+					<strong>{sparkStatus.reportCount}</strong>
+				</div>
+			</div>
+			{#if sparkStatus.reports.length > 0}
+				<div class="spark-reports">
+					<p>Recent reports</p>
+					<ul>
+						{#each sparkStatus.reports as report}
+							<li>{report}</li>
+						{/each}
+					</ul>
+				</div>
+			{/if}
+		</section>
+	{:else if sparkError}
+		<p class="error-text">{sparkError}</p>
+	{/if}
 
 	{#if data.history.error}
 		<p class="error-text">{data.history.error}</p>
@@ -240,5 +286,76 @@
 	.error-text {
 		color: #ff9f9f;
 		margin: 0;
+	}
+
+	.spark-section {
+		background: #141827;
+		border-radius: 16px;
+		border: 1px solid #2a2f47;
+		padding: 20px;
+		display: flex;
+		flex-direction: column;
+		gap: 16px;
+	}
+
+	.spark-header {
+		display: flex;
+		align-items: center;
+		gap: 12px;
+		justify-content: space-between;
+	}
+
+	.spark-header h3 {
+		margin: 0;
+		font-size: 18px;
+		color: #eef0f8;
+	}
+
+	.spark-pill {
+		background: rgba(106, 176, 76, 0.2);
+		color: #b7f5a2;
+		border: 1px solid rgba(106, 176, 76, 0.4);
+		border-radius: 999px;
+		font-size: 11px;
+		padding: 4px 10px;
+		text-transform: uppercase;
+		letter-spacing: 0.08em;
+	}
+
+	.spark-grid {
+		display: grid;
+		grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+		gap: 12px;
+	}
+
+	.spark-card {
+		background: rgba(20, 24, 39, 0.8);
+		border-radius: 12px;
+		padding: 12px;
+		border: 1px solid rgba(42, 47, 71, 0.8);
+		display: flex;
+		flex-direction: column;
+		gap: 6px;
+	}
+
+	.spark-label {
+		font-size: 11px;
+		color: #8a93ba;
+		text-transform: uppercase;
+		letter-spacing: 0.08em;
+	}
+
+	.spark-reports p {
+		margin: 0 0 8px;
+		color: #9aa2c5;
+		font-size: 13px;
+	}
+
+	.spark-reports ul {
+		margin: 0;
+		padding-left: 18px;
+		color: #c4cff5;
+		font-size: 13px;
+		line-height: 1.6;
 	}
 </style>

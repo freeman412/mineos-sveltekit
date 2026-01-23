@@ -13,6 +13,10 @@ BLUE='\033[0;34m'
 CYAN='\033[0;36m'
 NC='\033[0m'
 
+DEFAULT_HOST_BASE_DIR="./minecraft"
+DEFAULT_DATA_DIR="./data"
+CONTAINER_BASE_DIR="/var/games/minecraft"
+
 # Print colored messages
 info() {
     echo -e "${BLUE}[INFO]${NC} $1"
@@ -35,6 +39,25 @@ command_exists() {
     command -v "$1" >/dev/null 2>&1
 }
 
+normalize_relative_path() {
+    local path="$1"
+
+    if [ -z "$path" ]; then
+        return 1
+    fi
+
+    case "$path" in
+        /*|~*) return 1 ;;
+        "."|"./"| ".."| "../"*| *"/../"*| *"/.." ) return 1 ;;
+    esac
+
+    if [[ "$path" != ./* ]]; then
+        path="./$path"
+    fi
+
+    echo "$path"
+}
+
 set_compose_cmd() {
     if command_exists docker && docker compose version >/dev/null 2>&1; then
         COMPOSE_CMD=(docker compose)
@@ -55,8 +78,8 @@ set_compose_cmd() {
 show_banner() {
     clear
     echo -e "${GREEN}"
-    echo "  __  __ _            ___  ____  "
-    echo " |  \/  (_)_ __   ___/ _ \/ ___| "
+    echo "  __  __ _             ___  ____  "
+    echo " |  \/  (_)_ __   ___ / _ \/ ___| "
     echo " | |\/| | | '_ \ / _ \ | | \___ \ "
     echo " | |  | | | | | |  __/ |_| |___) |"
     echo " |_|  |_|_|_| |_|\___|\___/|____/ "
@@ -178,8 +201,30 @@ run_config_wizard() {
     done
 
     # Server directories
-    read -p "Base directory for Minecraft servers (default: /var/games/minecraft): " base_dir
-    base_dir=${base_dir:-/var/games/minecraft}
+    while true; do
+        read -p "Local storage directory for Minecraft servers (relative, default: ${DEFAULT_HOST_BASE_DIR}): " host_base_dir_input
+        host_base_dir_input=${host_base_dir_input:-$DEFAULT_HOST_BASE_DIR}
+        host_base_dir=$(normalize_relative_path "$host_base_dir_input")
+        if [ -z "$host_base_dir" ]; then
+            error "Path must be relative to the current directory (no leading /, ~, or ..)."
+            continue
+        fi
+        break
+    done
+
+    # Database directory
+    while true; do
+        read -p "Database directory (relative, default: ${DEFAULT_DATA_DIR}): " data_dir_input
+        data_dir_input=${data_dir_input:-$DEFAULT_DATA_DIR}
+        data_dir=$(normalize_relative_path "$data_dir_input")
+        if [ -z "$data_dir" ]; then
+            error "Path must be relative to the current directory (no leading /, ~, or ..)."
+            continue
+        fi
+        break
+    done
+
+    base_dir="$CONTAINER_BASE_DIR"
 
     # Port configuration
     read -p "API port (default: 5078): " api_port
@@ -224,7 +269,9 @@ Auth__JwtExpiryHours=24
 ApiKey__SeedKey=${API_KEY}
 
 # Host Configuration
+HOST_BASE_DIRECTORY=${host_base_dir}
 Host__BaseDirectory=${base_dir}
+Data__Directory=${data_dir}
 Host__ServersPathSegment=servers
 Host__ProfilesPathSegment=profiles
 Host__BackupsPathSegment=backups
@@ -255,20 +302,21 @@ EOF
 create_directories() {
     info "Creating directories..."
 
-    mkdir -p "${base_dir}/servers"
-    mkdir -p "${base_dir}/profiles"
-    mkdir -p "${base_dir}/backups"
-    mkdir -p "${base_dir}/archives"
-    mkdir -p "${base_dir}/imports"
-    mkdir -p "./data"
+    mkdir -p "${host_base_dir}/servers"
+    mkdir -p "${host_base_dir}/profiles"
+    mkdir -p "${host_base_dir}/backups"
+    mkdir -p "${host_base_dir}/archives"
+    mkdir -p "${host_base_dir}/imports"
+    mkdir -p "${data_dir}"
 
     # Set permissions
     if [ "$EUID" -eq 0 ]; then
-        chown -R 1000:1000 "${base_dir}"
+        chown -R 1000:1000 "${host_base_dir}"
+        chown -R 1000:1000 "${data_dir}"
         success "Set directory ownership to 1000:1000"
     else
         warn "Not running as root, skipping ownership change"
-        warn "You may need to run: sudo chown -R 1000:1000 ${base_dir}"
+        warn "You may need to run: sudo chown -R 1000:1000 ${host_base_dir} ${data_dir}"
     fi
 
     success "Created required directories"
@@ -282,6 +330,9 @@ build_services() {
     fi
 
     info "Building Docker images..."
+    PUBLIC_BUILD_ID=$(date +%Y%m%d%H%M%S)
+    export PUBLIC_BUILD_ID
+    info "Build ID: ${PUBLIC_BUILD_ID}"
     if [ "${COMPOSE_CMD[0]}" = "docker" ]; then
         "${COMPOSE_CMD[@]}" build --progress plain
     else

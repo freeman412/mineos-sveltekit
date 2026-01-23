@@ -14,3 +14,10 @@ export const GET: RequestHandler = (event) =>
 		event,
 		`/api/v1/servers/${encodeURIComponent(event.params.path)}/console/stream`
 	);
+
+export const DELETE: RequestHandler = (event) =>
+	proxyJson(
+		event,
+		`/api/v1/servers/${encodeURIComponent(event.params.path)}/console`,
+		{ method: 'DELETE' }
+	);

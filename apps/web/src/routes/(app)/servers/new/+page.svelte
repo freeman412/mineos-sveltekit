@@ -3,11 +3,13 @@
 	import type { PageData } from './$types';
 	import * as api from '$lib/api/client';
 	import type { CurseForgeSearchResult, ForgeVersion } from '$lib/api/types';
+	import ProgressBar from '$lib/components/ProgressBar.svelte';
+	import StatusBadge from '$lib/components/StatusBadge.svelte';
 
 	let { data }: { data: PageData } = $props();
 
 	// Server types available
-	type ServerType = 'vanilla' | 'paper' | 'spigot' | 'craftbukkit' | 'forge' | 'curseforge';
+	type ServerType = 'vanilla' | 'paper' | 'spigot' | 'craftbukkit' | 'forge' | 'curseforge' | 'clone';
 
 	interface ServerTypeOption {
 		id: ServerType;
@@ -66,6 +68,14 @@
 			icon: '🎯',
 			color: '#a855f7',
 			features: ['Modpacks', 'Easy setup', 'Popular packs']
+		},
+		{
+			id: 'clone',
+			name: 'Template',
+			description: 'Clone an existing server as your starting point',
+			icon: 'T',
+			color: '#22d3ee',
+			features: ['Duplicate', 'Fast setup', 'Preserve config']
 		}
 	];
 
@@ -79,6 +89,9 @@
 	let downloadingProfile = $state(false);
 	let buildToolsRunning = $state(false);
 	let buildToolsProgress = $state('');
+
+	// Clone state
+	let cloneSource = $state('');
 
 	// CurseForge state
 	let curseforgeQuery = $state('');
@@ -98,6 +111,9 @@
 	let forgeInstallStep = $state('');
 	let forgeInstallOutput = $state('');
 	let forgeOutputExpanded = $state(false);
+	let forgeWatching = $state(false);
+	let forgeInstallCompleted = $state(false);
+	let forgeWatchError = $state('');
 
 	// Filter profiles by selected type
 	const filteredProfiles = $derived.by(() => {
@@ -156,6 +172,11 @@
 		return forgeVersions.filter(v => v.minecraftVersion === selectedForgeMcVersion);
 	});
 
+	const cloneServers = $derived.by(() => {
+		if (!data.servers?.data) return [];
+		return [...data.servers.data].sort((a, b) => a.name.localeCompare(b.name));
+	});
+
 	async function selectServerType(type: ServerType) {
 		selectedType = type;
 		selectedProfileId = '';
@@ -165,9 +186,13 @@
 		selectedForgeMcVersion = '';
 		selectedForgeVersion = null;
 		forgeError = '';
+		serverName = '';
+		cloneSource = '';
 
 		// Auto-advance for types that need version selection
 		if (type === 'curseforge') {
+			step = 'version';
+		} else if (type === 'clone') {
 			step = 'version';
 		} else if (type === 'forge') {
 			step = 'version';
@@ -215,6 +240,17 @@
 		selectedProfileId = profileId;
 	}
 
+	function getStatusMeta(status?: string) {
+		const value = (status ?? '').toLowerCase();
+		if (value === 'running' || value === 'up') {
+			return { label: 'Running', variant: 'success', pulse: true };
+		}
+		if (value === 'stopped' || value === 'down') {
+			return { label: 'Stopped', variant: 'warning', pulse: false };
+		}
+		return { label: status || 'Unknown', variant: 'neutral', pulse: false };
+	}
+
 	async function searchCurseForge() {
 		if (!curseforgeQuery.trim()) return;
 
@@ -257,6 +293,9 @@
 		if (selectedType === 'curseforge') {
 			return selectedModpack !== null;
 		}
+		if (selectedType === 'clone') {
+			return cloneSource !== '';
+		}
 		if (selectedType === 'forge') {
 			return selectedForgeVersion !== null;
 		}
@@ -279,6 +318,19 @@
 		createError = '';
 
 		try {
+			if (selectedType === 'clone') {
+				if (!cloneSource) {
+					throw new Error('Select a server to clone');
+				}
+				const result = await api.cloneServer(fetch, cloneSource, { newName: serverName.trim() });
+				if (result.error) {
+					throw new Error(result.error);
+				}
+				await invalidateAll();
+				goto(`/servers/${encodeURIComponent(serverName.trim())}`);
+				return;
+			}
+
 			// Handle BuildTools for Spigot/CraftBukkit
 			if ((selectedType === 'spigot' || selectedType === 'craftbukkit') && selectedProfileId) {
 				const profile = data.profiles.data?.find((p) => p.id === selectedProfileId);
@@ -339,6 +391,8 @@
 			if (selectedType === 'forge' && selectedForgeVersion) {
 				forgeInstallStep = 'Starting Forge installation...';
 				forgeInstallProgress = 0;
+				forgeInstallCompleted = false;
+				forgeWatchError = '';
 
 				const installResult = await api.installForge(
 					fetch,
@@ -353,8 +407,8 @@
 
 				if (installResult.data) {
 					forgeInstallId = installResult.data.installId;
-					// Poll for installation status
-					await pollForgeInstallation(installResult.data.installId);
+					await invalidateAll();
+					return;
 				}
 			}
 
@@ -372,14 +426,14 @@
 			buildToolsRunning = false;
 			downloadingProfile = false;
 			forgeInstallId = '';
+			forgeWatching = false;
+			forgeInstallCompleted = false;
+			forgeWatchError = '';
 		}
 	}
 
 	async function pollForgeInstallation(installId: string) {
-		const maxAttempts = 300; // 5 minutes with 1s intervals
-		let attempts = 0;
-
-		while (attempts < maxAttempts) {
+		while (true) {
 			const statusResult = await api.getForgeInstallStatus(fetch, installId);
 
 			if (statusResult.error) {
@@ -402,11 +456,26 @@
 				}
 			}
 
-			await new Promise(resolve => setTimeout(resolve, 1000));
-			attempts++;
+			await new Promise((resolve) => setTimeout(resolve, 1000));
 		}
+	}
 
-		throw new Error('Forge installation timed out');
+	function startForgeWatch() {
+		if (!forgeInstallId || forgeWatching) return;
+		forgeWatching = true;
+		forgeWatchError = '';
+		pollForgeInstallation(forgeInstallId)
+			.then(() => {
+				forgeInstallCompleted = true;
+			})
+			.catch((err) => {
+				forgeWatchError = err instanceof Error ? err.message : 'Forge installation failed';
+			});
+	}
+
+	function sendForgeToBackground() {
+		forgeWatching = false;
+		goto('/servers');
 	}
 
 	function goBack() {
@@ -439,7 +508,7 @@
 			<div class="step-divider" class:completed={step !== 'type'}></div>
 			<div class="step" class:active={step === 'version'} class:completed={step === 'name' || step === 'creating'}>
 				<div class="step-number">2</div>
-				<div class="step-label">{selectedType === 'curseforge' ? 'Modpack' : 'Version'}</div>
+				<div class="step-label">{selectedType === 'curseforge' ? 'Modpack' : selectedType === 'clone' ? 'Template' : 'Version'}</div>
 			</div>
 			<div class="step-divider" class:completed={step === 'name' || step === 'creating'}></div>
 			<div class="step" class:active={step === 'name'} class:completed={step === 'creating'}>
@@ -551,6 +620,41 @@
 							{/if}
 						</div>
 
+					{:else if selectedType === 'clone'}
+						<h2>Select Template</h2>
+						<p class="step-description">
+							Choose an existing server to clone
+						</p>
+
+						{#if !data.servers}
+							<div class="error-box">Failed to load servers.</div>
+						{:else if data.servers.error}
+							<div class="error-box">{data.servers.error}</div>
+						{:else if data.servers.data && data.servers.data.length === 0}
+							<div class="empty-results">
+								<p>No servers available to clone yet.</p>
+							</div>
+						{:else if data.servers.data}
+							<div class="template-grid">
+								{#each cloneServers as server}
+									{@const statusMeta = getStatusMeta(server.status)}
+									<button
+										class="template-card"
+										class:selected={cloneSource === server.name}
+										onclick={() => (cloneSource = server.name)}
+									>
+										<div class="template-info">
+											<h4>{server.name}</h4>
+											<p>Ready to duplicate</p>
+										</div>
+										<StatusBadge variant={statusMeta.variant} size="sm" pulse={statusMeta.pulse}>
+											{statusMeta.label}
+										</StatusBadge>
+									</button>
+								{/each}
+							</div>
+						{/if}
+
 					{:else if selectedType === 'forge'}
 						<!-- Forge Version Selection -->
 						<h2>Choose Forge Version</h2>
@@ -657,9 +761,9 @@
 										<span class="version-number">{profile.version}</span>
 										<div class="version-meta">
 											{#if profile.downloaded}
-												<span class="status-badge ready">Ready</span>
+												<StatusBadge variant="success" size="sm">Ready</StatusBadge>
 											{:else}
-												<span class="status-badge download">Will Download</span>
+												<StatusBadge variant="info" size="sm">Will Download</StatusBadge>
 											{/if}
 										</div>
 										{#if selectedProfileId === profile.id}
@@ -689,6 +793,8 @@
 									<span>{selectedModpack.name}</span>
 								{:else if selectedType === 'forge' && selectedForgeVersion}
 									<span>Minecraft {selectedForgeVersion.minecraftVersion} - Forge {selectedForgeVersion.forgeVersion}</span>
+								{:else if selectedType === 'clone' && cloneSource}
+									<span>Template: {cloneSource}</span>
 								{:else if selectedProfileId}
 									{@const profile = data.profiles.data?.find(p => p.id === selectedProfileId)}
 									{#if profile}
@@ -739,11 +845,31 @@
 							This will only take a moment
 						{/if}
 					</p>
+					{#if forgeInstallId}
+						<p class="step-hint">
+							Forge install runs in the background. You can leave this page and track it in
+							Notifications.
+						</p>
+					{/if}
 					{#if forgeInstallId && forgeInstallProgress > 0}
-						<div class="progress-container">
-							<div class="progress-bar" style="width: {forgeInstallProgress}%"></div>
+						<ProgressBar value={forgeInstallProgress} color="green" size="md" showLabel />
+					{/if}
+					{#if forgeInstallId}
+						<div class="forge-actions">
+							{#if !forgeWatching}
+								<button class="btn-secondary" onclick={startForgeWatch}>
+									Stay and watch
+								</button>
+							{/if}
+							<button class="btn-primary" onclick={sendForgeToBackground}>
+								Send to background
+							</button>
 						</div>
-						<span class="progress-text">{forgeInstallProgress}%</span>
+					{/if}
+					{#if forgeInstallCompleted}
+						<div class="success-box">Forge install completed.</div>
+					{:else if forgeWatchError}
+						<div class="error-box">{forgeWatchError}</div>
 					{/if}
 					{#if forgeInstallId && forgeInstallOutput}
 						<div class="output-section">
@@ -809,6 +935,49 @@
 		margin: 0;
 		color: #aab2d3;
 		font-size: 15px;
+	}
+
+	.template-grid {
+		display: grid;
+		grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+		gap: 14px;
+	}
+
+	.template-card {
+		background: #141827;
+		border: 2px solid #2a2f47;
+		border-radius: 12px;
+		padding: 16px;
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 12px;
+		cursor: pointer;
+		transition: all 0.2s;
+		text-align: left;
+		font-family: inherit;
+	}
+
+	.template-card:hover {
+		border-color: #22d3ee;
+		background: rgba(34, 211, 238, 0.08);
+	}
+
+	.template-card.selected {
+		border-color: #22d3ee;
+		background: rgba(34, 211, 238, 0.12);
+	}
+
+	.template-info h4 {
+		margin: 0 0 4px;
+		font-size: 16px;
+		color: #eef0f8;
+	}
+
+	.template-info p {
+		margin: 0;
+		font-size: 12px;
+		color: #9aa2c5;
 	}
 
 	.wizard-card {
@@ -918,6 +1087,32 @@
 		margin: 0 0 28px;
 		color: #9aa2c5;
 		font-size: 14px;
+	}
+
+	.step-hint {
+		margin: -18px 0 24px;
+		color: #7f88ac;
+		font-size: 13px;
+		text-align: center;
+		max-width: 520px;
+	}
+
+	.forge-actions {
+		display: flex;
+		gap: 12px;
+		align-items: center;
+		justify-content: center;
+		margin: 0 0 18px;
+		flex-wrap: wrap;
+	}
+
+	.success-box {
+		background: rgba(106, 176, 76, 0.1);
+		border: 1px solid rgba(106, 176, 76, 0.3);
+		border-radius: 12px;
+		padding: 14px 18px;
+		color: #b7f5a2;
+		margin: 0 0 18px;
 	}
 
 	/* Server Type Grid */
@@ -1068,23 +1263,6 @@
 		display: flex;
 		align-items: center;
 		gap: 8px;
-	}
-
-	.status-badge {
-		padding: 2px 8px;
-		border-radius: 999px;
-		font-size: 10px;
-		font-weight: 600;
-	}
-
-	.status-badge.ready {
-		background: rgba(122, 230, 141, 0.2);
-		color: #7ae68d;
-	}
-
-	.status-badge.download {
-		background: rgba(88, 101, 242, 0.2);
-		color: #a5b4fc;
 	}
 
 	/* Search Section */
@@ -1409,30 +1587,6 @@
 		color: #eef0f8;
 	}
 
-	/* Progress Bar */
-	.progress-container {
-		width: 100%;
-		max-width: 400px;
-		height: 8px;
-		background: #2b2f45;
-		border-radius: 999px;
-		overflow: hidden;
-		margin-top: 20px;
-	}
-
-	.progress-bar {
-		height: 100%;
-		background: linear-gradient(90deg, #5865f2, #a855f7);
-		border-radius: 999px;
-		transition: width 0.3s ease;
-	}
-
-	.progress-text {
-		margin-top: 8px;
-		font-size: 13px;
-		color: #9aa2c5;
-	}
-
 	/* Output Section */
 	.output-section {
 		margin-top: 24px;
@@ -1582,6 +1736,10 @@
 
 	/* Responsive */
 	@media (max-width: 768px) {
+		.template-grid {
+			grid-template-columns: 1fr;
+		}
+
 		.wizard-card {
 			padding: 24px 20px;
 		}

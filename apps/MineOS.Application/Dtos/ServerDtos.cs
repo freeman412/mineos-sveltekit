@@ -46,7 +46,8 @@ public record ServerDetailDto(
 public record ServerConfigDto(
     JavaConfigDto Java,
     MinecraftConfigDto Minecraft,
-    OnRebootConfigDto OnReboot);
+    OnRebootConfigDto OnReboot,
+    AutoRestartConfigDto AutoRestart);
 
 public record JavaConfigDto(
     string JavaBinary,
@@ -63,9 +64,28 @@ public record MinecraftConfigDto(
 public record OnRebootConfigDto(
     bool Start);
 
+public record AutoRestartConfigDto(
+    bool Enabled,
+    int MaxAttempts,           // Max restart attempts before giving up (0 = unlimited)
+    int CooldownSeconds,       // Minimum seconds between restarts
+    int AttemptResetMinutes,   // Reset attempt counter after this many minutes of stability
+    bool NotifyOnCrash,        // Send notification when crash detected
+    bool NotifyOnRestart);     // Send notification when auto-restart triggered
+
+public record CrashEventDto(
+    int Id,
+    string ServerName,
+    DateTimeOffset DetectedAt,
+    string CrashType,          // "ProcessDeath", "CrashReport", "OutOfMemory", "Timeout"
+    string? CrashDetails,
+    bool AutoRestartAttempted,
+    bool AutoRestartSucceeded);
+
 public record ConsoleCommandDto(string Command);
 
 public record CreateServerRequest(string Name, int OwnerUid, int OwnerGid);
+
+public record CloneServerRequest(string NewName);
 
 public record DeleteServerRequest(bool DeleteLive, bool DeleteBackups, bool DeleteArchives);
 

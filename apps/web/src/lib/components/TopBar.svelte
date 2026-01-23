@@ -114,10 +114,10 @@
 
 	<div class="topbar-actions">
 		<NotificationMenu />
-		<div class="user-info">
+		<a class="user-info" href="/profile">
 			<span class="user-icon">👤</span>
 			<span class="username">{user?.username || 'Unknown'}</span>
-		</div>
+		</a>
 	</div>
 </div>
 
@@ -266,6 +266,12 @@
 		background: rgba(255, 255, 255, 0.03);
 		border-radius: 8px;
 		border: 1px solid #2a2f47;
+		text-decoration: none;
+	}
+
+	.user-info:hover {
+		background: rgba(255, 255, 255, 0.08);
+		border-color: rgba(106, 176, 76, 0.4);
 	}
 
 	.user-icon {

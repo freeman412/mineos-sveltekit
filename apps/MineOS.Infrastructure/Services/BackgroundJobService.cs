@@ -1,12 +1,14 @@
 using System.Collections.Concurrent;
 using System.Runtime.CompilerServices;
 using System.Threading.Channels;
+using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using MineOS.Application.Dtos;
 using MineOS.Application.Interfaces;
+using MineOS.Domain.Entities;
 using MineOS.Infrastructure.Persistence;
 
 namespace MineOS.Infrastructure.Services;
@@ -32,7 +34,10 @@ public sealed class BackgroundJobService : IBackgroundJobService, IHostedService
         _jobs = new ConcurrentDictionary<string, JobState>();
     }
 
-    public string QueueJob(string type, string serverName, Func<IProgress<JobProgressDto>, CancellationToken, Task> work)
+    public string QueueJob(
+        string type,
+        string serverName,
+        Func<IServiceProvider, IProgress<JobProgressDto>, CancellationToken, Task> work)
     {
         var jobId = Guid.NewGuid().ToString("N");
         var job = new BackgroundJob(jobId, type, serverName, work);
@@ -74,6 +79,31 @@ public sealed class BackgroundJobService : IBackgroundJobService, IHostedService
             state.CompletedAt,
             state.Error
         );
+    }
+
+    public IReadOnlyList<JobStatusDto> GetActiveJobs()
+    {
+        return _jobs.Values
+            .Where(j => j.Status == "queued" || j.Status == "running")
+            .Select(j => new JobStatusDto(
+                j.JobId,
+                j.Type,
+                j.ServerName,
+                j.Status,
+                j.Percentage,
+                j.Message,
+                j.StartedAt,
+                j.CompletedAt,
+                j.Error))
+            .ToList();
+    }
+
+    public IReadOnlyList<ModpackInstallProgressDto> GetActiveModpackInstalls()
+    {
+        return _modpackStates.Values
+            .Where(s => !s.IsComplete)
+            .Select(s => s.ToDto())
+            .ToList();
     }
 
     public async IAsyncEnumerable<JobProgressDto> StreamJobProgressAsync(
@@ -142,7 +172,9 @@ public sealed class BackgroundJobService : IBackgroundJobService, IHostedService
         }
     }
 
-    public string QueueModpackInstall(string serverName, Func<IModpackInstallState, CancellationToken, Task> work)
+    public string QueueModpackInstall(
+        string serverName,
+        Func<IServiceProvider, IModpackInstallState, CancellationToken, Task> work)
     {
         var jobId = Guid.NewGuid().ToString("N");
         var state = new ModpackInstallState(jobId, serverName);
@@ -254,14 +286,25 @@ public sealed class BackgroundJobService : IBackgroundJobService, IHostedService
 
         try
         {
-            await job.Work(progress, stoppingToken);
+            await using var scope = _scopeFactory.CreateAsyncScope();
+            await job.Work(scope.ServiceProvider, progress, stoppingToken);
 
             state.Status = "completed";
             state.Percentage = 100;
             state.CompletedAt = DateTimeOffset.UtcNow;
             PersistJobFireAndForget(state);
+            await CreateJobNotificationAsync(state, "completed", CancellationToken.None);
 
             _logger.LogInformation("Job {JobId} completed successfully", job.JobId);
+        }
+        catch (OperationCanceledException)
+        {
+            state.Status = "failed";
+            state.Error = "Cancelled";
+            state.CompletedAt = DateTimeOffset.UtcNow;
+            PersistJobFireAndForget(state);
+            await CreateJobNotificationAsync(state, "cancelled", CancellationToken.None);
+            _logger.LogWarning("Job {JobId} was cancelled", job.JobId);
         }
         catch (Exception ex)
         {
@@ -269,6 +312,7 @@ public sealed class BackgroundJobService : IBackgroundJobService, IHostedService
             state.Error = ex.Message;
             state.CompletedAt = DateTimeOffset.UtcNow;
             PersistJobFireAndForget(state);
+            await CreateJobNotificationAsync(state, "failed", CancellationToken.None);
 
             _logger.LogError(ex, "Job {JobId} failed", job.JobId);
         }
@@ -282,19 +326,23 @@ public sealed class BackgroundJobService : IBackgroundJobService, IHostedService
 
         try
         {
-            await job.Work(state, stoppingToken);
+            await using var scope = _scopeFactory.CreateAsyncScope();
+            await job.Work(scope.ServiceProvider, state, stoppingToken);
 
             state.MarkCompleted();
+            await CreateModpackNotificationAsync(job.ServerName, "completed", null, CancellationToken.None);
             _logger.LogInformation("Modpack install job {JobId} completed successfully", job.JobId);
         }
         catch (OperationCanceledException)
         {
             state.MarkFailed("Installation was cancelled");
+            await CreateModpackNotificationAsync(job.ServerName, "cancelled", "Installation was cancelled", CancellationToken.None);
             _logger.LogWarning("Modpack install job {JobId} was cancelled", job.JobId);
         }
         catch (Exception ex)
         {
             state.MarkFailed(ex.Message);
+            await CreateModpackNotificationAsync(job.ServerName, "failed", ex.Message, CancellationToken.None);
             _logger.LogError(ex, "Modpack install job {JobId} failed", job.JobId);
         }
     }
@@ -309,14 +357,14 @@ public sealed class BackgroundJobService : IBackgroundJobService, IHostedService
         string JobId,
         string Type,
         string ServerName,
-        Func<IProgress<JobProgressDto>, CancellationToken, Task> Work
+        Func<IServiceProvider, IProgress<JobProgressDto>, CancellationToken, Task> Work
     );
 
     private record ModpackJob(
         string JobId,
         string ServerName,
         ModpackInstallState State,
-        Func<IModpackInstallState, CancellationToken, Task> Work
+        Func<IServiceProvider, IModpackInstallState, CancellationToken, Task> Work
     );
 
     private class JobState
@@ -392,25 +440,43 @@ public sealed class BackgroundJobService : IBackgroundJobService, IHostedService
 
     private async Task<Domain.Entities.JobRecord?> GetJobRecordAsync(string jobId, CancellationToken cancellationToken)
     {
-        using var scope = _scopeFactory.CreateScope();
+        await using var scope = _scopeFactory.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
         return await db.Jobs.AsNoTracking().FirstOrDefaultAsync(j => j.JobId == jobId, cancellationToken);
     }
 
     private async Task UpsertJobAsync(JobState state, CancellationToken cancellationToken)
     {
-        using var scope = _scopeFactory.CreateScope();
+        await using var scope = _scopeFactory.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
         var startedAt = state.StartedAt.ToString("O");
         var completedAt = state.CompletedAt?.ToString("O");
-        var message = (object?)state.Message ?? DBNull.Value;
-        var error = (object?)state.Error ?? DBNull.Value;
-        var completedAtValue = (object?)completedAt ?? DBNull.Value;
+        var parameters = new object[]
+        {
+            new SqliteParameter("@jobId", state.JobId),
+            new SqliteParameter("@type", state.Type),
+            new SqliteParameter("@serverName", state.ServerName),
+            new SqliteParameter("@status", state.Status),
+            new SqliteParameter("@percentage", state.Percentage),
+            new SqliteParameter("@message", SqliteType.Text)
+            {
+                Value = (object?)state.Message ?? DBNull.Value
+            },
+            new SqliteParameter("@error", SqliteType.Text)
+            {
+                Value = (object?)state.Error ?? DBNull.Value
+            },
+            new SqliteParameter("@startedAt", startedAt),
+            new SqliteParameter("@completedAt", SqliteType.Text)
+            {
+                Value = (object?)completedAt ?? DBNull.Value
+            }
+        };
 
         await db.Database.ExecuteSqlRawAsync(
             """
             INSERT INTO Jobs (JobId, Type, ServerName, Status, Percentage, Message, Error, StartedAt, CompletedAt)
-            VALUES ({0}, {1}, {2}, {3}, {4}, {5}, {6}, {7}, {8})
+            VALUES (@jobId, @type, @serverName, @status, @percentage, @message, @error, @startedAt, @completedAt)
             ON CONFLICT(JobId) DO UPDATE SET
                 Type = excluded.Type,
                 ServerName = excluded.ServerName,
@@ -421,14 +487,90 @@ public sealed class BackgroundJobService : IBackgroundJobService, IHostedService
                 StartedAt = excluded.StartedAt,
                 CompletedAt = excluded.CompletedAt;
             """,
-            state.JobId,
-            state.Type,
-            state.ServerName,
-            state.Status,
-            state.Percentage,
-            message,
-            error,
-            startedAt,
-            completedAtValue);
+            parameters,
+            cancellationToken);
+    }
+
+    private async Task CreateJobNotificationAsync(JobState state, string outcome, CancellationToken cancellationToken)
+    {
+        var (type, titleSuffix) = GetNotificationType(outcome);
+        var jobLabel = GetJobDisplayName(state.Type);
+        var title = $"{jobLabel} {titleSuffix}";
+        var message = outcome switch
+        {
+            "completed" => $"{jobLabel} for {state.ServerName} completed successfully.",
+            "cancelled" => $"{jobLabel} for {state.ServerName} was cancelled.",
+            _ => $"{jobLabel} for {state.ServerName} failed: {state.Error ?? "Unknown error"}."
+        };
+
+        await CreateNotificationAsync(type, title, message, state.ServerName, cancellationToken);
+    }
+
+    private async Task CreateModpackNotificationAsync(
+        string serverName,
+        string outcome,
+        string? error,
+        CancellationToken cancellationToken)
+    {
+        var (type, titleSuffix) = GetNotificationType(outcome);
+        var title = $"Modpack Install {titleSuffix}";
+        var message = outcome switch
+        {
+            "completed" => $"Modpack install for {serverName} completed successfully.",
+            "cancelled" => $"Modpack install for {serverName} was cancelled.",
+            _ => $"Modpack install for {serverName} failed: {error ?? "Unknown error"}."
+        };
+
+        await CreateNotificationAsync(type, title, message, serverName, cancellationToken);
+    }
+
+    private async Task CreateNotificationAsync(
+        string type,
+        string title,
+        string message,
+        string? serverName,
+        CancellationToken cancellationToken)
+    {
+        await using var scope = _scopeFactory.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var notification = new SystemNotification
+        {
+            Type = type,
+            Title = title,
+            Message = message,
+            CreatedAt = DateTimeOffset.UtcNow,
+            ServerName = serverName,
+            IsRead = false
+        };
+
+        db.SystemNotifications.Add(notification);
+        await db.SaveChangesAsync(cancellationToken);
+    }
+
+    private static (string Type, string TitleSuffix) GetNotificationType(string outcome)
+    {
+        return outcome switch
+        {
+            "completed" => ("success", "Completed"),
+            "cancelled" => ("warning", "Cancelled"),
+            _ => ("error", "Failed")
+        };
+    }
+
+    private static string GetJobDisplayName(string type)
+    {
+        return type.Trim().ToLowerInvariant() switch
+        {
+            "import" => "Server Import",
+            "backup" => "Backup",
+            "restore" => "Restore",
+            "download" => "Download",
+            "buildtools" => "BuildTools",
+            "mod-install" => "Mod Install",
+            "modpack-install" => "Modpack Install",
+            "modrinth-modpack-install" => "Modrinth Modpack Install",
+            "archive" => "Archive",
+            _ => type.Replace('-', ' ')
+        };
     }
 }

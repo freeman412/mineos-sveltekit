@@ -27,11 +27,32 @@ public sealed class ModService : IModService
     {
         PropertyNameCaseInsensitive = true
     };
+    private static readonly JsonSerializerOptions ReportJsonOptions = new()
+    {
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+        WriteIndented = true
+    };
+
+    private static readonly HashSet<string> ClientOnlyCategories = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "client-side",
+        "shader",
+        "shaders",
+        "rendering",
+        "ui",
+        "gui",
+        "cit",
+        "cosmetic",
+        "capes"
+    };
 
     private readonly ILogger<ModService> _logger;
     private readonly HostOptions _hostOptions;
     private readonly ICurseForgeService _curseForgeService;
+    private readonly IModrinthService _modrinthService;
     private readonly ISettingsService _settingsService;
+    private readonly IServerService _serverService;
+    private readonly IProfileService _profileService;
     private readonly HttpClient _httpClient;
     private readonly IServiceScopeFactory _scopeFactory;
 
@@ -39,14 +60,20 @@ public sealed class ModService : IModService
         ILogger<ModService> logger,
         IOptions<HostOptions> hostOptions,
         ICurseForgeService curseForgeService,
+        IModrinthService modrinthService,
         ISettingsService settingsService,
+        IServerService serverService,
+        IProfileService profileService,
         HttpClient httpClient,
         IServiceScopeFactory scopeFactory)
     {
         _logger = logger;
         _hostOptions = hostOptions.Value;
         _curseForgeService = curseForgeService;
+        _modrinthService = modrinthService;
         _settingsService = settingsService;
+        _serverService = serverService;
+        _profileService = profileService;
         _httpClient = httpClient;
         _scopeFactory = scopeFactory;
     }
@@ -206,6 +233,20 @@ public sealed class ModService : IModService
 
         var resolvedFileId = await ResolveFileIdAsync(modId, fileId, cancellationToken);
         var modFile = await _curseForgeService.GetModFileAsync(modId, resolvedFileId, cancellationToken);
+        var serverVersion = await GetServerMinecraftVersionAsync(serverName, cancellationToken);
+        if (!string.IsNullOrWhiteSpace(serverVersion) && modFile.GameVersions.Count > 0 &&
+            !IsMinecraftVersionMatch(serverVersion, modFile.GameVersions))
+        {
+            var versionList = FormatVersionList(modFile.GameVersions);
+            progress.Report(new JobProgressDto(
+                string.Empty,
+                "mod-install",
+                serverName,
+                "running",
+                0,
+                $"Warning: Mod targets Minecraft {versionList} but server is {serverVersion}.",
+                DateTimeOffset.UtcNow));
+        }
         var downloadUrl = modFile.DownloadUrl ??
                           await _curseForgeService.GetModFileDownloadUrlAsync(modId, resolvedFileId, cancellationToken);
 
@@ -232,17 +273,83 @@ public sealed class ModService : IModService
 
         var resolvedFileId = await ResolveFileIdAsync(modpackId, fileId, cancellationToken);
         var modpackFile = await _curseForgeService.GetModFileAsync(modpackId, resolvedFileId, cancellationToken);
-        var downloadUrl = modpackFile.DownloadUrl ??
-                          await _curseForgeService.GetModFileDownloadUrlAsync(modpackId, resolvedFileId, cancellationToken);
+        var serverPackFile = modpackFile.IsServerPack == true
+            ? modpackFile
+            : await ResolveServerPackFileAsync(modpackId, modpackFile, cancellationToken);
+        var selectedFile = serverPackFile ?? modpackFile;
 
-        var modpackPath = Path.Combine(EnsureModpackPath(serverName), ValidateFileName(modpackFile.FileName));
+        if (serverPackFile != null)
+        {
+            progress.Report(new JobProgressDto(
+                string.Empty,
+                "modpack-install",
+                serverName,
+                "running",
+                0,
+                $"Using CurseForge server pack {serverPackFile.FileName}",
+                DateTimeOffset.UtcNow));
+        }
+
+        var downloadUrl = selectedFile.DownloadUrl ??
+                          await _curseForgeService.GetModFileDownloadUrlAsync(modpackId, selectedFile.Id, cancellationToken);
+
+        var modpackPath = Path.Combine(EnsureModpackPath(serverName), ValidateFileName(selectedFile.FileName));
 
         progress.Report(new JobProgressDto(string.Empty, "modpack-install", serverName, "running", 0, "Downloading modpack", DateTimeOffset.UtcNow));
         await DownloadFileAsync(downloadUrl, modpackPath, progress, serverName, "modpack-install", cancellationToken);
 
-        await ApplyModpackAsync(serverName, modpackPath, progress, cancellationToken);
+        await ApplyModpackAsync(serverName, modpackPath, serverPackFile != null, progress, cancellationToken);
         MarkRestartRequired(GetServerPath(serverName));
-        _logger.LogInformation("Installed modpack {ModpackId} ({FileName}) for server {ServerName}", modpackId, modpackFile.FileName, serverName);
+        _logger.LogInformation("Installed modpack {ModpackId} ({FileName}) for server {ServerName}", modpackId, selectedFile.FileName, serverName);
+    }
+
+    public async Task InstallModrinthModpackAsync(
+        string serverName,
+        string projectId,
+        string versionId,
+        string? projectName,
+        string? projectVersion,
+        string? logoUrl,
+        IProgress<JobProgressDto> progress,
+        CancellationToken cancellationToken)
+    {
+        var serverPath = GetServerPath(serverName);
+        if (!Directory.Exists(serverPath))
+        {
+            throw new DirectoryNotFoundException($"Server '{serverName}' not found");
+        }
+
+        var version = await _modrinthService.GetVersionAsync(versionId, cancellationToken);
+        if (version == null)
+        {
+            throw new InvalidOperationException("Modrinth version not found");
+        }
+
+        var file = version.Files.FirstOrDefault(f => f.Primary) ?? version.Files.FirstOrDefault();
+        if (file == null)
+        {
+            throw new InvalidOperationException("Modrinth version has no downloadable files");
+        }
+
+        var modpackFileName = ValidateFileName(file.FileName);
+        var modpackPath = Path.Combine(EnsureModpackPath(serverName), modpackFileName);
+
+        progress.Report(new JobProgressDto(string.Empty, "modrinth-modpack-install", serverName, "running", 0, "Downloading modpack", DateTimeOffset.UtcNow));
+        await DownloadFileAsync(file.Url, modpackPath, progress, serverName, "modrinth-modpack-install", cancellationToken);
+
+        await ApplyModrinthModpackAsync(
+            serverName,
+            modpackPath,
+            projectId,
+            projectName ?? projectId,
+            projectVersion ?? version.Name ?? version.VersionNumber,
+            logoUrl,
+            progress,
+            cancellationToken);
+
+        MarkRestartRequired(serverPath);
+        _logger.LogInformation("Installed Modrinth modpack {ProjectId} ({VersionId}) for server {ServerName}",
+            projectId, versionId, serverName);
     }
 
     public async Task<IReadOnlyList<InstalledModWithModpackDto>> ListModsWithModpacksAsync(
@@ -342,20 +449,37 @@ public sealed class ModService : IModService
         state.AppendOutput($"Resolving modpack file for {modpackName}...");
         var resolvedFileId = await ResolveFileIdAsync(modpackId, fileId, cancellationToken);
         var modpackFile = await _curseForgeService.GetModFileAsync(modpackId, resolvedFileId, cancellationToken);
-        var downloadUrl = modpackFile.DownloadUrl ??
-                          await _curseForgeService.GetModFileDownloadUrlAsync(modpackId, resolvedFileId, cancellationToken);
+        var serverPackFile = modpackFile.IsServerPack == true
+            ? modpackFile
+            : await ResolveServerPackFileAsync(modpackId, modpackFile, cancellationToken);
+        var selectedFile = serverPackFile ?? modpackFile;
+        var downloadUrl = selectedFile.DownloadUrl ??
+                          await _curseForgeService.GetModFileDownloadUrlAsync(modpackId, selectedFile.Id, cancellationToken);
 
-        var modpackPath = Path.Combine(EnsureModpackPath(serverName), ValidateFileName(modpackFile.FileName));
+        var modpackPath = Path.Combine(EnsureModpackPath(serverName), ValidateFileName(selectedFile.FileName));
 
         state.UpdateProgress(5, "Downloading modpack archive");
-        state.AppendOutput($"Downloading {modpackFile.FileName}...");
+        if (serverPackFile != null)
+        {
+            state.AppendOutput($"Using CurseForge server pack {serverPackFile.FileName}");
+        }
+        state.AppendOutput($"Downloading {selectedFile.FileName}...");
         await DownloadFileWithStateAsync(downloadUrl, modpackPath, state, cancellationToken);
 
         try
         {
-            await ApplyModpackWithStateAsync(serverName, modpackPath, modpackId, modpackName, modpackVersion, logoUrl, state, cancellationToken);
+            await ApplyModpackWithStateAsync(
+                serverName,
+                modpackPath,
+                modpackId,
+                modpackName,
+                modpackVersion,
+                logoUrl,
+                serverPackFile != null,
+                state,
+                cancellationToken);
             MarkRestartRequired(serverPath);
-            _logger.LogInformation("Installed modpack {ModpackId} ({FileName}) for server {ServerName}", modpackId, modpackFile.FileName, serverName);
+            _logger.LogInformation("Installed modpack {ModpackId} ({FileName}) for server {ServerName}", modpackId, selectedFile.FileName, serverName);
         }
         catch (Exception ex)
         {
@@ -464,11 +588,26 @@ public sealed class ModService : IModService
         string modpackName,
         string? modpackVersion,
         string? logoUrl,
+        bool isServerPack,
         IModpackInstallState state,
         CancellationToken cancellationToken)
     {
         await using var fileStream = new FileStream(modpackPath, FileMode.Open, FileAccess.Read, FileShare.Read);
         using var archive = new ZipArchive(fileStream, ZipArchiveMode.Read);
+
+        if (isServerPack)
+        {
+            await ApplyCurseForgeServerPackWithStateAsync(
+                serverName,
+                archive,
+                curseForgeProjectId,
+                modpackName,
+                modpackVersion,
+                logoUrl,
+                state,
+                cancellationToken);
+            return;
+        }
 
         var manifestEntry = archive.GetEntry("manifest.json");
         if (manifestEntry == null)
@@ -487,6 +626,17 @@ public sealed class ModService : IModService
             throw new InvalidOperationException("Modpack manifest is missing required files");
         }
 
+        var manifestVersion = manifest.Minecraft?.Version;
+        if (!string.IsNullOrWhiteSpace(manifestVersion))
+        {
+            var serverVersion = await GetServerMinecraftVersionAsync(serverName, cancellationToken);
+            if (!string.IsNullOrWhiteSpace(serverVersion) &&
+                !IsMinecraftVersionMatch(serverVersion, new[] { manifestVersion }))
+            {
+                state.AppendOutput($"WARNING: Modpack targets Minecraft {manifestVersion} but server is {serverVersion}.");
+            }
+        }
+
         state.SetTotalMods(manifest.Files.Count);
         state.AppendOutput($"Found {manifest.Files.Count} mods to install");
 
@@ -494,6 +644,7 @@ public sealed class ModService : IModService
         state.AppendOutput("Extracting override files...");
         var extractedOverrides = ExtractOverridesWithTracking(archive, serverName, state);
         state.AppendOutput($"Extracted {extractedOverrides} override files");
+        var overrideModFiles = GetOverrideModFileNames(archive, "overrides/");
 
         state.UpdateProgress(15, "Resolving modpack files");
         var downloads = await ResolveModpackDownloadsAsync(
@@ -546,29 +697,132 @@ public sealed class ModService : IModService
         state.UpdateProgress(95, "Saving modpack records");
         state.AppendOutput("Saving installation records to database...");
 
+        AddOverrideModRecords(installedModRecords, overrideModFiles, serverName);
+
+        await SaveCurseForgeModpackRecordsAsync(
+            serverName,
+            curseForgeProjectId,
+            modpackName,
+            modpackVersion,
+            logoUrl,
+            installedModRecords,
+            cancellationToken);
+        state.AppendOutput($"Installation complete! Installed {installedModRecords.Count} mods.");
+    }
+
+    private async Task ApplyCurseForgeServerPackWithStateAsync(
+        string serverName,
+        ZipArchive archive,
+        int curseForgeProjectId,
+        string modpackName,
+        string? modpackVersion,
+        string? logoUrl,
+        IModpackInstallState state,
+        CancellationToken cancellationToken)
+    {
+        var serverPath = GetServerPath(serverName);
+        var rootPrefix = GetArchiveRootPrefix(archive);
+        var modFiles = GetArchiveModFileNames(archive, rootPrefix);
+        var installedModRecords = new List<InstalledModRecord>();
+        var extractedCount = 0;
+        var modIndex = 0;
+
+        state.SetTotalMods(modFiles.Count);
+        state.UpdateProgress(10, "Extracting server pack");
+        state.AppendOutput("Extracting server pack files...");
+
+        foreach (var entry in archive.Entries)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (entry.FullName.EndsWith("/", StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            var relativePath = TrimArchiveRoot(entry.FullName, rootPrefix);
+            if (string.IsNullOrWhiteSpace(relativePath))
+            {
+                continue;
+            }
+
+            var destination = GetSafePath(serverPath, relativePath);
+            var directory = Path.GetDirectoryName(destination);
+            if (!string.IsNullOrWhiteSpace(directory))
+            {
+                Directory.CreateDirectory(directory);
+                OwnershipHelper.TrySetOwnership(directory, _hostOptions.RunAsUid, _hostOptions.RunAsGid, _logger);
+            }
+
+            using var entryStream = entry.Open();
+            using var fileStream = new FileStream(destination, FileMode.Create, FileAccess.Write, FileShare.None);
+            await entryStream.CopyToAsync(fileStream, cancellationToken);
+            OwnershipHelper.TrySetOwnership(destination, _hostOptions.RunAsUid, _hostOptions.RunAsGid, _logger);
+            state.RecordInstalledFile(destination);
+            extractedCount++;
+
+            if (IsModPath(relativePath) && IsJarFile(relativePath))
+            {
+                modIndex++;
+                state.UpdateModProgress(modIndex, Path.GetFileName(relativePath));
+            }
+        }
+
+        state.AppendOutput($"Extracted {extractedCount} file(s).");
+
+        AddOverrideModRecords(installedModRecords, modFiles, serverName);
+
+        state.UpdateProgress(95, "Saving modpack records");
+        state.AppendOutput("Saving installation records to database...");
+
+        await SaveCurseForgeModpackRecordsAsync(
+            serverName,
+            curseForgeProjectId,
+            modpackName,
+            modpackVersion,
+            logoUrl,
+            installedModRecords,
+            cancellationToken);
+
+        state.AppendOutput($"Installation complete! Installed {installedModRecords.Count} mods.");
+    }
+
+    private async Task SaveCurseForgeModpackRecordsAsync(
+        string serverName,
+        int curseForgeProjectId,
+        string modpackName,
+        string? modpackVersion,
+        string? logoUrl,
+        List<InstalledModRecord> installedModRecords,
+        CancellationToken cancellationToken)
+    {
         using var scope = _scopeFactory.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
 
-        // Check if modpack already exists for this server
+        var source = "curseforge";
+        var sourceProjectId = curseForgeProjectId.ToString();
+
         var existingModpack = await db.InstalledModpacks
-            .FirstOrDefaultAsync(m => m.ServerName == serverName && m.CurseForgeProjectId == curseForgeProjectId, cancellationToken);
+            .FirstOrDefaultAsync(m => m.ServerName == serverName &&
+                                      m.Source == source &&
+                                      m.SourceProjectId == sourceProjectId,
+                cancellationToken);
 
         if (existingModpack != null)
         {
-            // Update existing modpack
+            existingModpack.CurseForgeProjectId = curseForgeProjectId;
+            existingModpack.Source = source;
+            existingModpack.SourceProjectId = sourceProjectId;
             existingModpack.Name = modpackName;
             existingModpack.Version = modpackVersion;
             existingModpack.LogoUrl = logoUrl;
             existingModpack.ModCount = installedModRecords.Count;
             existingModpack.InstalledAt = DateTimeOffset.UtcNow;
 
-            // Remove old mod records
             var oldRecords = await db.InstalledModRecords
                 .Where(r => r.ModpackId == existingModpack.Id)
                 .ToListAsync(cancellationToken);
             db.InstalledModRecords.RemoveRange(oldRecords);
 
-            // Add new mod records
             foreach (var record in installedModRecords)
             {
                 record.ModpackId = existingModpack.Id;
@@ -577,11 +831,12 @@ public sealed class ModService : IModService
         }
         else
         {
-            // Create new modpack
             var modpack = new InstalledModpack
             {
                 ServerName = serverName,
                 CurseForgeProjectId = curseForgeProjectId,
+                Source = source,
+                SourceProjectId = sourceProjectId,
                 Name = modpackName,
                 Version = modpackVersion,
                 LogoUrl = logoUrl,
@@ -599,7 +854,6 @@ public sealed class ModService : IModService
         }
 
         await db.SaveChangesAsync(cancellationToken);
-        state.AppendOutput($"Installation complete! Installed {installedModRecords.Count} mods.");
     }
 
     private int ExtractOverridesWithTracking(ZipArchive archive, string serverName, IModpackInstallState state)
@@ -706,6 +960,8 @@ public sealed class ModService : IModService
         {
             ServerName = serverName,
             CurseForgeProjectId = curseForgeProjectId,
+            Source = "curseforge",
+            SourceProjectId = curseForgeProjectId.ToString(),
             Name = modpackName,
             Version = modpackVersion,
             LogoUrl = logoUrl,
@@ -750,11 +1006,18 @@ public sealed class ModService : IModService
     private async Task ApplyModpackAsync(
         string serverName,
         string modpackPath,
+        bool isServerPack,
         IProgress<JobProgressDto> progress,
         CancellationToken cancellationToken)
     {
         await using var fileStream = new FileStream(modpackPath, FileMode.Open, FileAccess.Read, FileShare.Read);
         using var archive = new ZipArchive(fileStream, ZipArchiveMode.Read);
+
+        if (isServerPack)
+        {
+            await ApplyCurseForgeServerPackAsync(serverName, archive, progress, cancellationToken);
+            return;
+        }
 
         var manifestEntry = archive.GetEntry("manifest.json");
         if (manifestEntry == null)
@@ -773,11 +1036,29 @@ public sealed class ModService : IModService
             throw new InvalidOperationException("Modpack manifest is missing required files");
         }
 
+        var manifestVersion = manifest.Minecraft?.Version;
+        if (!string.IsNullOrWhiteSpace(manifestVersion))
+        {
+            var serverVersion = await GetServerMinecraftVersionAsync(serverName, cancellationToken);
+            if (!string.IsNullOrWhiteSpace(serverVersion) &&
+                !IsMinecraftVersionMatch(serverVersion, new[] { manifestVersion }))
+            {
+                progress.Report(new JobProgressDto(
+                    string.Empty,
+                    "modpack-install",
+                    serverName,
+                    "running",
+                    0,
+                    $"Warning: Modpack targets Minecraft {manifestVersion} but server is {serverVersion}.",
+                    DateTimeOffset.UtcNow));
+            }
+        }
+
         var total = manifest.Files.Count + 1;
         var completed = 0;
 
         progress.Report(new JobProgressDto(string.Empty, "modpack-install", serverName, "running", 0, "Extracting overrides", DateTimeOffset.UtcNow));
-        ExtractOverrides(archive, serverName);
+        ExtractOverrides(archive, serverName, "overrides/");
         completed++;
         ReportProgress(progress, serverName, "modpack-install", completed, total, "Overrides extracted");
 
@@ -814,22 +1095,457 @@ public sealed class ModService : IModService
         }
     }
 
-    private void ExtractOverrides(ZipArchive archive, string serverName)
+    private async Task ApplyCurseForgeServerPackAsync(
+        string serverName,
+        ZipArchive archive,
+        IProgress<JobProgressDto> progress,
+        CancellationToken cancellationToken)
     {
         var serverPath = GetServerPath(serverName);
+        var rootPrefix = GetArchiveRootPrefix(archive);
+        var fileEntries = archive.Entries
+            .Where(entry => !entry.FullName.EndsWith("/", StringComparison.Ordinal))
+            .ToList();
+        var total = fileEntries.Count;
+        var completed = 0;
+
+        progress.Report(new JobProgressDto(
+            string.Empty,
+            "modpack-install",
+            serverName,
+            "running",
+            0,
+            "Extracting server pack",
+            DateTimeOffset.UtcNow));
+
+        foreach (var entry in fileEntries)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var relativePath = TrimArchiveRoot(entry.FullName, rootPrefix);
+            if (string.IsNullOrWhiteSpace(relativePath))
+            {
+                continue;
+            }
+
+            var destination = GetSafePath(serverPath, relativePath);
+            var directory = Path.GetDirectoryName(destination);
+            if (!string.IsNullOrWhiteSpace(directory))
+            {
+                Directory.CreateDirectory(directory);
+                OwnershipHelper.TrySetOwnership(directory, _hostOptions.RunAsUid, _hostOptions.RunAsGid, _logger);
+            }
+
+            using var entryStream = entry.Open();
+            await using var fileStream = new FileStream(destination, FileMode.Create, FileAccess.Write, FileShare.None);
+            await entryStream.CopyToAsync(fileStream, cancellationToken);
+            OwnershipHelper.TrySetOwnership(destination, _hostOptions.RunAsUid, _hostOptions.RunAsGid, _logger);
+
+            completed++;
+            if (completed % 25 == 0 || completed == total)
+            {
+                ReportProgress(
+                    progress,
+                    serverName,
+                    "modpack-install",
+                    completed,
+                    total,
+                    $"Extracted {completed}/{total} files");
+            }
+        }
+    }
+
+    private async Task ApplyModrinthModpackAsync(
+        string serverName,
+        string modpackPath,
+        string projectId,
+        string modpackName,
+        string? modpackVersion,
+        string? logoUrl,
+        IProgress<JobProgressDto> progress,
+        CancellationToken cancellationToken)
+    {
+        await using var fileStream = new FileStream(modpackPath, FileMode.Open, FileAccess.Read, FileShare.Read);
+        using var archive = new ZipArchive(fileStream, ZipArchiveMode.Read);
+
+        var manifestEntry = archive.GetEntry("modrinth.index.json");
+        if (manifestEntry == null)
+        {
+            throw new InvalidOperationException("Modrinth modpack index not found");
+        }
+
+        ModrinthModpackIndex? manifest;
+        await using (var manifestStream = manifestEntry.Open())
+        {
+            manifest = await JsonSerializer.DeserializeAsync<ModrinthModpackIndex>(manifestStream, JsonOptions, cancellationToken);
+        }
+
+        if (manifest == null || manifest.Files.Count == 0)
+        {
+            throw new InvalidOperationException("Modrinth modpack is missing required files");
+        }
+
+        if (manifest.Dependencies.TryGetValue("minecraft", out var minecraftVersion) &&
+            !string.IsNullOrWhiteSpace(minecraftVersion))
+        {
+            var serverVersion = await GetServerMinecraftVersionAsync(serverName, cancellationToken);
+            if (!string.IsNullOrWhiteSpace(serverVersion) &&
+                !IsMinecraftVersionMatch(serverVersion, new[] { minecraftVersion }))
+            {
+                progress.Report(new JobProgressDto(
+                    string.Empty,
+                    "modrinth-modpack-install",
+                    serverName,
+                    "running",
+                    0,
+                    $"Warning: Modpack targets Minecraft {minecraftVersion} but server is {serverVersion}.",
+                    DateTimeOffset.UtcNow));
+            }
+        }
+
+        var serverPath = GetServerPath(serverName);
+        var total = manifest.Files.Count + 1;
+        var completed = 0;
+
+        progress.Report(new JobProgressDto(string.Empty, "modrinth-modpack-install", serverName, "running", 0, "Extracting overrides", DateTimeOffset.UtcNow));
+        ExtractOverrides(archive, serverName, "overrides/", "server-overrides/", "server_overrides/");
+        completed++;
+        ReportProgress(progress, serverName, "modrinth-modpack-install", completed, total, "Overrides extracted");
+        var overrideModFiles = GetOverrideModFileNames(archive, "overrides/", "server-overrides/", "server_overrides/");
+
+        var installedRecords = new List<InstalledModRecord>();
+        var projectCache = new Dictionary<string, ModrinthProjectDto?>(StringComparer.OrdinalIgnoreCase);
+        var versionCache = new Dictionary<string, ModrinthVersionDto?>(StringComparer.OrdinalIgnoreCase);
+        var decisions = new List<ModrinthFileDecision>();
+
+        foreach (var file in manifest.Files)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var decision = await EvaluateModrinthModFileAsync(file, projectCache, versionCache, cancellationToken);
+            decisions.Add(decision);
+        }
+
+        var installFiles = decisions.Where(d => d.ShouldInstall).ToList();
+        var excludedMods = decisions
+            .Where(d => !d.ShouldInstall && IsModPath(d.File.Path))
+            .ToList();
+        var missingDownloads = decisions
+            .Where(d => string.IsNullOrWhiteSpace(d.File.Downloads.FirstOrDefault()))
+            .Select(d => d with { ShouldInstall = false, Reason = "MISSING_DOWNLOAD_URL" })
+            .ToList();
+
+        if (missingDownloads.Count > 0)
+        {
+            var reportExclusions = excludedMods
+                .Concat(missingDownloads.Where(d => IsModPath(d.File.Path)))
+                .Distinct()
+                .ToList();
+
+            var missingDownloadReportPath = await WriteModrinthInstallReportAsync(
+                serverName,
+                modpackName,
+                modpackVersion,
+                0,
+                reportExclusions,
+                0,
+                Array.Empty<string>(),
+                cancellationToken);
+
+            throw new InvalidOperationException(
+                $"Modrinth modpack is missing download URLs for {missingDownloads.Count} file(s). See {Path.GetFileName(missingDownloadReportPath)}.");
+        }
+
+        foreach (var excluded in excludedMods)
+        {
+            _logger.LogWarning(
+                "Excluded Modrinth mod {FilePath} for server {ServerName} ({Reason})",
+                excluded.File.Path,
+                serverName,
+                excluded.Reason ?? "UNKNOWN");
+        }
+
+        var loader = await ResolveModrinthLoaderAsync(manifest, serverName, cancellationToken);
+        var dependencyResolution = await ResolveModrinthDependenciesAsync(
+            installFiles.Where(d => IsModPath(d.File.Path)).ToList(),
+            excludedMods,
+            loader,
+            minecraftVersion ?? await GetServerMinecraftVersionAsync(serverName, cancellationToken),
+            projectCache,
+            versionCache,
+            cancellationToken);
+
+        if (dependencyResolution.Errors.Count > 0)
+        {
+            var missingDependencyReportPath = await WriteModrinthInstallReportAsync(
+                serverName,
+                modpackName,
+                modpackVersion,
+                0,
+                excludedMods,
+                0,
+                dependencyResolution.Errors,
+                cancellationToken);
+
+            throw new InvalidOperationException(
+                $"Missing required Modrinth dependencies: {string.Join(", ", dependencyResolution.Errors)}. See {Path.GetFileName(missingDependencyReportPath)}.");
+        }
+
+        total = installFiles.Count + excludedMods.Count + dependencyResolution.Installs.Count + 1;
+
+        foreach (var decision in installFiles)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            var file = decision.File;
+            var downloadUrl = file.Downloads.FirstOrDefault();
+            if (string.IsNullOrWhiteSpace(downloadUrl))
+            {
+                throw new InvalidOperationException(
+                    $"Missing download URL for {Path.GetFileName(file.Path)}.");
+            }
+
+            var targetPath = GetSafePath(serverPath, file.Path);
+            var directory = Path.GetDirectoryName(targetPath);
+            if (!string.IsNullOrWhiteSpace(directory))
+            {
+                Directory.CreateDirectory(directory);
+            }
+
+            var stepMessage = $"Downloading {Path.GetFileName(file.Path)}";
+            ReportProgress(progress, serverName, "modrinth-modpack-install", completed, total, stepMessage);
+
+            await DownloadFileWithRetriesAsync(
+                downloadUrl,
+                targetPath,
+                cancellationToken,
+                null,
+                message => ReportProgress(progress, serverName, "modrinth-modpack-install", completed, total, message));
+
+            await OwnershipHelper.ChangeOwnershipAsync(
+                targetPath,
+                _hostOptions.RunAsUid,
+                _hostOptions.RunAsGid,
+                _logger,
+                cancellationToken);
+
+            if (IsModPath(file.Path))
+            {
+                var fileName = Path.GetFileName(file.Path);
+                installedRecords.Add(new InstalledModRecord
+                {
+                    ServerName = serverName,
+                    FileName = fileName,
+                    CurseForgeProjectId = null,
+                    ModName = decision.ProjectName ?? Path.GetFileNameWithoutExtension(fileName),
+                    InstalledAt = DateTimeOffset.UtcNow
+                });
+            }
+
+            completed++;
+            ReportProgress(progress, serverName, "modrinth-modpack-install", completed, total, $"Downloaded {Path.GetFileName(file.Path)}");
+        }
+
+        if (excludedMods.Count > 0)
+        {
+            var clientModsRoot = Path.Combine(serverPath, "client-mods");
+            Directory.CreateDirectory(clientModsRoot);
+            OwnershipHelper.TrySetOwnership(clientModsRoot, _hostOptions.RunAsUid, _hostOptions.RunAsGid, _logger, recursive: true);
+
+            foreach (var excluded in excludedMods)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                var file = excluded.File;
+                var downloadUrl = file.Downloads.FirstOrDefault();
+                if (string.IsNullOrWhiteSpace(downloadUrl))
+                {
+                    throw new InvalidOperationException(
+                        $"Missing download URL for {Path.GetFileName(file.Path)}.");
+                }
+
+                var targetPath = GetSafePath(clientModsRoot, file.Path);
+                var directory = Path.GetDirectoryName(targetPath);
+                if (!string.IsNullOrWhiteSpace(directory))
+                {
+                    Directory.CreateDirectory(directory);
+                }
+
+                var stepMessage = $"Saving client-only {Path.GetFileName(file.Path)}";
+                ReportProgress(progress, serverName, "modrinth-modpack-install", completed, total, stepMessage);
+
+                await DownloadFileWithRetriesAsync(
+                    downloadUrl,
+                    targetPath,
+                    cancellationToken,
+                    null,
+                    message => ReportProgress(progress, serverName, "modrinth-modpack-install", completed, total, message));
+
+                await OwnershipHelper.ChangeOwnershipAsync(
+                    targetPath,
+                    _hostOptions.RunAsUid,
+                    _hostOptions.RunAsGid,
+                    _logger,
+                    cancellationToken);
+
+                completed++;
+                ReportProgress(progress, serverName, "modrinth-modpack-install", completed, total, $"Saved client-only {Path.GetFileName(file.Path)}");
+            }
+        }
+
+        if (dependencyResolution.Installs.Count > 0)
+        {
+            var modsPath = EnsureModsPath(serverName);
+            foreach (var dependency in dependencyResolution.Installs)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                var file = SelectModrinthFile(dependency.Version);
+                if (file == null || string.IsNullOrWhiteSpace(file.Url))
+                {
+                    throw new InvalidOperationException(
+                        $"Missing download URL for dependency {dependency.ProjectName ?? dependency.ProjectId}.");
+                }
+
+                var targetPath = Path.Combine(modsPath, ValidateFileName(file.FileName));
+                var stepMessage = $"Downloading dependency {Path.GetFileName(file.FileName)}";
+                ReportProgress(progress, serverName, "modrinth-modpack-install", completed, total, stepMessage);
+
+                await DownloadFileWithRetriesAsync(
+                    file.Url,
+                    targetPath,
+                    cancellationToken,
+                    null,
+                    message => ReportProgress(progress, serverName, "modrinth-modpack-install", completed, total, message));
+
+                await OwnershipHelper.ChangeOwnershipAsync(
+                    targetPath,
+                    _hostOptions.RunAsUid,
+                    _hostOptions.RunAsGid,
+                    _logger,
+                    cancellationToken);
+
+                installedRecords.Add(new InstalledModRecord
+                {
+                    ServerName = serverName,
+                    FileName = Path.GetFileName(targetPath),
+                    CurseForgeProjectId = null,
+                    ModName = dependency.ProjectName ?? Path.GetFileNameWithoutExtension(targetPath),
+                    InstalledAt = DateTimeOffset.UtcNow
+                });
+
+                completed++;
+                ReportProgress(progress, serverName, "modrinth-modpack-install", completed, total, $"Downloaded dependency {Path.GetFileName(targetPath)}");
+            }
+        }
+
+        AddOverrideModRecords(installedRecords, overrideModFiles, serverName);
+
+        using var scope = _scopeFactory.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+
+        var existing = await db.InstalledModpacks
+            .FirstOrDefaultAsync(m => m.ServerName == serverName &&
+                                      m.Source == "modrinth" &&
+                                      m.SourceProjectId == projectId,
+                cancellationToken);
+
+        if (existing != null)
+        {
+            existing.Source = "modrinth";
+            existing.SourceProjectId = projectId;
+            existing.CurseForgeProjectId = null;
+            existing.Name = modpackName;
+            existing.Version = modpackVersion;
+            existing.LogoUrl = logoUrl;
+            existing.ModCount = installedRecords.Count;
+            existing.InstalledAt = DateTimeOffset.UtcNow;
+
+            var oldRecords = await db.InstalledModRecords
+                .Where(r => r.ModpackId == existing.Id)
+                .ToListAsync(cancellationToken);
+            db.InstalledModRecords.RemoveRange(oldRecords);
+
+            foreach (var record in installedRecords)
+            {
+                record.ModpackId = existing.Id;
+            }
+            db.InstalledModRecords.AddRange(installedRecords);
+        }
+        else
+        {
+            var modpack = new InstalledModpack
+            {
+                ServerName = serverName,
+                CurseForgeProjectId = null,
+                Source = "modrinth",
+                SourceProjectId = projectId,
+                Name = modpackName,
+                Version = modpackVersion,
+                LogoUrl = logoUrl,
+                ModCount = installedRecords.Count,
+                InstalledAt = DateTimeOffset.UtcNow
+            };
+
+            db.InstalledModpacks.Add(modpack);
+            await db.SaveChangesAsync(cancellationToken);
+
+            foreach (var record in installedRecords)
+            {
+                record.ModpackId = modpack.Id;
+            }
+            db.InstalledModRecords.AddRange(installedRecords);
+        }
+
+        await db.SaveChangesAsync(cancellationToken);
+
+        var reportPath = await WriteModrinthInstallReportAsync(
+            serverName,
+            modpackName,
+            modpackVersion,
+            installedRecords.Count,
+            excludedMods,
+            dependencyResolution.Installs.Count,
+            dependencyResolution.Errors,
+            cancellationToken);
+
+        progress.Report(new JobProgressDto(
+            string.Empty,
+            "modrinth-modpack-install",
+            serverName,
+            "running",
+            100,
+            $"Installed {installedRecords.Count} mod(s), excluded {excludedMods.Count} mod(s), missing {dependencyResolution.Errors.Count} dependency(ies). Report saved to {Path.GetFileName(reportPath)}.",
+            DateTimeOffset.UtcNow));
+    }
+
+    private void ExtractOverrides(ZipArchive archive, string serverName, params string[] roots)
+    {
+        var serverPath = GetServerPath(serverName);
+        var normalizedRoots = roots
+            .Where(root => !string.IsNullOrWhiteSpace(root))
+            .Select(root => root.EndsWith("/", StringComparison.Ordinal) ? root : $"{root}/")
+            .ToList();
+
         foreach (var entry in archive.Entries)
         {
-            if (!entry.FullName.StartsWith("overrides/", StringComparison.OrdinalIgnoreCase))
+            string? matchedRoot = null;
+            foreach (var root in normalizedRoots)
+            {
+                if (entry.FullName.StartsWith(root, StringComparison.OrdinalIgnoreCase))
+                {
+                    matchedRoot = root;
+                    break;
+                }
+            }
+
+            if (matchedRoot == null)
             {
                 continue;
             }
 
-            if (string.Equals(entry.FullName, "overrides/", StringComparison.OrdinalIgnoreCase))
+            if (string.Equals(entry.FullName, matchedRoot, StringComparison.OrdinalIgnoreCase))
             {
                 continue;
             }
 
-            var relativePath = entry.FullName.Substring("overrides/".Length);
+            var relativePath = entry.FullName.Substring(matchedRoot.Length);
             var destination = GetSafePath(serverPath, relativePath);
 
             if (entry.FullName.EndsWith("/", StringComparison.Ordinal))
@@ -851,6 +1567,167 @@ public sealed class ModService : IModService
             entryStream.CopyTo(fileStream);
             OwnershipHelper.TrySetOwnership(destination, _hostOptions.RunAsUid, _hostOptions.RunAsGid, _logger);
         }
+    }
+
+    private static IReadOnlyList<string> GetOverrideModFileNames(ZipArchive archive, params string[] roots)
+    {
+        var normalizedRoots = roots
+            .Where(root => !string.IsNullOrWhiteSpace(root))
+            .Select(root => root.EndsWith("/", StringComparison.Ordinal) ? root : $"{root}/")
+            .ToList();
+        var results = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var entry in archive.Entries)
+        {
+            if (entry.FullName.EndsWith("/", StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            string? matchedRoot = null;
+            foreach (var root in normalizedRoots)
+            {
+                if (entry.FullName.StartsWith(root, StringComparison.OrdinalIgnoreCase))
+                {
+                    matchedRoot = root;
+                    break;
+                }
+            }
+
+            if (matchedRoot == null)
+            {
+                continue;
+            }
+
+            var relativePath = entry.FullName.Substring(matchedRoot.Length);
+            if (!IsModPath(relativePath) || !IsJarFile(relativePath))
+            {
+                continue;
+            }
+
+            results.Add(Path.GetFileName(relativePath));
+        }
+
+        return results.ToList();
+    }
+
+    private static IReadOnlyList<string> GetArchiveModFileNames(ZipArchive archive, string? rootPrefix)
+    {
+        var results = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var entry in archive.Entries)
+        {
+            if (entry.FullName.EndsWith("/", StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            var relativePath = TrimArchiveRoot(entry.FullName, rootPrefix);
+            if (string.IsNullOrWhiteSpace(relativePath))
+            {
+                continue;
+            }
+
+            if (!IsModPath(relativePath) || !IsJarFile(relativePath))
+            {
+                continue;
+            }
+
+            results.Add(Path.GetFileName(relativePath));
+        }
+
+        return results.ToList();
+    }
+
+    private static string? GetArchiveRootPrefix(ZipArchive archive)
+    {
+        string? root = null;
+        foreach (var entry in archive.Entries)
+        {
+            var normalized = NormalizeArchivePath(entry.FullName);
+            if (string.IsNullOrWhiteSpace(normalized))
+            {
+                continue;
+            }
+
+            var firstSegment = normalized.Split('/')[0];
+            if (string.IsNullOrWhiteSpace(firstSegment))
+            {
+                continue;
+            }
+
+            if (root == null)
+            {
+                root = firstSegment;
+            }
+            else if (!string.Equals(root, firstSegment, StringComparison.OrdinalIgnoreCase))
+            {
+                return null;
+            }
+        }
+
+        return root == null ? null : $"{root}/";
+    }
+
+    private static string? TrimArchiveRoot(string fullName, string? rootPrefix)
+    {
+        var normalized = NormalizeArchivePath(fullName);
+        if (string.IsNullOrWhiteSpace(normalized))
+        {
+            return null;
+        }
+
+        if (!string.IsNullOrWhiteSpace(rootPrefix) &&
+            normalized.StartsWith(rootPrefix, StringComparison.OrdinalIgnoreCase))
+        {
+            normalized = normalized.Substring(rootPrefix.Length);
+        }
+
+        return normalized;
+    }
+
+    private static string? NormalizeArchivePath(string fullName)
+    {
+        var normalized = fullName.Replace('\\', '/').TrimStart('/');
+        return string.IsNullOrWhiteSpace(normalized) ? null : normalized;
+    }
+
+    private static void AddOverrideModRecords(
+        List<InstalledModRecord> records,
+        IReadOnlyList<string> overrideModFiles,
+        string serverName)
+    {
+        if (overrideModFiles.Count == 0)
+        {
+            return;
+        }
+
+        var existing = new HashSet<string>(
+            records.Select(record => record.FileName),
+            StringComparer.OrdinalIgnoreCase);
+
+        foreach (var fileName in overrideModFiles)
+        {
+            if (!existing.Add(fileName))
+            {
+                continue;
+            }
+
+            records.Add(new InstalledModRecord
+            {
+                ServerName = serverName,
+                FileName = fileName,
+                CurseForgeProjectId = null,
+                ModName = Path.GetFileNameWithoutExtension(fileName),
+                InstalledAt = DateTimeOffset.UtcNow
+            });
+        }
+    }
+
+    private static bool IsJarFile(string path)
+    {
+        return path.EndsWith(".jar", StringComparison.OrdinalIgnoreCase) ||
+               path.EndsWith(".jar.disabled", StringComparison.OrdinalIgnoreCase);
     }
 
     private sealed record ModpackDownload(int ProjectId, int FileId, string FileName, string DownloadUrl);
@@ -1170,6 +2047,87 @@ public sealed class ModService : IModService
         return latestFile.Id;
     }
 
+    private async Task<CurseForgeFileDto?> ResolveServerPackFileAsync(
+        int modpackId,
+        CurseForgeFileDto modpackFile,
+        CancellationToken cancellationToken)
+    {
+        if (!modpackFile.ServerPackFileId.HasValue || modpackFile.ServerPackFileId.Value <= 0)
+        {
+            return null;
+        }
+
+        try
+        {
+            return await _curseForgeService.GetModFileAsync(
+                modpackId,
+                modpackFile.ServerPackFileId.Value,
+                cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(
+                ex,
+                "Failed to resolve CurseForge server pack {ServerPackFileId} for modpack {ModpackId}. Falling back to client pack.",
+                modpackFile.ServerPackFileId,
+                modpackId);
+            return null;
+        }
+    }
+
+    private async Task<string?> GetServerMinecraftVersionAsync(string serverName, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var config = await _serverService.GetServerConfigAsync(serverName, cancellationToken);
+            if (string.IsNullOrWhiteSpace(config.Minecraft.Profile))
+            {
+                return null;
+            }
+
+            var profile = await _profileService.GetProfileAsync(config.Minecraft.Profile, cancellationToken);
+            return profile?.Version;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to resolve Minecraft version for server {ServerName}", serverName);
+            return null;
+        }
+    }
+
+    private static bool IsMinecraftVersionMatch(string serverVersion, IReadOnlyList<string> supportedVersions)
+    {
+        if (supportedVersions.Count == 0)
+        {
+            return true;
+        }
+
+        if (supportedVersions.Any(version => string.Equals(version, serverVersion, StringComparison.OrdinalIgnoreCase)))
+        {
+            return true;
+        }
+
+        var majorMinor = GetMajorMinorVersion(serverVersion);
+        return supportedVersions.Any(version => string.Equals(version, majorMinor, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static string GetMajorMinorVersion(string version)
+    {
+        var parts = version.Split('.', StringSplitOptions.RemoveEmptyEntries);
+        return parts.Length >= 2 ? $"{parts[0]}.{parts[1]}" : version;
+    }
+
+    private static string FormatVersionList(IReadOnlyList<string> versions, int limit = 5)
+    {
+        if (versions.Count <= limit)
+        {
+            return string.Join(", ", versions);
+        }
+
+        var preview = versions.Take(limit);
+        return $"{string.Join(", ", preview)} (+{versions.Count - limit} more)";
+    }
+
     private string GetServerPath(string serverName) =>
         Path.Combine(_hostOptions.BaseDirectory, _hostOptions.ServersPathSegment, serverName);
 
@@ -1233,6 +2191,459 @@ public sealed class ModService : IModService
         }
 
         return normalized;
+    }
+
+    private static bool IsModPath(string path)
+    {
+        var normalized = path.Replace('\\', '/');
+        return normalized.StartsWith("mods/", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private async Task<ModrinthFileDecision> EvaluateModrinthModFileAsync(
+        ModrinthModpackFile file,
+        IDictionary<string, ModrinthProjectDto?> projectCache,
+        IDictionary<string, ModrinthVersionDto?> versionCache,
+        CancellationToken cancellationToken)
+    {
+        if (!IsModPath(file.Path))
+        {
+            return new ModrinthFileDecision(file, true, null, null, null, null, null, null);
+        }
+
+        var serverEnv = file.Env?.Server;
+        var clientEnv = file.Env?.Client;
+        if (string.Equals(serverEnv, "unsupported", StringComparison.OrdinalIgnoreCase))
+        {
+            return new ModrinthFileDecision(file, false, "ENV_CLIENT_ONLY", null, null, null, null, null);
+        }
+
+        if (string.IsNullOrWhiteSpace(serverEnv) &&
+            string.Equals(clientEnv, "required", StringComparison.OrdinalIgnoreCase))
+        {
+            return new ModrinthFileDecision(file, false, "ENV_CLIENT_ONLY", null, null, null, null, null);
+        }
+
+        ModrinthVersionDto? resolvedVersion = null;
+        ModrinthProjectDto? resolvedProject = null;
+
+        if (TryGetModrinthFileHash(file, out var hash, out var algorithm))
+        {
+            if (!versionCache.TryGetValue(hash, out var version))
+            {
+                try
+                {
+                    version = await _modrinthService.GetVersionByFileHashAsync(hash, algorithm, cancellationToken);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to resolve Modrinth version metadata for hash {Hash}", hash);
+                    version = null;
+                }
+                versionCache[hash] = version;
+            }
+
+            resolvedVersion = version;
+            if (version != null && !string.IsNullOrWhiteSpace(version.ProjectId))
+            {
+                if (!projectCache.TryGetValue(version.ProjectId, out var project))
+                {
+                    try
+                    {
+                        project = await _modrinthService.GetProjectAsync(version.ProjectId, cancellationToken);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Failed to resolve Modrinth project metadata for {ProjectId}", version.ProjectId);
+                        project = null;
+                    }
+                    projectCache[version.ProjectId] = project;
+                }
+
+                if (project != null)
+                {
+                    resolvedProject = project;
+                    if (string.Equals(project.ServerSide, "unsupported", StringComparison.OrdinalIgnoreCase))
+                    {
+                        return new ModrinthFileDecision(
+                            file,
+                            false,
+                            "ENV_CLIENT_ONLY",
+                            project.Id,
+                            project.Title,
+                            version.Name,
+                            project,
+                            version);
+                    }
+
+                    if (string.IsNullOrWhiteSpace(project.ServerSide) ||
+                        string.Equals(project.ServerSide, "unknown", StringComparison.OrdinalIgnoreCase))
+                    {
+                        if (IsKnownClientOnlyCategory(project.Categories))
+                        {
+                            return new ModrinthFileDecision(
+                                file,
+                                false,
+                                "KNOWN_CLIENT_CATEGORY",
+                                project.Id,
+                                project.Title,
+                                version.Name,
+                                project,
+                                version);
+                        }
+                    }
+
+                    return new ModrinthFileDecision(
+                        file,
+                        true,
+                        null,
+                        project.Id,
+                        project.Title,
+                        version.Name,
+                        project,
+                        version);
+                }
+            }
+        }
+
+        return new ModrinthFileDecision(file, true, null, null, null, null, resolvedProject, resolvedVersion);
+    }
+
+    private static bool TryGetModrinthFileHash(
+        ModrinthModpackFile file,
+        out string hash,
+        out string algorithm)
+    {
+        if (file.Hashes.TryGetValue("sha1", out var sha1) && !string.IsNullOrWhiteSpace(sha1))
+        {
+            hash = sha1;
+            algorithm = "sha1";
+            return true;
+        }
+
+        if (file.Hashes.TryGetValue("sha512", out var sha512) && !string.IsNullOrWhiteSpace(sha512))
+        {
+            hash = sha512;
+            algorithm = "sha512";
+            return true;
+        }
+
+        hash = string.Empty;
+        algorithm = string.Empty;
+        return false;
+    }
+
+    private static bool IsKnownClientOnlyCategory(IReadOnlyList<string> categories)
+    {
+        return categories.Any(category => ClientOnlyCategories.Contains(category));
+    }
+
+    private async Task<string?> ResolveModrinthLoaderAsync(
+        ModrinthModpackIndex manifest,
+        string serverName,
+        CancellationToken cancellationToken)
+    {
+        var loaderKey = manifest.Dependencies.Keys
+            .FirstOrDefault(key =>
+                key.Equals("forge", StringComparison.OrdinalIgnoreCase) ||
+                key.Equals("neoforge", StringComparison.OrdinalIgnoreCase) ||
+                key.Equals("fabric", StringComparison.OrdinalIgnoreCase) ||
+                key.Equals("fabric-loader", StringComparison.OrdinalIgnoreCase) ||
+                key.Equals("quilt", StringComparison.OrdinalIgnoreCase) ||
+                key.Equals("quilt-loader", StringComparison.OrdinalIgnoreCase));
+
+        if (!string.IsNullOrWhiteSpace(loaderKey))
+        {
+            return NormalizeModrinthLoader(loaderKey);
+        }
+
+        try
+        {
+            var config = await _serverService.GetServerConfigAsync(serverName, cancellationToken);
+            if (!string.IsNullOrWhiteSpace(config.Minecraft.Profile))
+            {
+                var profile = await _profileService.GetProfileAsync(config.Minecraft.Profile, cancellationToken);
+                if (profile != null)
+                {
+                    return NormalizeModrinthLoader(profile.Group);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to resolve Modrinth loader for server {ServerName}", serverName);
+        }
+
+        return null;
+    }
+
+    private static string? NormalizeModrinthLoader(string? loader)
+    {
+        if (string.IsNullOrWhiteSpace(loader))
+        {
+            return null;
+        }
+
+        return loader.Trim().ToLowerInvariant() switch
+        {
+            "fabric-loader" => "fabric",
+            "quilt-loader" => "quilt",
+            "forge" => "forge",
+            "neoforge" => "neoforge",
+            "fabric" => "fabric",
+            "quilt" => "quilt",
+            _ => null
+        };
+    }
+
+    private async Task<ModrinthDependencyResolution> ResolveModrinthDependenciesAsync(
+        IReadOnlyList<ModrinthFileDecision> installedMods,
+        IReadOnlyList<ModrinthFileDecision> excludedMods,
+        string? loader,
+        string? gameVersion,
+        IDictionary<string, ModrinthProjectDto?> projectCache,
+        IDictionary<string, ModrinthVersionDto?> versionCache,
+        CancellationToken cancellationToken)
+    {
+        var installs = new List<ModrinthDependencyInstall>();
+        var errors = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var installedProjectIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var installedVersionIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var excludedProjectIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var mod in installedMods)
+        {
+            if (!string.IsNullOrWhiteSpace(mod.ProjectId))
+            {
+                installedProjectIds.Add(mod.ProjectId);
+            }
+
+            if (!string.IsNullOrWhiteSpace(mod.Version?.Id))
+            {
+                installedVersionIds.Add(mod.Version.Id);
+            }
+        }
+
+        foreach (var excluded in excludedMods)
+        {
+            if (!string.IsNullOrWhiteSpace(excluded.ProjectId))
+            {
+                excludedProjectIds.Add(excluded.ProjectId);
+            }
+        }
+
+        var dependencyQueue = new Queue<ModrinthDependencyDto>();
+        var queuedDependencyKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var mod in installedMods)
+        {
+            if (mod.Version == null)
+            {
+                _logger.LogWarning(
+                    "Skipping dependency resolution for {FilePath} because Modrinth metadata is unavailable.",
+                    mod.File.Path);
+                continue;
+            }
+
+            if (mod.Version.Dependencies == null)
+            {
+                continue;
+            }
+
+            foreach (var dependency in mod.Version.Dependencies)
+            {
+                if (string.Equals(dependency.DependencyType, "required", StringComparison.OrdinalIgnoreCase))
+                {
+                    var dependencyKey = GetDependencyKey(dependency);
+                    if (!string.IsNullOrWhiteSpace(dependencyKey) && queuedDependencyKeys.Add(dependencyKey))
+                    {
+                        dependencyQueue.Enqueue(dependency);
+                    }
+                }
+            }
+        }
+
+        while (dependencyQueue.Count > 0)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var dependency = dependencyQueue.Dequeue();
+
+            if (!string.IsNullOrWhiteSpace(dependency.VersionId) &&
+                installedVersionIds.Contains(dependency.VersionId))
+            {
+                continue;
+            }
+
+            if (!string.IsNullOrWhiteSpace(dependency.ProjectId) &&
+                installedProjectIds.Contains(dependency.ProjectId))
+            {
+                continue;
+            }
+
+            var dependencyVersion = await ResolveDependencyVersionAsync(
+                dependency,
+                loader,
+                gameVersion,
+                projectCache,
+                cancellationToken);
+
+            if (dependencyVersion == null)
+            {
+                errors.Add(dependency.ProjectId ?? dependency.VersionId ?? "unknown");
+                continue;
+            }
+
+            if (!string.IsNullOrWhiteSpace(gameVersion) &&
+                dependencyVersion.GameVersions.Count > 0 &&
+                !dependencyVersion.GameVersions.Contains(gameVersion, StringComparer.OrdinalIgnoreCase))
+            {
+                errors.Add($"{dependencyVersion.ProjectId} (incompatible Minecraft version)");
+                continue;
+            }
+
+            if (!string.IsNullOrWhiteSpace(loader) &&
+                dependencyVersion.Loaders.Count > 0 &&
+                !dependencyVersion.Loaders.Contains(loader, StringComparer.OrdinalIgnoreCase))
+            {
+                errors.Add($"{dependencyVersion.ProjectId} (incompatible loader)");
+                continue;
+            }
+
+            var dependencyProject = await ResolveDependencyProjectAsync(
+                dependencyVersion.ProjectId,
+                projectCache,
+                cancellationToken);
+
+            if (dependencyProject == null)
+            {
+                errors.Add(dependency.ProjectId ?? dependency.VersionId ?? "unknown");
+                continue;
+            }
+
+            if (string.Equals(dependencyProject.ServerSide, "unsupported", StringComparison.OrdinalIgnoreCase))
+            {
+                errors.Add($"{dependencyProject.Title} (client-only)");
+                continue;
+            }
+
+            if (string.IsNullOrWhiteSpace(dependencyProject.ServerSide) &&
+                IsKnownClientOnlyCategory(dependencyProject.Categories))
+            {
+                errors.Add($"{dependencyProject.Title} (client-only)");
+                continue;
+            }
+
+            if (installedProjectIds.Contains(dependencyProject.Id))
+            {
+                continue;
+            }
+
+            if (excludedProjectIds.Contains(dependencyProject.Id))
+            {
+                errors.Add($"{dependencyProject.Title} (excluded)");
+                continue;
+            }
+
+            installs.Add(new ModrinthDependencyInstall(
+                dependencyProject.Id,
+                dependencyProject.Title,
+                dependencyVersion));
+            installedProjectIds.Add(dependencyProject.Id);
+            installedVersionIds.Add(dependencyVersion.Id);
+
+            if (dependencyVersion.Dependencies != null)
+            {
+                foreach (var child in dependencyVersion.Dependencies)
+                {
+                    if (string.Equals(child.DependencyType, "required", StringComparison.OrdinalIgnoreCase))
+                    {
+                        var childKey = GetDependencyKey(child);
+                        if (!string.IsNullOrWhiteSpace(childKey) && queuedDependencyKeys.Add(childKey))
+                        {
+                            dependencyQueue.Enqueue(child);
+                        }
+                    }
+                }
+            }
+        }
+
+        return new ModrinthDependencyResolution(installs, errors.OrderBy(error => error).ToList());
+    }
+
+    private static string? GetDependencyKey(ModrinthDependencyDto dependency)
+    {
+        if (!string.IsNullOrWhiteSpace(dependency.VersionId))
+        {
+            return $"version:{dependency.VersionId}";
+        }
+
+        if (!string.IsNullOrWhiteSpace(dependency.ProjectId))
+        {
+            return $"project:{dependency.ProjectId}";
+        }
+
+        return null;
+    }
+
+    private async Task<ModrinthVersionDto?> ResolveDependencyVersionAsync(
+        ModrinthDependencyDto dependency,
+        string? loader,
+        string? gameVersion,
+        IDictionary<string, ModrinthProjectDto?> projectCache,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            if (!string.IsNullOrWhiteSpace(dependency.VersionId))
+            {
+                return await _modrinthService.GetVersionAsync(dependency.VersionId, cancellationToken);
+            }
+
+            if (!string.IsNullOrWhiteSpace(dependency.ProjectId))
+            {
+                await ResolveDependencyProjectAsync(dependency.ProjectId, projectCache, cancellationToken);
+                var versions = await _modrinthService.GetProjectVersionsAsync(
+                    dependency.ProjectId,
+                    loader,
+                    gameVersion,
+                    cancellationToken);
+                return versions.FirstOrDefault();
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to resolve dependency {Dependency}", dependency.ProjectId ?? dependency.VersionId);
+        }
+
+        return null;
+    }
+
+    private async Task<ModrinthProjectDto?> ResolveDependencyProjectAsync(
+        string projectId,
+        IDictionary<string, ModrinthProjectDto?> projectCache,
+        CancellationToken cancellationToken)
+    {
+        if (projectCache.TryGetValue(projectId, out var cached))
+        {
+            return cached;
+        }
+
+        try
+        {
+            var project = await _modrinthService.GetProjectAsync(projectId, cancellationToken);
+            projectCache[projectId] = project;
+            return project;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to resolve Modrinth project metadata for {ProjectId}", projectId);
+            projectCache[projectId] = null;
+            return null;
+        }
+    }
+
+    private static ModrinthVersionFileDto? SelectModrinthFile(ModrinthVersionDto version)
+    {
+        return version.Files.FirstOrDefault(file => file.Primary)
+               ?? version.Files.FirstOrDefault();
     }
 
     private async Task ExtractZipToModsAsync(string zipPath, string modsPath, CancellationToken cancellationToken)
@@ -1332,9 +2743,59 @@ public sealed class ModService : IModService
         }
     }
 
+    private async Task<string> WriteModrinthInstallReportAsync(
+        string serverName,
+        string modpackName,
+        string? modpackVersion,
+        int installedMods,
+        IReadOnlyList<ModrinthFileDecision> excludedMods,
+        int dependencyCount,
+        IReadOnlyList<string> missingDependencies,
+        CancellationToken cancellationToken)
+    {
+        var serverPath = GetServerPath(serverName);
+        var reportPath = Path.Combine(serverPath, "modrinth-install-report.json");
+        var excluded = excludedMods
+            .Select(excludedMod => new ModrinthExcludedMod(
+                excludedMod.File.Path,
+                excludedMod.ProjectId,
+                excludedMod.ProjectName ?? Path.GetFileNameWithoutExtension(excludedMod.File.Path),
+                excludedMod.VersionName,
+                excludedMod.Reason ?? "UNKNOWN"))
+            .ToList();
+
+        var report = new ModrinthInstallReport(
+            serverName,
+            modpackName,
+            modpackVersion,
+            installedMods,
+            excluded.Count,
+            dependencyCount,
+            missingDependencies,
+            DateTimeOffset.UtcNow,
+            excluded);
+
+        var json = JsonSerializer.Serialize(report, ReportJsonOptions);
+        await File.WriteAllTextAsync(reportPath, json, cancellationToken);
+        await OwnershipHelper.ChangeOwnershipAsync(
+            reportPath,
+            _hostOptions.RunAsUid,
+            _hostOptions.RunAsGid,
+            _logger,
+            cancellationToken);
+
+        return reportPath;
+    }
+
     private sealed class ModpackManifest
     {
         public List<ModpackFile> Files { get; set; } = new();
+        public ModpackMinecraft? Minecraft { get; set; }
+    }
+
+    private sealed class ModpackMinecraft
+    {
+        public string? Version { get; set; }
     }
 
     private sealed class ModpackFile
@@ -1343,4 +2804,64 @@ public sealed class ModService : IModService
         public int FileId { get; set; }
         public bool Required { get; set; }
     }
+
+    private sealed class ModrinthModpackIndex
+    {
+        public int FormatVersion { get; set; }
+        public string Name { get; set; } = string.Empty;
+        public string VersionId { get; set; } = string.Empty;
+        public Dictionary<string, string> Dependencies { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+        public List<ModrinthModpackFile> Files { get; set; } = new();
+    }
+
+    private sealed class ModrinthModpackFile
+    {
+        public string Path { get; set; } = string.Empty;
+        public Dictionary<string, string> Hashes { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+        public List<string> Downloads { get; set; } = new();
+        public ModrinthModpackEnv? Env { get; set; }
+    }
+
+    private sealed class ModrinthModpackEnv
+    {
+        public string? Client { get; set; }
+        public string? Server { get; set; }
+    }
+
+    private sealed record ModrinthFileDecision(
+        ModrinthModpackFile File,
+        bool ShouldInstall,
+        string? Reason,
+        string? ProjectId,
+        string? ProjectName,
+        string? VersionName,
+        ModrinthProjectDto? Project,
+        ModrinthVersionDto? Version);
+
+    private sealed record ModrinthExcludedMod(
+        string Path,
+        string? ProjectId,
+        string? ProjectName,
+        string? Version,
+        string Reason);
+
+    private sealed record ModrinthDependencyInstall(
+        string ProjectId,
+        string ProjectName,
+        ModrinthVersionDto Version);
+
+    private sealed record ModrinthDependencyResolution(
+        IReadOnlyList<ModrinthDependencyInstall> Installs,
+        IReadOnlyList<string> Errors);
+
+    private sealed record ModrinthInstallReport(
+        string ServerName,
+        string ModpackName,
+        string? ModpackVersion,
+        int InstalledMods,
+        int ExcludedModsCount,
+        int DependenciesInstalled,
+        IReadOnlyList<string> MissingDependencies,
+        DateTimeOffset GeneratedAt,
+        IReadOnlyList<ModrinthExcludedMod> ExcludedMods);
 }

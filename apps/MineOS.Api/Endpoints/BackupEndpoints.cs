@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.DependencyInjection;
 using MineOS.Application.Dtos;
 using MineOS.Application.Interfaces;
 
@@ -26,11 +27,11 @@ public static class BackupEndpoints
 
         servers.MapPost("/{name}/backups", async (
             string name,
-            IBackupService backupService,
             IBackgroundJobService jobService) =>
         {
-            var jobId = jobService.QueueJob("backup", name, async (progress, ct) =>
+            var jobId = jobService.QueueJob("backup", name, async (services, progress, ct) =>
             {
+                var backupService = services.GetRequiredService<IBackupService>();
                 await backupService.CreateBackupAsync(name, ct);
             });
 

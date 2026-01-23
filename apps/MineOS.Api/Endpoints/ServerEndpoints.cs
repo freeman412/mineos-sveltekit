@@ -1,4 +1,8 @@
+using System.IdentityModel.Tokens.Jwt;
+using System.Linq;
+using System.Security.Claims;
 using Microsoft.AspNetCore.Mvc;
+using MineOS.Api.Authorization;
 using MineOS.Application.Dtos;
 using MineOS.Application.Interfaces;
 
@@ -9,6 +13,7 @@ public static class ServerEndpoints
     public static RouteGroupBuilder MapServerEndpoints(this RouteGroupBuilder api)
     {
         var servers = api.MapGroup("/servers");
+        servers.AddEndpointFilter<ServerAccessFilter>();
 
         // Server CRUD
         servers.MapPost("/", async (
@@ -19,6 +24,11 @@ public static class ServerEndpoints
         {
             try
             {
+                if (!IsAdminOrApiKey(context))
+                {
+                    return Results.Forbid();
+                }
+
                 // TODO: Get username from JWT claims
                 var username = "admin";
                 var server = await serverService.CreateServerAsync(request, username, cancellationToken);
@@ -30,12 +40,65 @@ public static class ServerEndpoints
             }
         });
 
+        servers.MapPost("/{name}/clone", async (
+            string name,
+            [FromBody] CloneServerRequest request,
+            IServerService serverService,
+            HttpContext context,
+            CancellationToken cancellationToken) =>
+        {
+            try
+            {
+                if (!IsAdminOrApiKey(context))
+                {
+                    return Results.Forbid();
+                }
+
+                if (string.IsNullOrWhiteSpace(request.NewName))
+                {
+                    return Results.BadRequest(new { error = "New server name is required." });
+                }
+
+                var server = await serverService.CloneServerAsync(name, request.NewName.Trim(), cancellationToken);
+                return Results.Ok(server);
+            }
+            catch (InvalidOperationException ex)
+            {
+                return Results.Conflict(new { error = ex.Message });
+            }
+            catch (DirectoryNotFoundException ex)
+            {
+                return Results.NotFound(new { error = ex.Message });
+            }
+        });
+
         servers.MapGet("/list", async (
             IServerService serverService,
+            IServerAccessService serverAccessService,
+            ClaimsPrincipal user,
             CancellationToken cancellationToken) =>
         {
             var serverList = await serverService.ListServersAsync(cancellationToken);
-            return Results.Ok(serverList);
+            if (user?.Identity?.IsAuthenticated != true)
+            {
+                return Results.Ok(serverList);
+            }
+
+            var role = user.FindFirstValue(ClaimTypes.Role) ?? "user";
+            if (string.Equals(role, "admin", StringComparison.OrdinalIgnoreCase))
+            {
+                return Results.Ok(serverList);
+            }
+
+            if (!TryGetUserId(user, out var userId))
+            {
+                return Results.Unauthorized();
+            }
+
+            var allowedServerNames = await serverAccessService.ListServerNamesAsync(userId, cancellationToken);
+            var allowedSet = new HashSet<string>(allowedServerNames, StringComparer.OrdinalIgnoreCase);
+            var filtered = serverList.Where(server => allowedSet.Contains(server.Name)).ToList();
+            return Results.Ok(filtered);
         });
 
         servers.MapGet("/{name}", async (
@@ -57,10 +120,16 @@ public static class ServerEndpoints
         servers.MapDelete("/{name}", async (
             string name,
             IServerService serverService,
+            HttpContext context,
             CancellationToken cancellationToken) =>
         {
             try
             {
+                if (!IsAdminOrApiKey(context))
+                {
+                    return Results.Forbid();
+                }
+
                 await serverService.DeleteServerAsync(name, cancellationToken);
                 return Results.NoContent();
             }
@@ -227,9 +296,13 @@ public static class ServerEndpoints
         servers.MapBackupEndpoints();
         servers.MapArchiveEndpoints();
 
+        // Phase 2b: Client package endpoints
+        servers.MapClientPackageEndpoints();
+
         // Phase 3: Console and monitoring endpoints
         servers.MapConsoleEndpoints();
         servers.MapMonitoringEndpoints();
+        servers.MapWatchdogEndpoints();
 
         // Phase 4: File management endpoints
         servers.MapFileEndpoints();
@@ -237,7 +310,11 @@ public static class ServerEndpoints
         // Phase 6: Mod management endpoints
         servers.MapModEndpoints();
 
+        // Phase 6b: Plugin management endpoints
+        servers.MapPluginEndpoints();
+
         var cron = api.MapGroup("/servers/{name}/cron");
+        cron.AddEndpointFilter<ServerAccessFilter>();
         cron.MapGet("/", (string name) => Results.Ok(Array.Empty<CronJobDto>()));
         cron.MapPost("/", (string name, CreateCronRequest _) =>
             EndpointHelpers.NotImplementedFeature($"cron.create:{name}"));
@@ -247,9 +324,28 @@ public static class ServerEndpoints
             EndpointHelpers.NotImplementedFeature($"cron.delete:{name}:{hash}"));
 
         var logs = api.MapGroup("/servers/{name}/logs");
+        logs.AddEndpointFilter<ServerAccessFilter>();
         logs.MapGet("/", (string name) => Results.Ok(new { paths = Array.Empty<string>() }));
         logs.MapGet("/head/{*path}", (string name, string path) => Results.Ok(new { payload = "" }));
 
         return api;
+    }
+
+    private static bool IsAdminOrApiKey(HttpContext context)
+    {
+        if (context.User?.Identity?.IsAuthenticated != true)
+        {
+            return true;
+        }
+
+        var role = context.User.FindFirstValue(ClaimTypes.Role) ?? "user";
+        return string.Equals(role, "admin", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool TryGetUserId(ClaimsPrincipal user, out int userId)
+    {
+        userId = 0;
+        var claim = user.Claims.FirstOrDefault(c => c.Type == JwtRegisteredClaimNames.Sub)?.Value;
+        return int.TryParse(claim, out userId);
     }
 }

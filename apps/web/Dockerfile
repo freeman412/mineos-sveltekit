@@ -2,10 +2,13 @@
 FROM node:20-bookworm AS build
 WORKDIR /app
 
-COPY apps/web/package*.json ./
+COPY package*.json ./
 RUN npm ci
 
-COPY apps/web/ ./
+COPY . ./
+
+ARG PUBLIC_BUILD_ID=dev
+ENV PUBLIC_BUILD_ID=$PUBLIC_BUILD_ID
 
 # Build
 RUN npm run build

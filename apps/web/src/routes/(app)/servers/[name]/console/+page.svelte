@@ -3,26 +3,31 @@
 	import '@xterm/xterm/css/xterm.css';
 	import type { PageData } from './$types';
 	import type { LayoutData } from '../$layout';
+	import { modal } from '$lib/stores/modal';
 
 	type TerminalType = import('@xterm/xterm').Terminal;
 	type FitAddonType = import('@xterm/addon-fit').FitAddon;
 	type TerminalCtor = typeof import('@xterm/xterm').Terminal;
 	type FitAddonCtor = typeof import('@xterm/addon-fit').FitAddon;
 
-	type LogTab = 'server' | 'java';
+	type LogTab = 'server' | 'java' | 'crash';
 
 	let { data }: { data: PageData & { server: LayoutData['server'] } } = $props();
 
 	let terminalWrapper: HTMLDivElement;
 	let serverTerminalContainer: HTMLDivElement;
 	let javaTerminalContainer: HTMLDivElement;
+	let crashTerminalContainer: HTMLDivElement;
 
 	let serverTerminal: TerminalType | null = null;
 	let javaTerminal: TerminalType | null = null;
+	let crashTerminal: TerminalType | null = null;
 	let serverFitAddon: FitAddonType | null = null;
 	let javaFitAddon: FitAddonType | null = null;
+	let crashFitAddon: FitAddonType | null = null;
 	let serverEventSource: EventSource | null = null;
 	let javaEventSource: EventSource | null = null;
+	let crashEventSource: EventSource | null = null;
 	let resizeObserver: ResizeObserver | null = null;
 	let terminalCtor: TerminalCtor | null = null;
 	let fitAddonCtor: FitAddonCtor | null = null;
@@ -30,6 +35,7 @@
 	let activeTab = $state<LogTab>('server');
 	let command = $state('');
 	let sending = $state(false);
+	let clearing = $state(false);
 
 	const resolveModule = <T>(module: T | { default: T }): T =>
 		(module as { default?: T }).default ?? (module as T);
@@ -88,8 +94,17 @@
 			javaTerminal = javaSetup.terminal;
 			javaFitAddon = javaSetup.fitAddon;
 
+			const crashSetup = initTerminal(
+				crashTerminalContainer,
+				'MineOS Crash Reports',
+				'Waiting for crash reports...'
+			);
+			crashTerminal = crashSetup.terminal;
+			crashFitAddon = crashSetup.fitAddon;
+
 			connectToLogs('server');
 			connectToLogs('java');
+			connectToLogs('crash');
 
 			resizeObserver = new ResizeObserver(() => {
 				fitActiveTerminal();
@@ -104,8 +119,10 @@
 			disposed = true;
 			serverTerminal?.dispose();
 			javaTerminal?.dispose();
+			crashTerminal?.dispose();
 			serverEventSource?.close();
 			javaEventSource?.close();
+			crashEventSource?.close();
 			resizeObserver?.disconnect();
 		};
 	});
@@ -139,15 +156,18 @@
 	function connectToLogs(tab: LogTab) {
 		if (!data.server) return;
 
-		const source = tab === 'java' ? 'java' : 'server';
-		const terminal = tab === 'java' ? javaTerminal : serverTerminal;
-		const existing = tab === 'java' ? javaEventSource : serverEventSource;
+		const source = tab === 'java' ? 'java' : tab === 'crash' ? 'crash' : 'server';
+		const terminal = tab === 'java' ? javaTerminal : tab === 'crash' ? crashTerminal : serverTerminal;
+		const existing =
+			tab === 'java' ? javaEventSource : tab === 'crash' ? crashEventSource : serverEventSource;
 
 		existing?.close();
 
 		const eventSource = new EventSource(`/api/servers/${data.server.name}/console/stream?source=${source}`);
 		if (tab === 'java') {
 			javaEventSource = eventSource;
+		} else if (tab === 'crash') {
+			crashEventSource = eventSource;
 		} else {
 			serverEventSource = eventSource;
 		}
@@ -183,8 +203,10 @@
 	function fitActiveTerminal() {
 		if (activeTab === 'server') {
 			serverFitAddon?.fit();
-		} else {
+		} else if (activeTab === 'java') {
 			javaFitAddon?.fit();
+		} else {
+			crashFitAddon?.fit();
 		}
 	}
 
@@ -219,6 +241,40 @@
 			sendCommand();
 		}
 	}
+
+	async function clearLogs() {
+		if (!data.server || clearing) return;
+		const tabLabel =
+			activeTab === 'java'
+				? 'Java logs'
+				: activeTab === 'crash'
+					? 'crash reports'
+					: 'server logs';
+		const confirmed = await modal.confirm(`Clear ${tabLabel}? This cannot be undone.`, 'Clear Logs');
+		if (!confirmed) return;
+
+		clearing = true;
+		try {
+			const source = activeTab === 'java' ? 'java' : activeTab === 'crash' ? 'crash' : 'server';
+			const res = await fetch(`/api/servers/${data.server.name}/console?source=${source}`, {
+				method: 'DELETE'
+			});
+			if (!res.ok) {
+				const payload = await res.json().catch(() => ({}));
+				await modal.error(payload.error || 'Failed to clear logs');
+				return;
+			}
+
+			const terminal =
+				activeTab === 'java' ? javaTerminal : activeTab === 'crash' ? crashTerminal : serverTerminal;
+			terminal?.clear();
+			terminal?.writeln('\x1b[1;33m[Logs cleared]\x1b[0m');
+		} catch (err) {
+			await modal.error(err instanceof Error ? err.message : 'Failed to clear logs');
+		} finally {
+			clearing = false;
+		}
+	}
 </script>
 
 <div class="console-container">
@@ -238,12 +294,23 @@
 			>
 				Java Logs
 			</button>
+			<button
+				class:active={activeTab === 'crash'}
+				class="tab-button"
+				onclick={() => setActiveTab('crash')}
+			>
+				Crash Reports
+			</button>
 		</div>
+		<button class="clear-button" onclick={clearLogs} disabled={clearing}>
+			{clearing ? 'Clearing...' : 'Clear Logs'}
+		</button>
 	</div>
 
 	<div bind:this={terminalWrapper} class="terminal-wrapper">
 		<div bind:this={serverTerminalContainer} class="terminal" class:hidden={activeTab !== 'server'}></div>
 		<div bind:this={javaTerminalContainer} class="terminal" class:hidden={activeTab !== 'java'}></div>
+		<div bind:this={crashTerminalContainer} class="terminal" class:hidden={activeTab !== 'crash'}></div>
 	</div>
 
 	<div class="command-bar">
@@ -369,6 +436,28 @@
 
 	.send-button:disabled {
 		opacity: 0.5;
+		cursor: not-allowed;
+	}
+
+	.clear-button {
+		background: rgba(255, 92, 92, 0.2);
+		color: #ffb3b3;
+		border: 1px solid rgba(255, 92, 92, 0.3);
+		border-radius: 8px;
+		padding: 0.5rem 1rem;
+		font-size: 0.85rem;
+		font-weight: 600;
+		cursor: pointer;
+		transition: background 0.2s, color 0.2s;
+	}
+
+	.clear-button:hover:not(:disabled) {
+		background: rgba(255, 92, 92, 0.3);
+		color: #ffd6d6;
+	}
+
+	.clear-button:disabled {
+		opacity: 0.6;
 		cursor: not-allowed;
 	}
 </style>

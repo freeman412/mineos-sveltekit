@@ -1,9 +1,12 @@
 <script lang="ts">
 	import CurseForgeSearch from '$lib/components/CurseForgeSearch.svelte';
+	import ModrinthSearch from '$lib/components/ModrinthSearch.svelte';
+	import ProgressBar from '$lib/components/ProgressBar.svelte';
+	import { modal } from '$lib/stores/modal';
+	import { formatBytes, formatDate } from '$lib/utils/formatting';
 	import type { PageData } from './$types';
 	import type { LayoutData } from '../$layout';
-	import type { InstalledModWithModpack, InstalledModpack } from '$lib/api/types';
-	import { modal } from '$lib/stores/modal';
+	import type { ClientPackageEntry, InstalledModWithModpack, InstalledModpack } from '$lib/api/types';
 
 	let { data }: { data: PageData & { server: LayoutData['server'] } } = $props();
 
@@ -16,11 +19,16 @@
 	let uploadProgress = $state(0);
 	let uploadingFileName = $state('');
 	let deletingAll = $state(false);
+	let clientPackages = $state<ClientPackageEntry[]>([]);
+	let clientPackageLoading = $state(false);
+	let clientPackageCreating = $state(false);
+	let clientPackageActions = $state<Record<string, boolean>>({});
 
 	const isServerRunning = $derived(data.server?.status === 'running');
 
 	$effect(() => {
 		loadMods();
+		loadClientPackages();
 	});
 
 	async function loadMods() {
@@ -41,6 +49,89 @@
 			console.error('Failed to load mods:', err);
 		} finally {
 			loading = false;
+		}
+	}
+
+	async function loadClientPackages() {
+		if (!data.server) return;
+		clientPackageLoading = true;
+		try {
+			const res = await fetch(`/api/servers/${data.server.name}/client-packages`);
+			if (res.ok) {
+				clientPackages = await res.json();
+			}
+		} catch (err) {
+			console.error('Failed to load client packages:', err);
+		} finally {
+			clientPackageLoading = false;
+		}
+	}
+
+	async function createClientPackage() {
+		if (!data.server) return;
+		clientPackageCreating = true;
+		try {
+			const res = await fetch(`/api/servers/${data.server.name}/client-packages`, { method: 'POST' });
+			if (res.ok) {
+				await loadClientPackages();
+			} else {
+				const errorData = await res.json().catch(() => ({}));
+				await modal.error(errorData.error || 'Failed to create client package');
+			}
+		} catch (err) {
+			await modal.error(err instanceof Error ? err.message : 'Failed to create client package');
+		} finally {
+			clientPackageCreating = false;
+		}
+	}
+
+	async function deleteClientPackage(filename: string) {
+		if (!data.server) return;
+		const confirmed = await modal.confirm(
+			`Delete client package "${filename}"? This cannot be undone.`,
+			'Delete Client Package'
+		);
+		if (!confirmed) return;
+
+		clientPackageActions[filename] = true;
+		try {
+			const res = await fetch(`/api/servers/${data.server.name}/client-packages/${filename}`, {
+				method: 'DELETE'
+			});
+			if (res.ok) {
+				await loadClientPackages();
+			} else {
+				const errorData = await res.json().catch(() => ({}));
+				await modal.error(errorData.error || 'Failed to delete client package');
+			}
+		} catch (err) {
+			await modal.error(err instanceof Error ? err.message : 'Failed to delete client package');
+		} finally {
+			delete clientPackageActions[filename];
+			clientPackageActions = { ...clientPackageActions };
+		}
+	}
+
+	function getClientPackageShareUrl(filename: string) {
+		const path = `/client-packages/${encodeURIComponent(
+			data.server?.name ?? ''
+		)}/${encodeURIComponent(filename)}`;
+		if (typeof window === 'undefined') return path;
+		return new URL(path, window.location.origin).toString();
+	}
+
+	function downloadClientPackage(filename: string) {
+		if (!data.server) return;
+		window.location.href = `/api/servers/${data.server.name}/client-packages/${filename}/download?raw=1`;
+	}
+
+	async function copyClientPackageLink(filename: string) {
+		try {
+			const url = getClientPackageShareUrl(filename);
+			await navigator.clipboard.writeText(url);
+			await modal.success('Share link copied to clipboard.');
+		} catch (err) {
+			await modal.error(err instanceof Error ? err.message : 'Failed to copy link');
 		}
 	}
 
@@ -250,12 +341,6 @@
 		}
 	}
 
-	const formatBytes = (bytes: number) => {
-		if (!bytes) return '0 B';
-		const units = ['B', 'KB', 'MB', 'GB', 'TB'];
-		const i = Math.floor(Math.log(bytes) / Math.log(1024));
-		return `${(bytes / Math.pow(1024, i)).toFixed(1)} ${units[i]}`;
-	};
 </script>
 
 <div class="page">
@@ -314,11 +399,8 @@
 		<div class="upload-progress-container">
 			<div class="progress-header">
 				<span class="progress-title">Uploading: {uploadingFileName}</span>
-				<span class="progress-percent">{uploadProgress}%</span>
 			</div>
-			<div class="progress-bar-bg">
-				<div class="progress-bar-fill" style="width: {uploadProgress}%"></div>
-			</div>
+			<ProgressBar value={uploadProgress} color="green" size="sm" showLabel />
 			{#if uploadProgress === 100}
 				<p class="progress-message">Processing and extracting files...</p>
 			{/if}
@@ -429,10 +511,77 @@
 		{/if}
 	</div>
 
+	<!-- Client Packages -->
+	<div class="mods-section">
+		<div class="client-package-header">
+			<div>
+				<h3>Client Package</h3>
+				<p class="muted">
+					Generate a CurseForge-compatible zip for players to import.
+				</p>
+				<p class="muted">
+					CurseForge app: Create Custom Profile → Import → select the zip.
+				</p>
+			</div>
+			<button class="btn-action" onclick={createClientPackage} disabled={clientPackageCreating}>
+				{clientPackageCreating ? 'Generating...' : 'Generate Package'}
+			</button>
+		</div>
+
+		{#if clientPackageLoading}
+			<p class="muted">Loading client packages...</p>
+		{:else if clientPackages.length === 0}
+			<p class="muted">No client packages yet.</p>
+		{:else}
+			<div class="mod-list">
+				<table>
+					<thead>
+						<tr>
+							<th>Filename</th>
+							<th>Created</th>
+							<th>Size</th>
+							<th>Actions</th>
+						</tr>
+					</thead>
+					<tbody>
+						{#each clientPackages as pkg}
+							<tr>
+								<td>{pkg.filename}</td>
+								<td>{formatDate(pkg.time)}</td>
+								<td>{formatBytes(pkg.size)}</td>
+								<td class="actions">
+									<button class="btn-action" onclick={() => downloadClientPackage(pkg.filename)}>
+										Download
+									</button>
+									<button class="btn-action" onclick={() => copyClientPackageLink(pkg.filename)}>
+										Copy Link
+									</button>
+									<button
+										class="btn-action danger"
+										onclick={() => deleteClientPackage(pkg.filename)}
+										disabled={clientPackageActions[pkg.filename]}
+									>
+										{clientPackageActions[pkg.filename] ? 'Deleting...' : 'Delete'}
+									</button>
+								</td>
+							</tr>
+						{/each}
+					</tbody>
+				</table>
+			</div>
+		{/if}
+	</div>
+
 	<!-- CurseForge Install -->
 	<div class="curseforge-section">
 		<h3>Install from CurseForge</h3>
 		<CurseForgeSearch serverName={data.server?.name ?? ''} onInstallComplete={loadMods} />
+	</div>
+
+	<!-- Modrinth Install -->
+	<div class="modrinth-section">
+		<h3>Install from Modrinth</h3>
+		<ModrinthSearch serverName={data.server?.name ?? ''} onInstallComplete={loadMods} />
 	</div>
 </div>
 
@@ -466,6 +615,18 @@
 	.action-buttons {
 		display: flex;
 		gap: 12px;
+	}
+
+	.client-package-header {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		gap: 16px;
+		flex-wrap: wrap;
+	}
+
+	.client-package-header h3 {
+		margin: 0 0 6px;
 	}
 
 	.upload-drop {
@@ -502,7 +663,7 @@
 		display: none;
 	}
 
-	.mods-section, .curseforge-section {
+	.mods-section, .curseforge-section, .modrinth-section {
 		background: #1a1e2f;
 		border-radius: 16px;
 		padding: 20px;
@@ -511,6 +672,7 @@
 		flex-direction: column;
 		gap: 16px;
 	}
+
 
 	.mod-list table {
 		width: 100%;
@@ -726,28 +888,6 @@
 		text-overflow: ellipsis;
 		white-space: nowrap;
 		flex: 1;
-	}
-
-	.progress-percent {
-		color: #9aa2c5;
-		font-size: 14px;
-		font-weight: 600;
-		margin-left: 12px;
-	}
-
-	.progress-bar-bg {
-		height: 8px;
-		background: #141827;
-		border-radius: 999px;
-		overflow: hidden;
-		border: 1px solid #2a2f47;
-	}
-
-	.progress-bar-fill {
-		height: 100%;
-		background: linear-gradient(90deg, var(--mc-grass), #7ae68d);
-		transition: width 0.3s ease;
-		border-radius: 999px;
 	}
 
 	.progress-message {

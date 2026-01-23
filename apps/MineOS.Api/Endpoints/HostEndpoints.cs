@@ -2,8 +2,10 @@ using System.Text.Json;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.Json;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using Microsoft.AspNetCore.Mvc;
+using MineOS.Application.Dtos;
 using MineOS.Application.Interfaces;
 
 namespace MineOS.Api.Endpoints;
@@ -23,38 +25,45 @@ public static class HostEndpoints
                 IOptions<Microsoft.AspNetCore.Http.Json.JsonOptions> jsonOptions,
                 CancellationToken cancellationToken) =>
             {
-                // Configure SSE headers
-                context.Response.ContentType = "text/event-stream";
-                context.Response.Headers["Cache-Control"] = "no-cache";
-                context.Response.Headers["Connection"] = "keep-alive";
-                context.Response.Headers["X-Accel-Buffering"] = "no";
-                context.Response.Headers.Remove("Content-Length");
-
-                // Start the response immediately to send headers and prevent buffering
-                await context.Response.StartAsync(cancellationToken);
-
-                var intervalMs = 2000;
-                if (int.TryParse(context.Request.Query["intervalMs"], out var parsed) && parsed > 100)
+                try
                 {
-                    intervalMs = parsed;
+                    // Configure SSE headers
+                    context.Response.ContentType = "text/event-stream";
+                    context.Response.Headers["Cache-Control"] = "no-cache";
+                    context.Response.Headers["Connection"] = "keep-alive";
+                    context.Response.Headers["X-Accel-Buffering"] = "no";
+                    context.Response.Headers.Remove("Content-Length");
+
+                    // Start the response immediately to send headers and prevent buffering
+                    await context.Response.StartAsync(cancellationToken);
+
+                    var intervalMs = 2000;
+                    if (int.TryParse(context.Request.Query["intervalMs"], out var parsed) && parsed > 100)
+                    {
+                        intervalMs = parsed;
+                    }
+
+                    var interval = TimeSpan.FromMilliseconds(intervalMs);
+                    while (!cancellationToken.IsCancellationRequested)
+                    {
+                        var metrics = await hostService.GetMetricsAsync(cancellationToken);
+                        var payload = JsonSerializer.Serialize(metrics, jsonOptions.Value.SerializerOptions);
+                        await context.Response.WriteAsync($"data: {payload}\n\n", cancellationToken);
+                        await context.Response.Body.FlushAsync(cancellationToken);
+
+                        try
+                        {
+                            await Task.Delay(interval, cancellationToken);
+                        }
+                        catch (OperationCanceledException)
+                        {
+                            break;
+                        }
+                    }
                 }
-
-                var interval = TimeSpan.FromMilliseconds(intervalMs);
-                while (!cancellationToken.IsCancellationRequested)
+                catch (OperationCanceledException) when (
+                    cancellationToken.IsCancellationRequested || context.RequestAborted.IsCancellationRequested)
                 {
-                    var metrics = await hostService.GetMetricsAsync(cancellationToken);
-                    var payload = JsonSerializer.Serialize(metrics, jsonOptions.Value.SerializerOptions);
-                    await context.Response.WriteAsync($"data: {payload}\n\n", cancellationToken);
-                    await context.Response.Body.FlushAsync(cancellationToken);
-
-                    try
-                    {
-                        await Task.Delay(interval, cancellationToken);
-                    }
-                    catch (OperationCanceledException)
-                    {
-                        break;
-                    }
                 }
             });
 
@@ -67,36 +76,43 @@ public static class HostEndpoints
                 IOptions<Microsoft.AspNetCore.Http.Json.JsonOptions> jsonOptions,
                 CancellationToken cancellationToken) =>
             {
-                context.Response.ContentType = "text/event-stream";
-                context.Response.Headers["Cache-Control"] = "no-cache";
-                context.Response.Headers["Connection"] = "keep-alive";
-                context.Response.Headers["X-Accel-Buffering"] = "no";
-                context.Response.Headers.Remove("Content-Length");
-
-                await context.Response.StartAsync(cancellationToken);
-
-                var intervalMs = 2000;
-                if (int.TryParse(context.Request.Query["intervalMs"], out var parsed) && parsed > 100)
+                try
                 {
-                    intervalMs = parsed;
+                    context.Response.ContentType = "text/event-stream";
+                    context.Response.Headers["Cache-Control"] = "no-cache";
+                    context.Response.Headers["Connection"] = "keep-alive";
+                    context.Response.Headers["X-Accel-Buffering"] = "no";
+                    context.Response.Headers.Remove("Content-Length");
+
+                    await context.Response.StartAsync(cancellationToken);
+
+                    var intervalMs = 2000;
+                    if (int.TryParse(context.Request.Query["intervalMs"], out var parsed) && parsed > 100)
+                    {
+                        intervalMs = parsed;
+                    }
+
+                    var interval = TimeSpan.FromMilliseconds(intervalMs);
+                    while (!cancellationToken.IsCancellationRequested)
+                    {
+                        var servers = await hostService.GetServersAsync(cancellationToken);
+                        var payload = JsonSerializer.Serialize(servers, jsonOptions.Value.SerializerOptions);
+                        await context.Response.WriteAsync($"data: {payload}\n\n", cancellationToken);
+                        await context.Response.Body.FlushAsync(cancellationToken);
+
+                        try
+                        {
+                            await Task.Delay(interval, cancellationToken);
+                        }
+                        catch (OperationCanceledException)
+                        {
+                            break;
+                        }
+                    }
                 }
-
-                var interval = TimeSpan.FromMilliseconds(intervalMs);
-                while (!cancellationToken.IsCancellationRequested)
+                catch (OperationCanceledException) when (
+                    cancellationToken.IsCancellationRequested || context.RequestAborted.IsCancellationRequested)
                 {
-                    var servers = await hostService.GetServersAsync(cancellationToken);
-                    var payload = JsonSerializer.Serialize(servers, jsonOptions.Value.SerializerOptions);
-                    await context.Response.WriteAsync($"data: {payload}\n\n", cancellationToken);
-                    await context.Response.Body.FlushAsync(cancellationToken);
-
-                    try
-                    {
-                        await Task.Delay(interval, cancellationToken);
-                    }
-                    catch (OperationCanceledException)
-                    {
-                        break;
-                    }
                 }
             });
 
@@ -179,19 +195,26 @@ public static class HostEndpoints
                     return;
                 }
 
-                context.Response.ContentType = "text/event-stream";
-                context.Response.Headers["Cache-Control"] = "no-cache";
-                context.Response.Headers["Connection"] = "keep-alive";
-                context.Response.Headers["X-Accel-Buffering"] = "no";
-                context.Response.Headers.Remove("Content-Length");
-
-                await context.Response.StartAsync(cancellationToken);
-
-                await foreach (var entry in profileService.StreamBuildToolsLogAsync(runId, cancellationToken))
+                try
                 {
-                    var payload = JsonSerializer.Serialize(entry, jsonOptions.Value.SerializerOptions);
-                    await context.Response.WriteAsync($"data: {payload}\n\n", cancellationToken);
-                    await context.Response.Body.FlushAsync(cancellationToken);
+                    context.Response.ContentType = "text/event-stream";
+                    context.Response.Headers["Cache-Control"] = "no-cache";
+                    context.Response.Headers["Connection"] = "keep-alive";
+                    context.Response.Headers["X-Accel-Buffering"] = "no";
+                    context.Response.Headers.Remove("Content-Length");
+
+                    await context.Response.StartAsync(cancellationToken);
+
+                    await foreach (var entry in profileService.StreamBuildToolsLogAsync(runId, cancellationToken))
+                    {
+                        var payload = JsonSerializer.Serialize(entry, jsonOptions.Value.SerializerOptions);
+                        await context.Response.WriteAsync($"data: {payload}\n\n", cancellationToken);
+                        await context.Response.Body.FlushAsync(cancellationToken);
+                    }
+                }
+                catch (OperationCanceledException) when (
+                    cancellationToken.IsCancellationRequested || context.RequestAborted.IsCancellationRequested)
+                {
                 }
             });
 
@@ -239,18 +262,62 @@ public static class HostEndpoints
         host.MapGet("/imports", async (IHostService hostService, CancellationToken cancellationToken) =>
             Results.Ok(await hostService.GetImportsAsync(cancellationToken)));
 
+        host.MapPost("/imports/upload", async (
+            HttpRequest request,
+            IImportService importService,
+            CancellationToken cancellationToken) =>
+        {
+            var filename = request.Headers["X-File-Name"].ToString();
+            if (string.IsNullOrWhiteSpace(filename))
+            {
+                return Results.BadRequest(new { error = "Filename is required" });
+            }
+
+            try
+            {
+                await importService.SaveImportAsync(filename, request.Body, cancellationToken);
+                return Results.Ok(new { filename });
+            }
+            catch (ArgumentException ex)
+            {
+                return Results.BadRequest(new { error = ex.Message });
+            }
+        });
+
         host.MapPost("/imports/{filename}/create-server", async (
             string filename,
             [FromBody] ImportServerRequest request,
-            IImportService importService,
-            IServerService serverService,
+            IBackgroundJobService jobService,
             CancellationToken cancellationToken) =>
         {
             try
             {
-                await importService.CreateServerFromImportAsync(filename, request.ServerName, cancellationToken);
-                var server = await serverService.GetServerAsync(request.ServerName, cancellationToken);
-                return Results.Ok(server);
+                if (string.IsNullOrWhiteSpace(filename))
+                {
+                    return Results.BadRequest(new { error = "Import filename is required" });
+                }
+
+                if (string.IsNullOrWhiteSpace(request.ServerName))
+                {
+                    return Results.BadRequest(new { error = "Server name is required" });
+                }
+
+                string? jobId = null;
+                jobId = jobService.QueueJob(
+                    "import",
+                    request.ServerName,
+                    async (services, progress, token) =>
+                    {
+                        var resolvedJobId = jobId ?? string.Empty;
+                        var importService = services.GetRequiredService<IImportService>();
+                        var serverService = services.GetRequiredService<IServerService>();
+                        progress.Report(new JobProgressDto(resolvedJobId, "import", request.ServerName, "running", 10, "Unpacking archive", DateTimeOffset.UtcNow));
+                        await importService.CreateServerFromImportAsync(filename, request.ServerName, token);
+                        progress.Report(new JobProgressDto(resolvedJobId, "import", request.ServerName, "running", 90, "Finalizing", DateTimeOffset.UtcNow));
+                        await serverService.GetServerAsync(request.ServerName, token);
+                    });
+
+                return Results.Accepted($"/api/v1/jobs/{jobId}", new { jobId });
             }
             catch (ArgumentException ex)
             {
@@ -265,6 +332,26 @@ public static class HostEndpoints
                 return Results.Conflict(new { error = ex.Message });
             }
             catch (DirectoryNotFoundException ex)
+            {
+                return Results.NotFound(new { error = ex.Message });
+            }
+        });
+
+        host.MapDelete("/imports/{filename}", async (
+            string filename,
+            IImportService importService,
+            CancellationToken cancellationToken) =>
+        {
+            try
+            {
+                await importService.DeleteImportAsync(filename, cancellationToken);
+                return Results.Ok(new { message = $"Import '{filename}' deleted" });
+            }
+            catch (ArgumentException ex)
+            {
+                return Results.BadRequest(new { error = ex.Message });
+            }
+            catch (FileNotFoundException ex)
             {
                 return Results.NotFound(new { error = ex.Message });
             }

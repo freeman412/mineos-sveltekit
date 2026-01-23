@@ -10,6 +10,9 @@ import type {
 
 type Fetcher = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
 
+/**
+ * Generic API fetch with error handling for GET requests that return data.
+ */
 async function apiFetch<T>(fetcher: Fetcher, path: string, init?: RequestInit): Promise<ApiResult<T>> {
 	try {
 		const res = await fetcher(path, init);
@@ -24,6 +27,59 @@ async function apiFetch<T>(fetcher: Fetcher, path: string, init?: RequestInit): 
 		const message = err instanceof Error ? err.message : 'Unknown error';
 		return { data: null, error: message };
 	}
+}
+
+/**
+ * Generic API mutation (POST/PUT/DELETE) with error handling.
+ * Returns void by default, or can return data if the API returns a response body.
+ */
+async function apiMutate<T = void>(
+	fetcher: Fetcher,
+	path: string,
+	method: 'POST' | 'PUT' | 'DELETE',
+	body?: unknown
+): Promise<ApiResult<T>> {
+	try {
+		const init: RequestInit = { method };
+		if (body !== undefined) {
+			init.headers = { 'Content-Type': 'application/json' };
+			init.body = JSON.stringify(body);
+		}
+		const res = await fetcher(path, init);
+		if (!res.ok) {
+			const errorData = await res.json().catch(() => ({}));
+			const errorMsg = errorData.error || `Request failed with ${res.status}`;
+			return { data: null, error: errorMsg };
+		}
+		// Try to parse response body, return undefined if empty
+		const text = await res.text();
+		if (!text) {
+			return { data: undefined as T, error: null };
+		}
+		try {
+			return { data: JSON.parse(text) as T, error: null };
+		} catch {
+			return { data: undefined as T, error: null };
+		}
+	} catch (err) {
+		const message = err instanceof Error ? err.message : 'Unknown error';
+		return { data: null, error: message };
+	}
+}
+
+/** POST request helper */
+function apiPost<T = void>(fetcher: Fetcher, path: string, body?: unknown): Promise<ApiResult<T>> {
+	return apiMutate<T>(fetcher, path, 'POST', body);
+}
+
+/** PUT request helper */
+function apiPut<T = void>(fetcher: Fetcher, path: string, body?: unknown): Promise<ApiResult<T>> {
+	return apiMutate<T>(fetcher, path, 'PUT', body);
+}
+
+/** DELETE request helper */
+function apiDelete<T = void>(fetcher: Fetcher, path: string): Promise<ApiResult<T>> {
+	return apiMutate<T>(fetcher, path, 'DELETE');
 }
 
 export function getHostMetrics(fetcher: Fetcher) {
@@ -83,19 +139,16 @@ export async function createServer(
 	});
 }
 
+export async function cloneServer(
+	fetcher: Fetcher,
+	name: string,
+	request: import('./types').CloneServerRequest
+): Promise<ApiResult<import('./types').ServerDetail>> {
+	return apiPost(fetcher, `/api/servers/${name}/clone`, request);
+}
+
 export async function deleteServer(fetcher: Fetcher, name: string): Promise<ApiResult<void>> {
-	try {
-		const res = await fetcher(`/api/servers/${name}`, { method: 'DELETE' });
-		if (!res.ok) {
-			const errorData = await res.json().catch(() => ({}));
-			const errorMsg = errorData.error || `Request failed with ${res.status}`;
-			return { data: null, error: errorMsg };
-		}
-		return { data: undefined, error: null };
-	} catch (err) {
-		const message = err instanceof Error ? err.message : 'Unknown error';
-		return { data: null, error: message };
-	}
+	return apiDelete(fetcher, `/api/servers/${name}`);
 }
 
 export async function getServerStatus(
@@ -126,18 +179,7 @@ async function performServerAction(
 	name: string,
 	action: string
 ): Promise<ApiResult<void>> {
-	try {
-		const res = await fetcher(`/api/servers/${name}/actions/${action}`, { method: 'POST' });
-		if (!res.ok) {
-			const errorData = await res.json().catch(() => ({}));
-			const errorMsg = errorData.error || `Request failed with ${res.status}`;
-			return { data: null, error: errorMsg };
-		}
-		return { data: undefined, error: null };
-	} catch (err) {
-		const message = err instanceof Error ? err.message : 'Unknown error';
-		return { data: null, error: message };
-	}
+	return apiPost(fetcher, `/api/servers/${name}/actions/${action}`);
 }
 
 export async function getServerProperties(
@@ -152,22 +194,7 @@ export async function updateServerProperties(
 	name: string,
 	properties: Record<string, string>
 ): Promise<ApiResult<void>> {
-	try {
-		const res = await fetcher(`/api/servers/${name}/server-properties`, {
-			method: 'PUT',
-			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify(properties)
-		});
-		if (!res.ok) {
-			const errorData = await res.json().catch(() => ({}));
-			const errorMsg = errorData.error || `Request failed with ${res.status}`;
-			return { data: null, error: errorMsg };
-		}
-		return { data: undefined, error: null };
-	} catch (err) {
-		const message = err instanceof Error ? err.message : 'Unknown error';
-		return { data: null, error: message };
-	}
+	return apiPut(fetcher, `/api/servers/${name}/server-properties`, properties);
 }
 
 export async function getServerConfig(
@@ -182,37 +209,11 @@ export async function updateServerConfig(
 	name: string,
 	config: import('./types').ServerConfig
 ): Promise<ApiResult<void>> {
-	try {
-		const res = await fetcher(`/api/servers/${name}/server-config`, {
-			method: 'PUT',
-			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify(config)
-		});
-		if (!res.ok) {
-			const errorData = await res.json().catch(() => ({}));
-			const errorMsg = errorData.error || `Request failed with ${res.status}`;
-			return { data: null, error: errorMsg };
-		}
-		return { data: undefined, error: null };
-	} catch (err) {
-		const message = err instanceof Error ? err.message : 'Unknown error';
-		return { data: null, error: message };
-	}
+	return apiPut(fetcher, `/api/servers/${name}/server-config`, config);
 }
 
 export async function acceptEula(fetcher: Fetcher, name: string): Promise<ApiResult<void>> {
-	try {
-		const res = await fetcher(`/api/servers/${name}/eula`, { method: 'POST' });
-		if (!res.ok) {
-			const errorData = await res.json().catch(() => ({}));
-			const errorMsg = errorData.error || `Request failed with ${res.status}`;
-			return { data: null, error: errorMsg };
-		}
-		return { data: undefined, error: null };
-	} catch (err) {
-		const message = err instanceof Error ? err.message : 'Unknown error';
-		return { data: null, error: message };
-	}
+	return apiPost(fetcher, `/api/servers/${name}/eula`);
 }
 
 // World Management
@@ -254,20 +255,7 @@ export async function deleteWorld(
 	serverName: string,
 	worldName: string
 ): Promise<ApiResult<void>> {
-	try {
-		const res = await fetcher(`/api/servers/${serverName}/worlds/${worldName}`, {
-			method: 'DELETE'
-		});
-		if (!res.ok) {
-			const errorData = await res.json().catch(() => ({}));
-			const errorMsg = errorData.error || `Request failed with ${res.status}`;
-			return { data: null, error: errorMsg };
-		}
-		return { data: undefined, error: null };
-	} catch (err) {
-		const message = err instanceof Error ? err.message : 'Unknown error';
-		return { data: null, error: message };
-	}
+	return apiDelete(fetcher, `/api/servers/${serverName}/worlds/${worldName}`);
 }
 
 // Player Management
@@ -291,22 +279,7 @@ export async function whitelistPlayer(
 	uuid: string,
 	name?: string
 ): Promise<ApiResult<void>> {
-	try {
-		const res = await fetcher(`/api/servers/${serverName}/players/${uuid}/whitelist`, {
-			method: 'POST',
-			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify({ name: name ?? null })
-		});
-		if (!res.ok) {
-			const errorData = await res.json().catch(() => ({}));
-			const errorMsg = errorData.error || `Request failed with ${res.status}`;
-			return { data: null, error: errorMsg };
-		}
-		return { data: undefined, error: null };
-	} catch (err) {
-		const message = err instanceof Error ? err.message : 'Unknown error';
-		return { data: null, error: message };
-	}
+	return apiPost(fetcher, `/api/servers/${serverName}/players/${uuid}/whitelist`, { name: name ?? null });
 }
 
 export async function removeWhitelist(
@@ -314,20 +287,7 @@ export async function removeWhitelist(
 	serverName: string,
 	uuid: string
 ): Promise<ApiResult<void>> {
-	try {
-		const res = await fetcher(`/api/servers/${serverName}/players/${uuid}/whitelist`, {
-			method: 'DELETE'
-		});
-		if (!res.ok) {
-			const errorData = await res.json().catch(() => ({}));
-			const errorMsg = errorData.error || `Request failed with ${res.status}`;
-			return { data: null, error: errorMsg };
-		}
-		return { data: undefined, error: null };
-	} catch (err) {
-		const message = err instanceof Error ? err.message : 'Unknown error';
-		return { data: null, error: message };
-	}
+	return apiDelete(fetcher, `/api/servers/${serverName}/players/${uuid}/whitelist`);
 }
 
 export async function opPlayer(
@@ -336,22 +296,7 @@ export async function opPlayer(
 	uuid: string,
 	payload: { name?: string; level?: number; bypassesPlayerLimit?: boolean }
 ): Promise<ApiResult<void>> {
-	try {
-		const res = await fetcher(`/api/servers/${serverName}/players/${uuid}/op`, {
-			method: 'POST',
-			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify(payload)
-		});
-		if (!res.ok) {
-			const errorData = await res.json().catch(() => ({}));
-			const errorMsg = errorData.error || `Request failed with ${res.status}`;
-			return { data: null, error: errorMsg };
-		}
-		return { data: undefined, error: null };
-	} catch (err) {
-		const message = err instanceof Error ? err.message : 'Unknown error';
-		return { data: null, error: message };
-	}
+	return apiPost(fetcher, `/api/servers/${serverName}/players/${uuid}/op`, payload);
 }
 
 export async function banPlayer(
@@ -360,22 +305,7 @@ export async function banPlayer(
 	uuid: string,
 	payload: { name?: string; reason?: string; bannedBy?: string; expiresAt?: string | null }
 ): Promise<ApiResult<void>> {
-	try {
-		const res = await fetcher(`/api/servers/${serverName}/players/${uuid}/ban`, {
-			method: 'POST',
-			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify(payload)
-		});
-		if (!res.ok) {
-			const errorData = await res.json().catch(() => ({}));
-			const errorMsg = errorData.error || `Request failed with ${res.status}`;
-			return { data: null, error: errorMsg };
-		}
-		return { data: undefined, error: null };
-	} catch (err) {
-		const message = err instanceof Error ? err.message : 'Unknown error';
-		return { data: null, error: message };
-	}
+	return apiPost(fetcher, `/api/servers/${serverName}/players/${uuid}/ban`, payload);
 }
 
 export async function getPlayerStats(
@@ -391,20 +321,7 @@ export async function deopPlayer(
 	serverName: string,
 	uuid: string
 ): Promise<ApiResult<void>> {
-	try {
-		const res = await fetcher(`/api/servers/${serverName}/players/${uuid}/op`, {
-			method: 'DELETE'
-		});
-		if (!res.ok) {
-			const errorData = await res.json().catch(() => ({}));
-			const errorMsg = errorData.error || `Request failed with ${res.status}`;
-			return { data: null, error: errorMsg };
-		}
-		return { data: undefined, error: null };
-	} catch (err) {
-		const message = err instanceof Error ? err.message : 'Unknown error';
-		return { data: null, error: message };
-	}
+	return apiDelete(fetcher, `/api/servers/${serverName}/players/${uuid}/op`);
 }
 
 export async function unbanPlayer(
@@ -412,20 +329,7 @@ export async function unbanPlayer(
 	serverName: string,
 	uuid: string
 ): Promise<ApiResult<void>> {
-	try {
-		const res = await fetcher(`/api/servers/${serverName}/players/${uuid}/ban`, {
-			method: 'DELETE'
-		});
-		if (!res.ok) {
-			const errorData = await res.json().catch(() => ({}));
-			const errorMsg = errorData.error || `Request failed with ${res.status}`;
-			return { data: null, error: errorMsg };
-		}
-		return { data: undefined, error: null };
-	} catch (err) {
-		const message = err instanceof Error ? err.message : 'Unknown error';
-		return { data: null, error: message };
-	}
+	return apiDelete(fetcher, `/api/servers/${serverName}/players/${uuid}/ban`);
 }
 
 // Mojang API
@@ -458,6 +362,13 @@ export async function getPerformanceHistory(
 ): Promise<ApiResult<import('./types').PerformanceSample[]>> {
 	const params = new URLSearchParams({ minutes: String(minutes) });
 	return apiFetch(fetcher, `/api/servers/${serverName}/performance/history?${params.toString()}`);
+}
+
+export async function getSparkStatus(
+	fetcher: Fetcher,
+	serverName: string
+): Promise<ApiResult<import('./types').SparkStatus>> {
+	return apiFetch(fetcher, `/api/servers/${serverName}/performance/spark`);
 }
 
 // Forge API
@@ -517,4 +428,42 @@ export async function getForgeInstallStatus(
 		return { data: null, error: result.error };
 	}
 	return { data: result.data?.data ?? null, error: null };
+}
+
+// Watchdog / Crash Detection
+export async function getServerCrashEvents(
+	fetcher: Fetcher,
+	serverName: string,
+	limit?: number
+): Promise<ApiResult<import('./types').CrashEvent[]>> {
+	const params = limit ? `?limit=${limit}` : '';
+	return apiFetch(fetcher, `/api/servers/${serverName}/crashes${params}`);
+}
+
+export async function clearServerCrashHistory(
+	fetcher: Fetcher,
+	serverName: string
+): Promise<ApiResult<void>> {
+	return apiDelete(fetcher, `/api/servers/${serverName}/crashes`);
+}
+
+export async function getServerWatchdogStatus(
+	fetcher: Fetcher,
+	serverName: string
+): Promise<ApiResult<import('./types').WatchdogStatus>> {
+	return apiFetch(fetcher, `/api/servers/${serverName}/watchdog`);
+}
+
+export async function getAllCrashEvents(
+	fetcher: Fetcher,
+	limit?: number
+): Promise<ApiResult<import('./types').CrashEvent[]>> {
+	const params = limit ? `?limit=${limit}` : '';
+	return apiFetch(fetcher, `/api/watchdog/crashes${params}`);
+}
+
+export async function getAllWatchdogStatus(
+	fetcher: Fetcher
+): Promise<ApiResult<Record<string, import('./types').WatchdogStatus>>> {
+	return apiFetch(fetcher, `/api/watchdog/status`);
 }

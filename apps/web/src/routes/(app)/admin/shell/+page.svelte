@@ -15,6 +15,7 @@
 	let fitAddonCtor: FitAddonCtor | null = null;
 	let socket: WebSocket | null = null;
 	let resizeObserver: ResizeObserver | null = null;
+	let lastResize = { cols: 0, rows: 0 };
 
 	let status = $state('disconnected');
 	let errorMessage = $state('');
@@ -50,6 +51,16 @@
 		return `${wsBase}/api/v1/admin/shell/ws`;
 	};
 
+	function sendResize(cols?: number, rows?: number) {
+		if (!terminal || socket?.readyState !== WebSocket.OPEN) return;
+		const nextCols = cols ?? terminal.cols;
+		const nextRows = rows ?? terminal.rows;
+		if (!nextCols || !nextRows) return;
+		if (nextCols === lastResize.cols && nextRows === lastResize.rows) return;
+		lastResize = { cols: nextCols, rows: nextRows };
+		socket.send(JSON.stringify({ type: 'resize', cols: nextCols, rows: nextRows }));
+	}
+
 	function connect() {
 		if (!terminal) return;
 		errorMessage = '';
@@ -63,6 +74,7 @@
 			status = 'connected';
 			terminal?.writeln('\x1b[1;32m[Connected]\x1b[0m');
 			terminal?.focus();
+			sendResize();
 		};
 
 		socket.onclose = () => {
@@ -116,6 +128,7 @@
 			terminal.loadAddon(fitAddon);
 			terminal.open(terminalContainer);
 			fitAddon.fit();
+			sendResize();
 
 			terminal.writeln('\x1b[1;36m=== MineOS Admin Shell ===\x1b[0m');
 			terminal.writeln('\x1b[90mConnected to container TTY\x1b[0m');
@@ -127,7 +140,14 @@
 				}
 			});
 
-			resizeObserver = new ResizeObserver(() => fitAddon?.fit());
+			terminal.onResize(({ cols, rows }) => {
+				sendResize(cols, rows);
+			});
+
+			resizeObserver = new ResizeObserver(() => {
+				fitAddon?.fit();
+				sendResize();
+			});
 			resizeObserver.observe(terminalContainer);
 
 			connect();
@@ -144,34 +164,49 @@
 	});
 </script>
 
-<div class="page-header">
-	<div>
-		<h1>Admin Shell</h1>
-		<p class="subtitle">Direct interactive TTY on the running container.</p>
-	</div>
-	<div class="header-actions">
-		<div class="status-pill" class:status-running={status === 'connected'}>
-			{status}
+<div class="shell-page">
+	<div class="page-header">
+		<div>
+			<h1>Admin Shell</h1>
+			<p class="subtitle">Direct interactive TTY on the running container.</p>
 		</div>
-		<button class="btn-secondary" onclick={connect} disabled={status === 'connected'}>
-			Reconnect
-		</button>
+		<div class="header-actions">
+			<div class="status-pill" class:status-running={status === 'connected'}>
+				{status}
+			</div>
+			<button class="btn-secondary" onclick={connect} disabled={status === 'connected'}>
+				Reconnect
+			</button>
+		</div>
 	</div>
-</div>
 
-<div class="shell-panel">
-	<div class="terminal" bind:this={terminalContainer}></div>
-	{#if errorMessage}
-		<p class="error">{errorMessage}</p>
-	{/if}
+	<div class="shell-panel">
+		<div class="terminal" bind:this={terminalContainer}></div>
+		{#if errorMessage}
+			<p class="error">{errorMessage}</p>
+		{/if}
+	</div>
 </div>
 
 <style>
+	:global(.main-content) {
+		display: flex;
+		flex-direction: column;
+		min-height: 0;
+	}
+
+	.shell-page {
+		display: flex;
+		flex-direction: column;
+		flex: 1;
+		min-height: 0;
+		gap: 24px;
+	}
+
 	.page-header {
 		display: flex;
 		justify-content: space-between;
 		align-items: center;
-		margin-bottom: 24px;
 		gap: 16px;
 	}
 
@@ -215,10 +250,15 @@
 		padding: 20px;
 		border: 1px solid rgba(106, 176, 76, 0.12);
 		box-shadow: 0 20px 40px rgba(0, 0, 0, 0.35);
+		flex: 1;
+		min-height: 0;
+		display: flex;
+		flex-direction: column;
 	}
 
 	.terminal {
-		height: 520px;
+		flex: 1;
+		min-height: 0;
 		background: #0d1117;
 		border-radius: 12px;
 		overflow: hidden;

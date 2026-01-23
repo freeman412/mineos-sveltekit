@@ -32,6 +32,26 @@ public sealed class WorldService : IWorldService
         // Check for dimension folders (indicates this is a Bukkit/Spigot/Paper world container)
         var dimNether = Path.Combine(worldPath, "DIM-1");
         var dimEnd = Path.Combine(worldPath, "DIM1");
+        var dimAether = Path.Combine(worldPath, "DIM-4");
+        var dimAetherAlt = Path.Combine(worldPath, "DIM4");
+        var dimAetherIi = Path.Combine(worldPath, "DIM2");
+        var dimAetherIiAlt = Path.Combine(worldPath, "DIM-2");
+
+        if (worldName.Contains("aether_ii", StringComparison.OrdinalIgnoreCase) ||
+            worldName.Contains("aetherii", StringComparison.OrdinalIgnoreCase) ||
+            worldName.Contains("aether2", StringComparison.OrdinalIgnoreCase) ||
+            worldName == "DIM2" ||
+            worldName == "DIM-2")
+        {
+            return "Aether II";
+        }
+
+        if (worldName.Contains("aether", StringComparison.OrdinalIgnoreCase) ||
+            worldName == "DIM-4" ||
+            worldName == "DIM4")
+        {
+            return "Aether";
+        }
 
         // Vanilla-style separate world folders
         if (worldName.Contains("nether", StringComparison.OrdinalIgnoreCase) ||
@@ -49,7 +69,12 @@ public sealed class WorldService : IWorldService
         }
 
         // If it has dimension folders inside, it's the main world container
-        if (Directory.Exists(dimNether) || Directory.Exists(dimEnd))
+        if (Directory.Exists(dimNether) ||
+            Directory.Exists(dimEnd) ||
+            Directory.Exists(dimAether) ||
+            Directory.Exists(dimAetherAlt) ||
+            Directory.Exists(dimAetherIi) ||
+            Directory.Exists(dimAetherIiAlt))
         {
             return "Overworld (Multi-Dimension)";
         }
@@ -119,7 +144,7 @@ public sealed class WorldService : IWorldService
                 lastModified));
         }
 
-        // Sort worlds: Overworld first, then Nether, then The End, then custom
+        // Sort worlds: Overworld first, then Nether, End, Aether, Aether II, then custom
         return worlds
             .OrderBy(w => w.Type switch
             {
@@ -127,7 +152,9 @@ public sealed class WorldService : IWorldService
                 "Overworld (Multi-Dimension)" => 0,
                 "Nether" => 1,
                 "The End" => 2,
-                _ => 3
+                "Aether" => 3,
+                "Aether II" => 4,
+                _ => 5
             })
             .ThenBy(w => w.Name)
             .ToList();
@@ -141,13 +168,7 @@ public sealed class WorldService : IWorldService
             throw new FileNotFoundException($"World '{worldName}' not found for server '{serverName}'");
         }
 
-        var type = worldName switch
-        {
-            "world" => "Overworld",
-            "world_nether" => "Nether",
-            "world_the_end" => "The End",
-            _ => "Custom"
-        };
+        var type = DetermineWorldType(worldName, worldPath);
 
         var size = await GetWorldSizeAsync(serverName, worldName, cancellationToken);
         var lastModified = Directory.GetLastWriteTimeUtc(worldPath);

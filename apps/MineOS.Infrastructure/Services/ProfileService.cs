@@ -39,15 +39,18 @@ public sealed class ProfileService : IProfileService
     private readonly ILogger<ProfileService> _logger;
     private readonly HostOptions _hostOptions;
     private readonly HttpClient _httpClient;
+    private readonly IBackgroundJobService _jobService;
 
     public ProfileService(
         ILogger<ProfileService> logger,
         IOptions<HostOptions> hostOptions,
-        HttpClient httpClient)
+        HttpClient httpClient,
+        IBackgroundJobService jobService)
     {
         _logger = logger;
         _hostOptions = hostOptions.Value;
         _httpClient = httpClient;
+        _jobService = jobService;
     }
 
     private string GetProfilesPath() =>
@@ -79,6 +82,7 @@ public sealed class ProfileService : IProfileService
         var profiles = await LoadProfilesAsync(cancellationToken);
         var vanillaProfiles = await GetVanillaProfilesAsync(cancellationToken);
         var paperProfiles = await GetPaperProfilesAsync(cancellationToken);
+        var buildToolsProfiles = await DiscoverBuildToolsProfilesAsync(cancellationToken);
         var combined = new Dictionary<string, ProfileDto>(StringComparer.OrdinalIgnoreCase);
 
         foreach (var profile in profiles)
@@ -93,6 +97,22 @@ public sealed class ProfileService : IProfileService
 
         foreach (var profile in paperProfiles)
         {
+            combined[profile.Id] = profile;
+        }
+
+        foreach (var profile in buildToolsProfiles)
+        {
+            if (combined.TryGetValue(profile.Id, out var existing))
+            {
+                if (string.Equals(existing.Type, "buildtools", StringComparison.OrdinalIgnoreCase) ||
+                    string.IsNullOrWhiteSpace(existing.Group))
+                {
+                    combined[profile.Id] = profile;
+                }
+
+                continue;
+            }
+
             combined[profile.Id] = profile;
         }
 
@@ -253,21 +273,52 @@ public sealed class ProfileService : IProfileService
         var run = new BuildToolsRunState(runId, request.ProfileId, request.Group, request.Version, logPath, startedAt);
         BuildToolsRuns[runId] = run;
 
-        _ = Task.Run(async () =>
-        {
-            try
+        string? jobId = null;
+        jobId = _jobService.QueueJob(
+            "buildtools",
+            request.ProfileId,
+            async (services, progress, token) =>
             {
-                await BuildToolsInternalAsync(request, run, CancellationToken.None);
-                run.MarkCompleted();
-                await AppendLogLineAsync(logPath, "BuildTools completed successfully.");
-            }
-            catch (Exception ex)
-            {
-                run.MarkFailed(ex.Message);
-                await AppendLogLineAsync(logPath, $"BuildTools failed: {ex.Message}");
-                _logger.LogError(ex, "BuildTools run {RunId} failed", runId);
-            }
-        }, CancellationToken.None);
+                var resolvedJobId = jobId ?? string.Empty;
+                progress.Report(new JobProgressDto(
+                    resolvedJobId,
+                    "buildtools",
+                    request.ProfileId,
+                    "running",
+                    5,
+                    $"Preparing BuildTools {request.Group} {request.Version}",
+                    DateTimeOffset.UtcNow));
+
+                try
+                {
+                    await BuildToolsInternalAsync(request, run, progress, resolvedJobId, token);
+                    run.MarkCompleted();
+                    await AppendLogLineAsync(logPath, "BuildTools completed successfully.");
+                    progress.Report(new JobProgressDto(
+                        resolvedJobId,
+                        "buildtools",
+                        request.ProfileId,
+                        "running",
+                        100,
+                        "BuildTools completed",
+                        DateTimeOffset.UtcNow));
+                }
+                catch (Exception ex)
+                {
+                    run.MarkFailed(ex.Message);
+                    await AppendLogLineAsync(logPath, $"BuildTools failed: {ex.Message}");
+                    progress.Report(new JobProgressDto(
+                        resolvedJobId,
+                        "buildtools",
+                        request.ProfileId,
+                        "failed",
+                        100,
+                        ex.Message,
+                        DateTimeOffset.UtcNow));
+                    _logger.LogError(ex, "BuildTools run {RunId} failed", runId);
+                    throw;
+                }
+            });
 
         return run.ToDto();
     }
@@ -390,6 +441,8 @@ public sealed class ProfileService : IProfileService
     private async Task BuildToolsInternalAsync(
         BuildToolsRequest request,
         BuildToolsRunState run,
+        IProgress<JobProgressDto> progress,
+        string jobId,
         CancellationToken cancellationToken)
     {
         var profileId = request.ProfileId;
@@ -416,6 +469,14 @@ public sealed class ProfileService : IProfileService
         var buildToolsPath = Path.Combine(profilePath, BuildToolsJarName);
         if (!File.Exists(buildToolsPath))
         {
+            progress.Report(new JobProgressDto(
+                jobId,
+                "buildtools",
+                request.ProfileId,
+                "running",
+                15,
+                "Downloading BuildTools.jar",
+                DateTimeOffset.UtcNow));
             await WriteLogAsync("Downloading BuildTools.jar");
             using var requestMessage = new HttpRequestMessage(HttpMethod.Get, BuildToolsUrl);
             requestMessage.Headers.UserAgent.ParseAdd("Mozilla/5.0 (Windows NT 10.0; Win64; x64) MineOS/1.0");
@@ -429,6 +490,40 @@ public sealed class ProfileService : IProfileService
             await using var fileStream = new FileStream(buildToolsPath, FileMode.Create, FileAccess.Write, FileShare.None);
             await response.Content.CopyToAsync(fileStream, cancellationToken);
         }
+
+        var lockPaths = new[]
+        {
+            Path.Combine(profilePath, "BuildData", ".git", "index.lock"),
+            Path.Combine(profilePath, "Bukkit", ".git", "index.lock"),
+            Path.Combine(profilePath, "CraftBukkit", ".git", "index.lock"),
+            Path.Combine(profilePath, "Spigot", ".git", "index.lock")
+        };
+        foreach (var lockPath in lockPaths)
+        {
+            if (!File.Exists(lockPath))
+            {
+                continue;
+            }
+
+            try
+            {
+                File.Delete(lockPath);
+                await WriteLogAsync($"Removed stale git lock file: {lockPath}");
+            }
+            catch (Exception ex)
+            {
+                await WriteLogAsync($"Failed to remove git lock file {lockPath}: {ex.Message}");
+            }
+        }
+
+        progress.Report(new JobProgressDto(
+            jobId,
+            "buildtools",
+            request.ProfileId,
+            "running",
+            35,
+            "Running BuildTools",
+            DateTimeOffset.UtcNow));
 
         var args = $"-jar {BuildToolsJarName} --rev {request.Version} --compile {request.CompileArg}";
         await WriteLogAsync($"Running: java {args}");
@@ -496,6 +591,15 @@ public sealed class ProfileService : IProfileService
         var targetJarPath = Path.Combine(profilePath, targetJarName);
         File.Copy(sourceJarPath, targetJarPath, overwrite: true);
 
+        progress.Report(new JobProgressDto(
+            jobId,
+            "buildtools",
+            request.ProfileId,
+            "running",
+            85,
+            "Saving profile",
+            DateTimeOffset.UtcNow));
+
         var profile = new ProfileDto(
             profileId,
             request.Group,
@@ -519,6 +623,14 @@ public sealed class ProfileService : IProfileService
         }
 
         await SaveProfilesAsync(profiles, cancellationToken);
+        progress.Report(new JobProgressDto(
+            jobId,
+            "buildtools",
+            request.ProfileId,
+            "running",
+            95,
+            "Profile saved",
+            DateTimeOffset.UtcNow));
 
         _logger.LogInformation("Built BuildTools profile {ProfileId}", profileId);
     }
@@ -911,6 +1023,62 @@ public sealed class ProfileService : IProfileService
 
         var json = JsonSerializer.Serialize(profiles, JsonOptions);
         await File.WriteAllTextAsync(GetProfilesFilePath(), json, cancellationToken);
+    }
+
+    private Task<IReadOnlyList<ProfileDto>> DiscoverBuildToolsProfilesAsync(CancellationToken cancellationToken)
+    {
+        var results = new List<ProfileDto>();
+        var profilesPath = GetProfilesPath();
+        if (!Directory.Exists(profilesPath))
+        {
+            return Task.FromResult<IReadOnlyList<ProfileDto>>(results);
+        }
+
+        foreach (var dir in Directory.EnumerateDirectories(profilesPath))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var id = Path.GetFileName(dir);
+            if (string.IsNullOrWhiteSpace(id))
+            {
+                continue;
+            }
+
+            var group = id.StartsWith("spigot-", StringComparison.OrdinalIgnoreCase)
+                ? "spigot"
+                : id.StartsWith("craftbukkit-", StringComparison.OrdinalIgnoreCase)
+                    ? "craftbukkit"
+                    : null;
+            if (group == null)
+            {
+                continue;
+            }
+
+            var version = id.Substring(group.Length + 1);
+            if (string.IsNullOrWhiteSpace(version))
+            {
+                continue;
+            }
+
+            var jarPath = Path.Combine(dir, $"{id}.jar");
+            if (!File.Exists(jarPath))
+            {
+                continue;
+            }
+
+            var modified = File.GetLastWriteTimeUtc(jarPath);
+            results.Add(new ProfileDto(
+                id,
+                group,
+                "buildtools",
+                version,
+                new DateTimeOffset(modified, TimeSpan.Zero).ToString("O"),
+                BuildToolsUrl,
+                Path.GetFileName(jarPath),
+                true,
+                null));
+        }
+
+        return Task.FromResult<IReadOnlyList<ProfileDto>>(results);
     }
 
     private static async Task AppendLogLineAsync(string logPath, string message)

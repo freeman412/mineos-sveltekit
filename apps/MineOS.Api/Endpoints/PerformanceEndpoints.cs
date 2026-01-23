@@ -85,6 +85,22 @@ public static class PerformanceEndpoints
         performance.MapGet("/stream", StreamAsync);
         performance.MapGet("/streaming", StreamAsync);
 
+        performance.MapGet("/spark", async (
+            string name,
+            IPerformanceService performanceService,
+            CancellationToken cancellationToken) =>
+        {
+            try
+            {
+                var status = await performanceService.GetSparkStatusAsync(name, cancellationToken);
+                return Results.Ok(status);
+            }
+            catch (DirectoryNotFoundException ex)
+            {
+                return Results.NotFound(new { error = ex.Message });
+            }
+        });
+
         return api;
     }
 }

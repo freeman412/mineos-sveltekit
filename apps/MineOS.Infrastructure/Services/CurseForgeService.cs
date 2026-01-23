@@ -202,7 +202,9 @@ public sealed class CurseForgeService : ICurseForgeService
             file.FileDate,
             file.DownloadUrl,
             file.GameVersions ?? new List<string>(),
-            file.ReleaseType);
+            file.ReleaseType,
+            file.ServerPackFileId,
+            file.IsServerPack);
     }
 
     private static CurseForgeCategoryDto MapCategory(CurseForgeCategoryData category)
@@ -274,6 +276,8 @@ public sealed class CurseForgeService : ICurseForgeService
         public string? DownloadUrl { get; set; }
         public List<string>? GameVersions { get; set; }
         public int? ReleaseType { get; set; }
+        public int? ServerPackFileId { get; set; }
+        public bool? IsServerPack { get; set; }
     }
 
     private sealed class CurseForgeDownloadUrlData

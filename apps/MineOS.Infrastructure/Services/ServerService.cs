@@ -158,6 +158,64 @@ public class ServerService : IServerService
         return await GetServerAsync(request.Name, cancellationToken);
     }
 
+    public async Task<ServerDetailDto> CloneServerAsync(
+        string sourceName,
+        string newName,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(newName))
+        {
+            throw new ArgumentException("New server name is required.");
+        }
+
+        var sourcePath = GetServerPath(sourceName);
+        if (!Directory.Exists(sourcePath))
+        {
+            throw new DirectoryNotFoundException($"Server '{sourceName}' not found");
+        }
+
+        var targetPath = GetServerPath(newName);
+        if (Directory.Exists(targetPath))
+        {
+            throw new InvalidOperationException($"Server '{newName}' already exists");
+        }
+
+        var isRunning = await _processManager.IsServerRunningAsync(sourceName, cancellationToken);
+        if (isRunning)
+        {
+            throw new InvalidOperationException($"Cannot clone running server '{sourceName}'");
+        }
+
+        Directory.CreateDirectory(targetPath);
+        CopyDirectory(sourcePath, targetPath, cancellationToken, new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "logs",
+            "crash-reports"
+        });
+
+        var backupPath = GetBackupPath(newName);
+        var archivePath = GetArchivePath(newName);
+        Directory.CreateDirectory(backupPath);
+        Directory.CreateDirectory(archivePath);
+
+        var propertiesPath = GetPropertiesPath(newName);
+        if (File.Exists(propertiesPath))
+        {
+            var properties = await GetServerPropertiesAsync(newName, cancellationToken);
+            var usedPorts = await GetUsedPortsAsync(excludeName: null, cancellationToken);
+            var defaultPort = GetNextAvailablePort(usedPorts, 25565);
+            properties["server-port"] = defaultPort.ToString();
+            await UpdateServerPropertiesAsync(newName, properties, cancellationToken);
+        }
+
+        OwnershipHelper.TrySetOwnership(targetPath, _options.RunAsUid, _options.RunAsGid, _logger, recursive: true);
+        OwnershipHelper.TrySetOwnership(backupPath, _options.RunAsUid, _options.RunAsGid, _logger, recursive: true);
+        OwnershipHelper.TrySetOwnership(archivePath, _options.RunAsUid, _options.RunAsGid, _logger, recursive: true);
+
+        _logger.LogInformation("Cloned server {SourceServer} to {TargetServer}", sourceName, newName);
+        return await GetServerAsync(newName, cancellationToken);
+    }
+
     public async Task DeleteServerAsync(string name, CancellationToken cancellationToken)
     {
         var isRunning = await _processManager.IsServerRunningAsync(name, cancellationToken);
@@ -480,28 +538,38 @@ public class ServerService : IServerService
             return new ServerConfigDto(
                 new JavaConfigDto("", 4096, 4096, null, null, null),
                 new MinecraftConfigDto(null, false),
-                new OnRebootConfigDto(false)
+                new OnRebootConfigDto(false),
+                new AutoRestartConfigDto(false, 3, 300, 30, true, true)
             );
         }
 
         var content = await File.ReadAllTextAsync(configPath, cancellationToken);
         var sections = IniParser.ParseWithSections(content);
 
-        var javaSection = sections.GetValueOrDefault("java", new Dictionary<string, string>());
-        var minecraftSection = sections.GetValueOrDefault("minecraft", new Dictionary<string, string>());
-        var onrebootSection = sections.GetValueOrDefault("onreboot", new Dictionary<string, string>());
+        var javaSection = sections.TryGetValue("java", out var javaSectionRaw)
+            ? javaSectionRaw
+            : new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var minecraftSection = sections.TryGetValue("minecraft", out var minecraftSectionRaw)
+            ? minecraftSectionRaw
+            : new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var onrebootSection = sections.TryGetValue("onreboot", out var onrebootSectionRaw)
+            ? onrebootSectionRaw
+            : new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var autorestartSection = sections.TryGetValue("autorestart", out var autorestartSectionRaw)
+            ? autorestartSectionRaw
+            : new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
         var java = new JavaConfigDto(
             javaSection.GetValueOrDefault("java_binary", ""),
             int.TryParse(javaSection.GetValueOrDefault("java_xmx", "4096"), out var xmx) ? xmx : 4096,
             int.TryParse(javaSection.GetValueOrDefault("java_xms", "4096"), out var xms) ? xms : 4096,
-            javaSection.GetValueOrDefault("java_tweaks", null),
-            javaSection.GetValueOrDefault("jarfile", null),
-            javaSection.GetValueOrDefault("jar_args", null)
+            GetOptionalValue(javaSection, "java_tweaks"),
+            GetOptionalValue(javaSection, "jarfile"),
+            GetOptionalValue(javaSection, "jar_args")
         );
 
         var minecraft = new MinecraftConfigDto(
-            minecraftSection.GetValueOrDefault("profile", null),
+            GetOptionalValue(minecraftSection, "profile"),
             bool.TryParse(minecraftSection.GetValueOrDefault("unconventional", "false"), out var unconventional) && unconventional
         );
 
@@ -509,7 +577,16 @@ public class ServerService : IServerService
             bool.TryParse(onrebootSection.GetValueOrDefault("start", "false"), out var start) && start
         );
 
-        return new ServerConfigDto(java, minecraft, onreboot);
+        var autorestart = new AutoRestartConfigDto(
+            bool.TryParse(autorestartSection.GetValueOrDefault("enabled", "false"), out var arEnabled) && arEnabled,
+            int.TryParse(autorestartSection.GetValueOrDefault("max_attempts", "3"), out var maxAttempts) ? maxAttempts : 3,
+            int.TryParse(autorestartSection.GetValueOrDefault("cooldown_seconds", "300"), out var cooldown) ? cooldown : 300,
+            int.TryParse(autorestartSection.GetValueOrDefault("attempt_reset_minutes", "30"), out var resetMins) ? resetMins : 30,
+            bool.TryParse(autorestartSection.GetValueOrDefault("notify_on_crash", "true"), out var notifyCrash) && notifyCrash,
+            bool.TryParse(autorestartSection.GetValueOrDefault("notify_on_restart", "true"), out var notifyRestart) && notifyRestart
+        );
+
+        return new ServerConfigDto(java, minecraft, onreboot, autorestart);
     }
 
     public async Task UpdateServerConfigAsync(string name, ServerConfigDto config, CancellationToken cancellationToken)
@@ -534,6 +611,15 @@ public class ServerService : IServerService
             ["onreboot"] = new()
             {
                 ["start"] = config.OnReboot.Start.ToString().ToLower()
+            },
+            ["autorestart"] = new()
+            {
+                ["enabled"] = config.AutoRestart.Enabled.ToString().ToLower(),
+                ["max_attempts"] = config.AutoRestart.MaxAttempts.ToString(),
+                ["cooldown_seconds"] = config.AutoRestart.CooldownSeconds.ToString(),
+                ["attempt_reset_minutes"] = config.AutoRestart.AttemptResetMinutes.ToString(),
+                ["notify_on_crash"] = config.AutoRestart.NotifyOnCrash.ToString().ToLower(),
+                ["notify_on_restart"] = config.AutoRestart.NotifyOnRestart.ToString().ToLower()
             }
         };
 
@@ -637,6 +723,11 @@ public class ServerService : IServerService
         }
 
         _logger.LogInformation("FTB installer completed for server {ServerName}", name);
+    }
+
+    private static string? GetOptionalValue(IReadOnlyDictionary<string, string> section, string key)
+    {
+        return section.TryGetValue(key, out var value) ? value : null;
     }
 
     private static string ResolveJarPath(string serverPath, string jarFile)
@@ -869,5 +960,34 @@ public class ServerService : IServerService
         }
 
         return port;
+    }
+
+    private static void CopyDirectory(
+        string sourcePath,
+        string targetPath,
+        CancellationToken cancellationToken,
+        HashSet<string> excludedDirectories)
+    {
+        foreach (var directory in Directory.GetDirectories(sourcePath))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var directoryName = Path.GetFileName(directory);
+            if (directoryName != null && excludedDirectories.Contains(directoryName))
+            {
+                continue;
+            }
+
+            var targetDirectory = Path.Combine(targetPath, directoryName ?? string.Empty);
+            Directory.CreateDirectory(targetDirectory);
+            CopyDirectory(directory, targetDirectory, cancellationToken, excludedDirectories);
+        }
+
+        foreach (var file in Directory.GetFiles(sourcePath))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var fileName = Path.GetFileName(file);
+            var targetFile = Path.Combine(targetPath, fileName);
+            File.Copy(file, targetFile, overwrite: true);
+        }
     }
 }

@@ -2,8 +2,8 @@ services:
   # MineOS API
   api:
     build:
-      context: .
-      dockerfile: apps/MineOS.Api/Dockerfile
+      context: ./apps
+      dockerfile: MineOS.Api/Dockerfile
     container_name: mineos-api
     restart: unless-stopped
     environment:
@@ -12,12 +12,13 @@ services:
       - ConnectionStrings__DefaultConnection=${ConnectionStrings__DefaultConnection}
       - Auth__SeedUsername=${Auth__SeedUsername}
       - Auth__SeedPassword=${Auth__SeedPassword}
-      - Auth__JwtSecret=${Auth__JwtSecret}
-      - Auth__JwtIssuer=${Auth__JwtIssuer:-mineos}
-      - Auth__JwtAudience=${Auth__JwtAudience:-mineos}
-      - Auth__JwtExpiryHours=${Auth__JwtExpiryHours:-24}
+      - Auth__Jwt__SigningKey=${Auth__JwtSecret}
+      - Auth__Jwt__Issuer=${Auth__JwtIssuer:-mineos}
+      - Auth__Jwt__Audience=${Auth__JwtAudience:-mineos}
+      - Auth__Jwt__ExpiresMinutes=${Auth__JwtExpiryMinutes:-60}
       - ApiKey__SeedKey=${ApiKey__SeedKey}
-      - Host__BaseDirectory=${Host__BaseDirectory:-/var/games/minecraft}
+      # Always use container path - host path is only for volume mount
+      - Host__BaseDirectory=/var/games/minecraft
       - Host__ServersPathSegment=${Host__ServersPathSegment:-servers}
       - Host__ProfilesPathSegment=${Host__ProfilesPathSegment:-profiles}
       - Host__BackupsPathSegment=${Host__BackupsPathSegment:-backups}
@@ -29,9 +30,11 @@ services:
       - Discord__WebhookUrl=${Discord__WebhookUrl:-}
       - Logging__LogLevel__Default=${Logging__LogLevel__Default:-Information}
       - Logging__LogLevel__Microsoft.AspNetCore=Warning
+      - Cors__AllowedOrigins__0=${WEB_ORIGIN:-http://localhost:${WEB_PORT:-3000}}
+      - Cors__AllowedOrigins__1=${WEB_ORIGIN_DEV:-http://localhost:5174}
     volumes:
-      - ${Host__BaseDirectory:-/var/games/minecraft}:/var/games/minecraft
-      - ./data:/app/data
+      - ${HOST_BASE_DIRECTORY:-/var/games/minecraft}:/var/games/minecraft
+      - ${Data__Directory:-./data}:/app/data
       - /var/run/docker.sock:/var/run/docker.sock  # For Docker management (optional)
     ports:
       - "${API_PORT:-5078}:5078"
@@ -49,8 +52,10 @@ services:
   # MineOS Web UI
   web:
     build:
-      context: .
-      dockerfile: apps/web/Dockerfile
+      context: ./apps/web
+      dockerfile: Dockerfile
+      args:
+        PUBLIC_BUILD_ID: ${PUBLIC_BUILD_ID:-dev}
     container_name: mineos-web
     restart: unless-stopped
     environment:

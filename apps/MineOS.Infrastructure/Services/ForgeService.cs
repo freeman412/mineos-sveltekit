@@ -3,8 +3,11 @@ using System.Diagnostics;
 using System.Text.Json;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using Microsoft.Extensions.DependencyInjection;
 using MineOS.Application.Interfaces;
 using MineOS.Application.Options;
+using MineOS.Domain.Entities;
+using MineOS.Infrastructure.Persistence;
 using MineOS.Infrastructure.Utilities;
 
 namespace MineOS.Infrastructure.Services;
@@ -23,14 +26,17 @@ public sealed class ForgeService : IForgeService
     private readonly HttpClient _httpClient;
     private readonly HostOptions _hostOptions;
     private readonly ILogger<ForgeService> _logger;
+    private readonly IServiceScopeFactory _scopeFactory;
 
     public ForgeService(
         HttpClient httpClient,
         IOptions<HostOptions> hostOptions,
+        IServiceScopeFactory scopeFactory,
         ILogger<ForgeService> logger)
     {
         _httpClient = httpClient;
         _hostOptions = hostOptions.Value;
+        _scopeFactory = scopeFactory;
         _logger = logger;
     }
 
@@ -108,11 +114,13 @@ public sealed class ForgeService : IForgeService
             try
             {
                 await RunInstallationAsync(state, CancellationToken.None);
+                await CreateForgeNotificationAsync(state, "completed", null, CancellationToken.None);
             }
             catch (Exception ex)
             {
                 state.MarkFailed(ex.Message);
                 _logger.LogError(ex, "Forge installation {InstallId} failed", installId);
+                await CreateForgeNotificationAsync(state, "failed", ex.Message, CancellationToken.None);
             }
         }, CancellationToken.None);
 
@@ -126,6 +134,15 @@ public sealed class ForgeService : IForgeService
             return Task.FromResult<ForgeInstallStatusDto?>(state.ToDto());
         }
         return Task.FromResult<ForgeInstallStatusDto?>(null);
+    }
+
+    public IReadOnlyList<ForgeInstallStatusDto> GetActiveInstalls()
+    {
+        return Installations.Values
+            .Select(state => state.ToDto())
+            .Where(dto => string.Equals(dto.Status, "running", StringComparison.OrdinalIgnoreCase))
+            .OrderByDescending(dto => dto.StartedAt)
+            .ToList();
     }
 
     private async Task<List<ForgeVersionDto>> FetchVersionsAsync(CancellationToken cancellationToken)
@@ -452,6 +469,33 @@ public sealed class ForgeService : IForgeService
         if (string.IsNullOrWhiteSpace(version))
             return null;
         return Version.TryParse(version, out var parsed) ? parsed : null;
+    }
+
+    private async Task CreateForgeNotificationAsync(
+        ForgeInstallState state,
+        string outcome,
+        string? error,
+        CancellationToken cancellationToken)
+    {
+        var type = outcome == "completed" ? "success" : "error";
+        var title = outcome == "completed" ? "Forge Install Completed" : "Forge Install Failed";
+        var version = $"Minecraft {state.MinecraftVersion} / Forge {state.ForgeVersion}";
+        var message = outcome == "completed"
+            ? $"Forge install for {state.ServerName} ({version}) completed successfully."
+            : $"Forge install for {state.ServerName} ({version}) failed: {error ?? "Unknown error"}.";
+
+        await using var scope = _scopeFactory.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        db.SystemNotifications.Add(new SystemNotification
+        {
+            Type = type,
+            Title = title,
+            Message = message,
+            CreatedAt = DateTimeOffset.UtcNow,
+            ServerName = state.ServerName,
+            IsRead = false
+        });
+        await db.SaveChangesAsync(cancellationToken);
     }
 
     private sealed class ForgeInstallState

@@ -4,6 +4,7 @@
 	import type { LayoutData } from './$types';
 	import TopBar from '$lib/components/TopBar.svelte';
 	import FeedbackButton from '$lib/components/FeedbackButton.svelte';
+	import MinecraftSheepPet from '$lib/components/MinecraftSheepPet.svelte';
 
 	let { data, children }: { data: LayoutData; children: any } = $props();
 
@@ -19,12 +20,10 @@
 		{ href: '/servers', label: 'Servers', icon: '[S]' },
 		{ href: '/profiles', label: 'Profiles', icon: '[P]' },
 		{ href: '/profiles/buildtools', label: 'BuildTools', icon: '[B]' },
-		{ href: '/import', label: 'Import', icon: '[I]' },
 		{ href: '/curseforge', label: 'CurseForge', icon: '[C]' },
 		{ href: '/admin/access', label: 'Users', icon: '[U]', requiresAdmin: true },
 		{ href: '/admin/settings', label: 'Settings', icon: '[G]', requiresAdmin: true },
-		{ href: '/admin/shell', label: 'Admin Shell', icon: '[T]', requiresAdmin: true },
-		{ href: '/about', label: 'About', icon: '[?]' }
+		{ href: '/admin/shell', label: 'Admin Shell', icon: '[T]', requiresAdmin: true }
 	];
 
 	function isActive(href: string) {
@@ -69,6 +68,10 @@
 		</ul>
 
 	<div class="sidebar-footer">
+		<a href="/about" class="footer-link">
+			<span class="icon">[?]</span>
+			<span>About</span>
+		</a>
 		<a
 			class="coffee-btn"
 			href="https://buymeacoffee.com/freemancraft"
@@ -93,6 +96,7 @@
 	</div>
 
 	<FeedbackButton />
+	<MinecraftSheepPet />
 </div>
 
 <style>
@@ -107,15 +111,55 @@
 	}
 
 	:global(:root) {
+		/* Minecraft-inspired theme colors */
 		--mc-grass: #6ab04c;
 		--mc-grass-dark: #4a8b34;
 		--mc-dirt: #8b5a2b;
 		--mc-dirt-dark: #5d3b1f;
 		--mc-sky: #6fb5ff;
 		--mc-stone: #2b2f45;
-		--mc-panel: #1a1e2f;
+
+		/* Panel backgrounds (darkest to lightest) */
+		--mc-panel-darkest: #0d1117;
 		--mc-panel-dark: #141827;
+		--mc-panel: #1a1e2f;
+		--mc-panel-light: #2a2f47;
+		--mc-panel-lighter: #3a3f5a;
+
+		/* Text colors */
+		--mc-text: #eef0f8;
+		--mc-text-secondary: #c4cff5;
 		--mc-text-muted: #9aa2c5;
+		--mc-text-dim: #7c87b2;
+
+		/* Status colors */
+		--color-success: #6ab04c;
+		--color-success-light: #7ae68d;
+		--color-success-bg: rgba(106, 176, 76, 0.15);
+		--color-success-border: rgba(106, 176, 76, 0.3);
+
+		--color-error: #ff6b6b;
+		--color-error-light: #ff9f9f;
+		--color-error-bg: rgba(255, 92, 92, 0.15);
+		--color-error-border: rgba(255, 92, 92, 0.3);
+
+		--color-warning: #ffb74d;
+		--color-warning-light: #ffcc80;
+		--color-warning-bg: rgba(255, 183, 77, 0.15);
+		--color-warning-border: rgba(255, 183, 77, 0.3);
+
+		--color-info: #5b9eff;
+		--color-info-light: #a5b4fc;
+		--color-info-bg: rgba(91, 158, 255, 0.15);
+		--color-info-border: rgba(91, 158, 255, 0.3);
+
+		/* Border colors */
+		--border-color: #2a2f47;
+		--border-color-light: rgba(42, 47, 71, 0.5);
+
+		/* Focus states */
+		--focus-color: rgba(106, 176, 76, 0.5);
+		--focus-shadow: 0 0 0 2px rgba(106, 176, 76, 0.1);
 	}
 
 	:global(select) {
@@ -309,12 +353,36 @@
 		background: rgba(246, 178, 107, 0.12);
 	}
 
+	.footer-link {
+		width: 100%;
+		display: flex;
+		align-items: center;
+		gap: 12px;
+		padding: 12px 16px;
+		border-radius: 8px;
+		background: transparent;
+		color: #aab2d3;
+		text-decoration: none;
+		transition: all 0.2s;
+		font-size: 15px;
+		box-sizing: border-box;
+	}
+
+	.footer-link:hover {
+		background: rgba(106, 176, 76, 0.12);
+		color: #eef0f8;
+	}
+
 	.main-wrapper {
 		flex: 1;
 		margin-left: 260px;
 		display: flex;
 		flex-direction: column;
 		min-height: 100vh;
+		min-width: 0; /* Allow flexbox shrinking */
+		width: calc(100vw - 260px);
+		max-width: calc(100vw - 260px);
+		overflow-x: hidden;
 	}
 
 	.main-content {
@@ -322,6 +390,8 @@
 		padding: 32px;
 		max-width: 1400px;
 		width: 100%;
+		min-width: 0; /* Allow flexbox shrinking */
+		box-sizing: border-box;
 	}
 
 	@media (max-width: 768px) {
@@ -331,6 +401,8 @@
 
 		.main-wrapper {
 			margin-left: 200px;
+			width: calc(100vw - 200px);
+			max-width: calc(100vw - 200px);
 		}
 
 		.main-content {

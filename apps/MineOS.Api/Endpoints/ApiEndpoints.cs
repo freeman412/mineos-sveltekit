@@ -21,6 +21,12 @@ public static class ApiEndpoints
         api.MapNotificationEndpoints();
         api.MapSettingsEndpoints();
 
+        // Global watchdog endpoints (not per-server)
+        if (app is WebApplication webApp)
+        {
+            webApp.MapGlobalWatchdogEndpoints();
+        }
+
         return app;
     }
 }

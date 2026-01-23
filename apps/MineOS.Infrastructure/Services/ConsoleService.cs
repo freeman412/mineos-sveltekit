@@ -4,6 +4,7 @@ using Microsoft.Extensions.Options;
 using MineOS.Application.Dtos;
 using MineOS.Application.Interfaces;
 using MineOS.Application.Options;
+using MineOS.Infrastructure.Utilities;
 
 namespace MineOS.Infrastructure.Services;
 
@@ -32,6 +33,9 @@ public sealed class ConsoleService : IConsoleService
     private string GetStartupLogPath(string serverName) =>
         Path.Combine(GetServerPath(serverName), "logs", "startup.log");
 
+    private string GetCrashReportsPath(string serverName) =>
+        Path.Combine(GetServerPath(serverName), "crash-reports");
+
     public async Task SendCommandAsync(string serverName, string command, CancellationToken cancellationToken)
     {
         await _processManager.SendCommandAsync(
@@ -41,6 +45,32 @@ public sealed class ConsoleService : IConsoleService
             _hostOptions.RunAsGid,
             cancellationToken);
         _logger.LogInformation("Sent command '{Command}' to server {ServerName}", command, serverName);
+    }
+
+    public Task ClearLogsAsync(string serverName, ConsoleLogSource source, CancellationToken cancellationToken)
+    {
+        var logPath = GetLogPath(serverName);
+        var startupLogPath = GetStartupLogPath(serverName);
+
+        switch (source)
+        {
+            case ConsoleLogSource.Java:
+                TruncateLog(startupLogPath);
+                break;
+            case ConsoleLogSource.CrashReports:
+                DeleteCrashReports(serverName);
+                break;
+            case ConsoleLogSource.Server:
+                TruncateLog(logPath);
+                break;
+            case ConsoleLogSource.Combined:
+            default:
+                TruncateLog(logPath);
+                TruncateLog(startupLogPath);
+                break;
+        }
+
+        return Task.CompletedTask;
     }
 
     public async IAsyncEnumerable<LogEntryDto> StreamLogsAsync(
@@ -72,6 +102,16 @@ public sealed class ConsoleService : IConsoleService
                                "Waiting for Java logs (startup.log not found yet). Start the server to create logs.",
                                null,
                                cancellationToken))
+            {
+                yield return entry;
+            }
+
+            yield break;
+        }
+
+        if (source == ConsoleLogSource.CrashReports)
+        {
+            await foreach (var entry in StreamCrashReportsAsync(serverName, cancellationToken))
             {
                 yield return entry;
             }
@@ -256,6 +296,100 @@ public sealed class ConsoleService : IConsoleService
         return $"[{prefix}] {line}";
     }
 
+    private async IAsyncEnumerable<LogEntryDto> StreamCrashReportsAsync(
+        string serverName,
+        [EnumeratorCancellation] CancellationToken cancellationToken)
+    {
+        var crashDir = GetCrashReportsPath(serverName);
+        string? lastFile = null;
+        DateTimeOffset? lastWrite = null;
+        var waitingNotified = false;
+
+        while (!cancellationToken.IsCancellationRequested)
+        {
+            if (!Directory.Exists(crashDir))
+            {
+                if (!waitingNotified)
+                {
+                    waitingNotified = true;
+                    yield return new LogEntryDto(
+                        DateTimeOffset.UtcNow,
+                        "Waiting for crash reports (crash-reports folder not found yet).");
+                }
+
+                await Task.Delay(1000, cancellationToken);
+                continue;
+            }
+
+            var latest = GetLatestCrashReport(crashDir);
+            if (latest == null)
+            {
+                if (!waitingNotified)
+                {
+                    waitingNotified = true;
+                    yield return new LogEntryDto(DateTimeOffset.UtcNow, "No crash reports found yet.");
+                }
+
+                await Task.Delay(1000, cancellationToken);
+                continue;
+            }
+
+            waitingNotified = false;
+
+            if (!string.Equals(latest.FullName, lastFile, StringComparison.OrdinalIgnoreCase) ||
+                latest.LastWriteTimeUtc > (lastWrite?.UtcDateTime ?? DateTime.MinValue))
+            {
+                yield return new LogEntryDto(
+                    DateTimeOffset.UtcNow,
+                    $"=== Crash Report: {latest.Name} ===");
+
+            IEnumerable<string> lines;
+            string? readError = null;
+            try
+            {
+                lines = File.ReadLines(latest.FullName);
+            }
+            catch (Exception ex)
+            {
+                readError = ex.Message;
+                lines = Array.Empty<string>();
+            }
+
+            if (readError != null)
+            {
+                yield return new LogEntryDto(DateTimeOffset.UtcNow, $"Failed to read crash report: {readError}");
+                await Task.Delay(1000, cancellationToken);
+                continue;
+            }
+
+                foreach (var line in lines)
+                {
+                    yield return new LogEntryDto(DateTimeOffset.UtcNow, line);
+                }
+
+                lastFile = latest.FullName;
+                lastWrite = latest.LastWriteTimeUtc;
+            }
+
+            await Task.Delay(1000, cancellationToken);
+        }
+    }
+
+    private static FileInfo? GetLatestCrashReport(string crashDir)
+    {
+        try
+        {
+            var directory = new DirectoryInfo(crashDir);
+            return directory.Exists
+                ? directory.GetFiles("*.txt").OrderByDescending(file => file.LastWriteTimeUtc).FirstOrDefault()
+                : null;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
     private static async Task<string?> TryReadLineAsync(StreamReader reader, CancellationToken cancellationToken)
     {
         try
@@ -285,6 +419,57 @@ public sealed class ConsoleService : IConsoleService
         catch
         {
             return Array.Empty<string>();
+        }
+    }
+
+    private void TruncateLog(string path)
+    {
+        try
+        {
+            var directory = Path.GetDirectoryName(path);
+            if (!string.IsNullOrWhiteSpace(directory))
+            {
+                Directory.CreateDirectory(directory);
+                OwnershipHelper.TrySetOwnership(directory, _hostOptions.RunAsUid, _hostOptions.RunAsGid, _logger);
+            }
+
+            using var stream = new FileStream(path, FileMode.OpenOrCreate, FileAccess.Write, FileShare.ReadWrite);
+            stream.SetLength(0);
+            OwnershipHelper.TrySetOwnership(path, _hostOptions.RunAsUid, _hostOptions.RunAsGid, _logger);
+            _logger.LogInformation("Cleared log file {LogPath}", path);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to clear log file {LogPath}", path);
+        }
+    }
+
+    private void DeleteCrashReports(string serverName)
+    {
+        try
+        {
+            var crashDir = GetCrashReportsPath(serverName);
+            if (!Directory.Exists(crashDir))
+            {
+                return;
+            }
+
+            var files = Directory.GetFiles(crashDir, "*.txt");
+            foreach (var file in files)
+            {
+                try
+                {
+                    File.Delete(file);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to delete crash report {CrashReport}", file);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to clear crash reports for {ServerName}", serverName);
         }
     }
 }

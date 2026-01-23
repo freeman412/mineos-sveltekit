@@ -1,9 +1,10 @@
 import type { PageServerLoad } from './$types';
-import { getHostServers } from '$lib/api/client';
+import { getHostImports, getHostServers } from '$lib/api/client';
 
 export const load: PageServerLoad = async ({ fetch }) => {
-	const servers = await getHostServers(fetch);
+	const [servers, imports] = await Promise.all([getHostServers(fetch), getHostImports(fetch)]);
 	return {
-		servers
+		servers,
+		imports
 	};
 };

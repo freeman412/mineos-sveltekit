@@ -4,5 +4,6 @@ public enum ConsoleLogSource
 {
     Server,
     Java,
+    CrashReports,
     Combined
 }

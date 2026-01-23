@@ -26,6 +26,30 @@ build/Release
 # https://docs.npmjs.com/misc/faq#should-i-check-my-node-modules-folder-into-git
 node_modules
 
+# Source control and tooling
+.git
+.github
+.vscode
+.devcontainer
+
+# Large local data directories
+data
+minecraft
+**/data/**
+**/minecraft/**
+minecraft/**
+
+# Build artifacts
+**/bin
+**/obj
+apps/web/.svelte-kit
+apps/web/build
+apps/web/.vite
+
+# Local docs/tests
+docs
+test
+
 # Environment files (except examples)
 .env
 .env.local
