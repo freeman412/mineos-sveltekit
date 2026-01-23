@@ -16,6 +16,7 @@
 	let logContainer: HTMLDivElement | null = null;
 	let eventSource: EventSource | null = null;
 	let loadRunsTimeout: ReturnType<typeof setTimeout> | null = null;
+	let hasInvalidated = $state(false);
 
 	// For copy-to-server quick action
 	let servers = $state<ServerSummary[]>([]);
@@ -71,6 +72,7 @@
 		logs = [];
 		profileId = null;
 		runId = null;
+		hasInvalidated = false;
 
 		try {
 			const res = await fetch('/api/host/profiles/buildtools', {
@@ -111,12 +113,22 @@
 				if (entry?.message) {
 					logs = [...logs, entry.message];
 				}
-				if (entry?.status && entry.status !== 'running') {
-					status = entry.status;
-					if (entry.status === 'completed') {
-						invalidateAll();
+				if (entry?.status) {
+					const nextStatus = entry.status as typeof status;
+					const prevStatus = status;
+					status = nextStatus;
+
+					if (nextStatus !== 'running') {
+						if (nextStatus === 'completed' && !hasInvalidated) {
+							hasInvalidated = true;
+							invalidateAll();
+						}
+						loadRunsDebounced();
+						eventSource?.close();
+						eventSource = null;
+					} else if (prevStatus !== nextStatus) {
+						hasInvalidated = false;
 					}
-					loadRunsDebounced();
 				}
 			} catch {
 				logs = [...logs, event.data];
@@ -159,12 +171,16 @@
 		logs = [];
 		buildError = '';
 		status = 'running';
+		hasInvalidated = false;
 		const run = runs.find((item) => item.runId === id);
 		if (run) {
 			profileId = run.profileId;
 			status = run.status;
 			buildGroup = run.group ?? buildGroup;
 			buildVersion = run.version ?? buildVersion;
+			if (run.status === 'completed' || run.status === 'failed') {
+				hasInvalidated = true;
+			}
 		}
 		localStorage.setItem('mineos_buildtools_run', id);
 		openStream(id);

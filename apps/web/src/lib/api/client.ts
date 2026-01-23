@@ -467,3 +467,57 @@ export async function getAllWatchdogStatus(
 ): Promise<ApiResult<Record<string, import('./types').WatchdogStatus>>> {
 	return apiFetch(fetcher, `/api/watchdog/status`);
 }
+
+// Modpack Installation
+export async function installModpack(
+	fetcher: Fetcher,
+	serverName: string,
+	modpackId: number,
+	modpackName: string,
+	fileId?: number,
+	modpackVersion?: string,
+	logoUrl?: string
+): Promise<ApiResult<{ jobId: string; message: string }>> {
+	return apiPost(fetcher, `/api/servers/${serverName}/modpacks/install-enhanced`, {
+		modpackId,
+		fileId: fileId ?? null,
+		modpackName,
+		modpackVersion: modpackVersion ?? null,
+		logoUrl: logoUrl ?? null
+	});
+}
+
+export function streamModpackInstall(
+	serverName: string,
+	jobId: string,
+	onProgress: (progress: import('./types').ModpackInstallProgress) => void,
+	onError: (error: string) => void,
+	onComplete: () => void
+): () => void {
+	const eventSource = new EventSource(`/api/servers/${serverName}/modpacks/install/${jobId}/stream`);
+
+	eventSource.onmessage = (event) => {
+		try {
+			const progress = JSON.parse(event.data) as import('./types').ModpackInstallProgress;
+			onProgress(progress);
+
+			if (progress.status === 'completed' || progress.status === 'failed') {
+				eventSource.close();
+				if (progress.status === 'completed') {
+					onComplete();
+				} else {
+					onError(progress.error || 'Installation failed');
+				}
+			}
+		} catch (err) {
+			console.error('Failed to parse modpack progress:', err);
+		}
+	};
+
+	eventSource.onerror = () => {
+		eventSource.close();
+		onError('Connection to server lost');
+	};
+
+	return () => eventSource.close();
+}

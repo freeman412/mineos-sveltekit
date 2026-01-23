@@ -65,6 +65,9 @@ public sealed class ProfileService : IProfileService
     private string GetBuildToolsLogPath(string runId) =>
         Path.Combine(GetBuildToolsLogsPath(), $"{runId}.log");
 
+    private string GetBuildToolsWorkPath(string profileId) =>
+        Path.Combine(Path.GetTempPath(), "mineos-buildtools", profileId);
+
     private string GetProfilePath(string id) =>
         Path.Combine(GetProfilesPath(), id);
 
@@ -448,6 +451,8 @@ public sealed class ProfileService : IProfileService
         var profileId = request.ProfileId;
         var profilePath = GetProfilePath(profileId);
         Directory.CreateDirectory(profilePath);
+        var workPath = GetBuildToolsWorkPath(profileId);
+        Directory.CreateDirectory(workPath);
 
         await using var logStream = new FileStream(run.LogPath, FileMode.Append, FileAccess.Write, FileShare.ReadWrite);
         await using var logWriter = new StreamWriter(logStream) { AutoFlush = true };
@@ -466,7 +471,9 @@ public sealed class ProfileService : IProfileService
             }
         }
 
-        var buildToolsPath = Path.Combine(profilePath, BuildToolsJarName);
+        await WriteLogAsync($"Using BuildTools workspace: {workPath}");
+
+        var buildToolsPath = Path.Combine(workPath, BuildToolsJarName);
         if (!File.Exists(buildToolsPath))
         {
             progress.Report(new JobProgressDto(
@@ -493,10 +500,10 @@ public sealed class ProfileService : IProfileService
 
         var lockPaths = new[]
         {
-            Path.Combine(profilePath, "BuildData", ".git", "index.lock"),
-            Path.Combine(profilePath, "Bukkit", ".git", "index.lock"),
-            Path.Combine(profilePath, "CraftBukkit", ".git", "index.lock"),
-            Path.Combine(profilePath, "Spigot", ".git", "index.lock")
+            Path.Combine(workPath, "BuildData", ".git", "index.lock"),
+            Path.Combine(workPath, "Bukkit", ".git", "index.lock"),
+            Path.Combine(workPath, "CraftBukkit", ".git", "index.lock"),
+            Path.Combine(workPath, "Spigot", ".git", "index.lock")
         };
         foreach (var lockPath in lockPaths)
         {
@@ -532,7 +539,7 @@ public sealed class ProfileService : IProfileService
         {
             FileName = "java",
             Arguments = args,
-            WorkingDirectory = profilePath,
+            WorkingDirectory = workPath,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
             UseShellExecute = false,
@@ -573,11 +580,11 @@ public sealed class ProfileService : IProfileService
         var sourceJarName = request.Group == "spigot"
             ? $"spigot-{request.Version}.jar"
             : $"craftbukkit-{request.Version}.jar";
-        var sourceJarPath = Path.Combine(profilePath, sourceJarName);
+        var sourceJarPath = Path.Combine(workPath, sourceJarName);
 
         if (!File.Exists(sourceJarPath))
         {
-            var candidate = Directory.GetFiles(profilePath, $"*{request.Version}*.jar")
+            var candidate = Directory.GetFiles(workPath, $"*{request.Version}*.jar")
                 .FirstOrDefault(path => !path.EndsWith(BuildToolsJarName, StringComparison.OrdinalIgnoreCase));
             if (candidate == null)
             {

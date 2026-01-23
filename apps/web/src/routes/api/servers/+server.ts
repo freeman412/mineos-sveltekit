@@ -1,3 +1,7 @@
 import { createProxyHandlers } from '$lib/server/proxyApi';
 
-export const { POST } = createProxyHandlers('/api/v1/servers');
+const createHandlers = createProxyHandlers('/api/v1/servers');
+const listHandlers = createProxyHandlers('/api/v1/servers/list');
+
+export const GET = listHandlers.GET;
+export const POST = createHandlers.POST;

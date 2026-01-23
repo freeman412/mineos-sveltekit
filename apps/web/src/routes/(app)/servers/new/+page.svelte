@@ -115,6 +115,20 @@
 	let forgeInstallCompleted = $state(false);
 	let forgeWatchError = $state('');
 
+	// Modpack install state
+	let modpackInstallJobId = $state('');
+	let modpackInstallProgress = $state(0);
+	let modpackInstallStep = $state('');
+	let modpackInstallCurrentMod = $state('');
+	let modpackInstallModIndex = $state(0);
+	let modpackInstallTotalMods = $state(0);
+	let modpackInstallOutput = $state<string[]>([]);
+	let modpackOutputExpanded = $state(false);
+	let modpackWatching = $state(false);
+	let modpackInstallCompleted = $state(false);
+	let modpackWatchError = $state('');
+	let modpackStreamCleanup: (() => void) | null = null;
+
 	// Filter profiles by selected type
 	const filteredProfiles = $derived.by(() => {
 		if (!data.profiles.data || !selectedType) return [];
@@ -240,7 +254,9 @@
 		selectedProfileId = profileId;
 	}
 
-	function getStatusMeta(status?: string) {
+	type Variant = 'success' | 'error' | 'warning' | 'info' | 'neutral';
+
+	function getStatusMeta(status?: string): { label: string; variant: Variant; pulse: boolean } {
 		const value = (status ?? '').toLowerCase();
 		if (value === 'running' || value === 'up') {
 			return { label: 'Running', variant: 'success', pulse: true };
@@ -412,10 +428,31 @@
 				}
 			}
 
-			// TODO: Handle CurseForge modpack installation
+			// Handle CurseForge modpack installation
 			if (selectedType === 'curseforge' && selectedModpack) {
-				// Modpack installation logic would go here
-				console.log('Would install modpack:', selectedModpack);
+				modpackInstallStep = 'Starting modpack installation...';
+				modpackInstallProgress = 0;
+				modpackInstallCompleted = false;
+				modpackWatchError = '';
+				modpackInstallOutput = [];
+
+				const installResult = await api.installModpack(
+					fetch,
+					serverName.trim(),
+					selectedModpack.id,
+					selectedModpack.name,
+					selectedModpack.fileId
+				);
+
+				if (installResult.error) {
+					throw new Error(installResult.error);
+				}
+
+				if (installResult.data) {
+					modpackInstallJobId = installResult.data.jobId;
+					await invalidateAll();
+					return;
+				}
 			}
 
 			await invalidateAll();
@@ -476,6 +513,50 @@
 	function sendForgeToBackground() {
 		forgeWatching = false;
 		goto('/servers');
+	}
+
+	function startModpackWatch() {
+		if (!modpackInstallJobId || modpackWatching) return;
+		modpackWatching = true;
+		modpackWatchError = '';
+
+		modpackStreamCleanup = api.streamModpackInstall(
+			serverName.trim(),
+			modpackInstallJobId,
+			(progress) => {
+				modpackInstallProgress = progress.percentage;
+				modpackInstallStep = progress.currentStep || 'Installing...';
+				modpackInstallCurrentMod = progress.currentModName || '';
+				modpackInstallModIndex = progress.currentModIndex;
+				modpackInstallTotalMods = progress.totalMods;
+				if (progress.outputLines.length > 0) {
+					modpackInstallOutput = progress.outputLines;
+				}
+			},
+			(error) => {
+				modpackWatchError = error;
+			},
+			() => {
+				modpackInstallCompleted = true;
+			}
+		);
+	}
+
+	function sendModpackToBackground() {
+		if (modpackStreamCleanup) {
+			modpackStreamCleanup();
+			modpackStreamCleanup = null;
+		}
+		modpackWatching = false;
+		goto('/servers');
+	}
+
+	function goToCreatedServer() {
+		if (modpackStreamCleanup) {
+			modpackStreamCleanup();
+			modpackStreamCleanup = null;
+		}
+		goto(`/servers/${encodeURIComponent(serverName.trim())}`);
 	}
 
 	function goBack() {
@@ -832,6 +913,8 @@
 							Downloading server JAR...
 						{:else if forgeInstallId}
 							Installing Forge...
+						{:else if modpackInstallJobId}
+							Installing Modpack...
 						{:else}
 							Creating your server...
 						{/if}
@@ -841,10 +924,66 @@
 							{buildToolsProgress || 'This may take several minutes'}
 						{:else if forgeInstallId}
 							{forgeInstallStep || 'Preparing installation...'}
+						{:else if modpackInstallJobId}
+							{modpackInstallStep || 'Preparing modpack installation...'}
 						{:else}
 							This will only take a moment
 						{/if}
 					</p>
+
+					<!-- Modpack installation progress -->
+					{#if modpackInstallJobId}
+						<p class="step-hint">
+							Modpack installation runs in the background. You can leave this page and track it in Notifications.
+						</p>
+						{#if modpackInstallTotalMods > 0}
+							<div class="mod-progress-info">
+								<span class="mod-counter">Mod {modpackInstallModIndex} of {modpackInstallTotalMods}</span>
+								{#if modpackInstallCurrentMod}
+									<span class="current-mod">{modpackInstallCurrentMod}</span>
+								{/if}
+							</div>
+						{/if}
+						{#if modpackInstallProgress > 0}
+							<ProgressBar value={modpackInstallProgress} color="blue" size="md" showLabel />
+						{/if}
+						<div class="install-actions">
+							{#if !modpackWatching}
+								<button class="btn-secondary" onclick={startModpackWatch}>
+									Stay and watch
+								</button>
+							{/if}
+							<button class="btn-primary" onclick={sendModpackToBackground}>
+								Send to background
+							</button>
+						</div>
+						{#if modpackInstallCompleted}
+							<div class="success-box">
+								Modpack installed successfully!
+								<button class="btn-link" onclick={goToCreatedServer}>Go to server</button>
+							</div>
+						{:else if modpackWatchError}
+							<div class="error-box">{modpackWatchError}</div>
+						{/if}
+						{#if modpackInstallOutput.length > 0}
+							<div class="output-section">
+								<button
+									class="output-toggle"
+									onclick={() => modpackOutputExpanded = !modpackOutputExpanded}
+								>
+									<span class="toggle-icon">{modpackOutputExpanded ? '▼' : '▶'}</span>
+									<span>Installation Log ({modpackInstallOutput.length} lines)</span>
+								</button>
+								{#if modpackOutputExpanded}
+									<div class="output-content">
+										<pre>{modpackInstallOutput.join('\n')}</pre>
+									</div>
+								{/if}
+							</div>
+						{/if}
+					{/if}
+
+					<!-- Forge installation progress -->
 					{#if forgeInstallId}
 						<p class="step-hint">
 							Forge install runs in the background. You can leave this page and track it in
@@ -855,7 +994,7 @@
 						<ProgressBar value={forgeInstallProgress} color="green" size="md" showLabel />
 					{/if}
 					{#if forgeInstallId}
-						<div class="forge-actions">
+						<div class="install-actions">
 							{#if !forgeWatching}
 								<button class="btn-secondary" onclick={startForgeWatch}>
 									Stay and watch
@@ -1097,13 +1236,53 @@
 		max-width: 520px;
 	}
 
-	.forge-actions {
+	.install-actions {
 		display: flex;
 		gap: 12px;
 		align-items: center;
 		justify-content: center;
 		margin: 0 0 18px;
 		flex-wrap: wrap;
+	}
+
+	.mod-progress-info {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: 4px;
+		margin-bottom: 16px;
+	}
+
+	.mod-counter {
+		font-size: 14px;
+		font-weight: 600;
+		color: #a855f7;
+	}
+
+	.current-mod {
+		font-size: 12px;
+		color: #9aa2c5;
+		max-width: 400px;
+		text-align: center;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.btn-link {
+		background: none;
+		border: none;
+		color: #5865f2;
+		text-decoration: underline;
+		cursor: pointer;
+		font-family: inherit;
+		font-size: 14px;
+		padding: 4px 8px;
+		margin-left: 8px;
+	}
+
+	.btn-link:hover {
+		color: #4752c4;
 	}
 
 	.success-box {
