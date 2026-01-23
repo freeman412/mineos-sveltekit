@@ -1,6 +1,10 @@
 # MineOS Install & Management Script for Windows
 # Interactive setup using PowerShell
 
+param(
+    [switch]$Dev
+)
+
 $ErrorActionPreference = "Stop"
 
 if ($PSVersionTable.PSVersion.Major -ge 7) {
@@ -529,6 +533,44 @@ function Set-EnvValue {
     $newLines | Set-Content ".env" -Encoding utf8
 }
 
+function Set-EnvFileValue {
+    param([string]$Path, [string]$Key, [string]$Value)
+    if (-not (Test-Path $Path)) {
+        "$Key=$Value" | Out-File -FilePath $Path -Encoding utf8
+        return
+    }
+    $pattern = "^{0}=" -f [regex]::Escape($Key)
+    $lines = Get-Content $Path
+    $found = $false
+    $newLines = foreach ($line in $lines) {
+        if ($line -match $pattern) {
+            $found = $true
+            "$Key=$Value"
+        } else {
+            $line
+        }
+    }
+    if (-not $found) { $newLines += "$Key=$Value" }
+    $newLines | Set-Content $Path -Encoding utf8
+}
+
+function Write-WebDevEnv {
+    $webEnvPath = Join-Path "apps\web" ".env.local"
+    if (-not (Test-Path "apps\web")) { New-Item -ItemType Directory -Force -Path "apps\web" | Out-Null }
+
+    $apiPortValue = $script:apiPort
+    if ([string]::IsNullOrWhiteSpace($apiPortValue)) { $apiPortValue = "5078" }
+    $apiKeyValue = $script:apiKey
+    if ([string]::IsNullOrWhiteSpace($apiKeyValue)) { $apiKeyValue = Get-EnvValue "ApiKey__SeedKey" }
+
+    Set-EnvFileValue -Path $webEnvPath -Key "PUBLIC_API_BASE_URL" -Value "http://localhost:$apiPortValue"
+    Set-EnvFileValue -Path $webEnvPath -Key "PRIVATE_API_BASE_URL" -Value "http://localhost:$apiPortValue"
+    if ($apiKeyValue) { Set-EnvFileValue -Path $webEnvPath -Key "PRIVATE_API_KEY" -Value $apiKeyValue }
+    Set-EnvFileValue -Path $webEnvPath -Key "ORIGIN" -Value "http://localhost:5174"
+
+    Write-Success "Updated apps\\web\\.env.local for dev"
+}
+
 function Get-EffectiveMcPortRange {
     if (-not [string]::IsNullOrWhiteSpace($script:mcPortRange)) { return $script:mcPortRange }
     $val = Get-EnvValue "MC_PORT_RANGE"
@@ -969,6 +1011,54 @@ function Start-Services {
     Write-Success "Services started!"
 }
 
+function Start-DevMode {
+    param([switch]$Pause)
+
+    Write-Header "Dev Mode"
+
+    if (-not (Test-Path ".env")) {
+        Write-Error-Custom "No installation found. Run fresh install first."
+        return
+    }
+
+    Test-Dependencies
+    Load-ExistingConfig
+
+    if (-not (Ensure-MinecraftPortsAvailable)) {
+        Write-Error-Custom "Cannot start services until Minecraft ports are available."
+        exit 1
+    }
+
+    Write-Info "Stopping web service (if running)..."
+    [void](Invoke-Compose -Args @("stop", "web"))
+
+    Write-Info "Starting API service..."
+    $r = Invoke-Compose -Args @("up", "-d", "api")
+    if ($r.ExitCode -ne 0) {
+        $running = Test-ComposeServicesRunning -ContainerNames @("mineos-api")
+        if (-not $running) {
+            Write-Error-Custom "Failed to start API service"
+            if ($r.Output) { Write-Host $r.Output }
+            exit 1
+        }
+        Write-Warn "Compose returned a non-zero exit code but the API container is running."
+    }
+    Write-Success "API service started"
+
+    Write-WebDevEnv
+
+    Write-Host ""
+    Write-Host "Web dev server:" -ForegroundColor Cyan
+    Write-Host "  cd apps\\web"
+    Write-Host "  npm install"
+    Write-Host "  npm run dev -- --host 0.0.0.0 --port 5174"
+    Write-Host ""
+    Write-Host "Web UI (dev): http://localhost:5174" -ForegroundColor Cyan
+    Write-Host "API:          http://localhost:$apiPort" -ForegroundColor Cyan
+
+    if ($Pause) { Read-Host "Press Enter to continue" }
+}
+
 function Stop-Services {
     Write-Info "Stopping services..."
     $r = Invoke-Compose -Args @("down")
@@ -1112,6 +1202,7 @@ function Show-Menu {
         Write-Host " [6] Rebuild (keep config)" -ForegroundColor Yellow
         Write-Host " [7] Update (git pull + rebuild)" -ForegroundColor Yellow
         Write-Host " [8] Fresh Install (reset everything)" -ForegroundColor Red
+        Write-Host " [9] Dev Mode (API only + web dev env)" -ForegroundColor Yellow
         Write-Host ""
         Write-Host " [Q] Quit" -ForegroundColor DarkGray
     }
@@ -1122,6 +1213,11 @@ function Show-Menu {
 }
 
 function Main {
+    if ($Dev) {
+        Start-DevMode
+        return
+    }
+
     Test-Dependencies
 
     while ($true) {
@@ -1144,6 +1240,7 @@ function Main {
                 "6" { Do-Rebuild; Read-Host "Press Enter to continue" }
                 "7" { Do-Update; Read-Host "Press Enter to continue" }
                 "8" { Do-FreshInstall; Read-Host "Press Enter to continue" }
+                "9" { Start-DevMode -Pause }
                 "Q" { Write-Host "Goodbye!"; exit 0 }
                 default { Write-Warn "Invalid option" }
             }

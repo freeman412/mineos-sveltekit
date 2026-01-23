@@ -5,6 +5,13 @@
 
 set -e
 
+DEV_MODE=false
+for arg in "$@"; do
+    case "$arg" in
+        --dev) DEV_MODE=true ;;
+    esac
+done
+
 # Colors for output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -175,6 +182,54 @@ get_env_value() {
     fi
 
     echo "${line#*=}"
+}
+
+set_env_file_value() {
+    local path="$1"
+    local key="$2"
+    local value="$3"
+
+    if [ ! -f "$path" ]; then
+        echo "${key}=${value}" > "$path"
+        return
+    fi
+
+    local tmp
+    tmp=$(mktemp)
+    local found=false
+
+    while IFS= read -r line || [ -n "$line" ]; do
+        if [[ "$line" == "${key}="* ]]; then
+            echo "${key}=${value}" >> "$tmp"
+            found=true
+        else
+            echo "$line" >> "$tmp"
+        fi
+    done < "$path"
+
+    if [ "$found" = false ]; then
+        echo "${key}=${value}" >> "$tmp"
+    fi
+
+    mv "$tmp" "$path"
+}
+
+write_web_dev_env() {
+    local api_port
+    local api_key
+    api_port=$(get_env_value API_PORT 2>/dev/null || echo "5078")
+    api_key=$(get_env_value ApiKey__SeedKey 2>/dev/null || echo "")
+
+    mkdir -p apps/web
+    local env_path="apps/web/.env.local"
+    set_env_file_value "$env_path" "PUBLIC_API_BASE_URL" "http://localhost:${api_port}"
+    set_env_file_value "$env_path" "PRIVATE_API_BASE_URL" "http://localhost:${api_port}"
+    if [ -n "$api_key" ]; then
+        set_env_file_value "$env_path" "PRIVATE_API_KEY" "$api_key"
+    fi
+    set_env_file_value "$env_path" "ORIGIN" "http://localhost:5174"
+
+    success "Updated apps/web/.env.local for dev"
 }
 
 # Configuration wizard
@@ -378,6 +433,55 @@ start_services() {
     success "Services started"
 }
 
+start_dev_mode() {
+    echo -e "${CYAN}Dev Mode${NC}"
+    echo ""
+
+    if ! is_installed; then
+        error "No installation found. Run fresh install first."
+        return
+    fi
+
+    check_dependencies
+
+    if ! set_compose_cmd; then
+        error "Docker Compose not found"
+        exit 1
+    fi
+
+    info "Stopping web service (if running)..."
+    "${COMPOSE_CMD[@]}" stop web >/dev/null 2>&1 || true
+
+    info "Starting API service..."
+    set +e
+    "${COMPOSE_CMD[@]}" up -d api
+    local up_code=$?
+    set -e
+
+    if [ "$up_code" -ne 0 ]; then
+        local running
+        running=$("${COMPOSE_CMD[@]}" ps --status running -q api 2>/dev/null | wc -l | tr -d ' ')
+        if [ "$running" -eq 0 ]; then
+            error "Failed to start API service"
+            exit 1
+        else
+            warn "Compose returned a non-zero exit code but the API container is running."
+        fi
+    fi
+
+    write_web_dev_env
+
+    echo ""
+    echo -e "${CYAN}Web dev server:${NC}"
+    echo "  cd apps/web"
+    echo "  npm install"
+    echo "  npm run dev -- --host 0.0.0.0 --port 5174"
+    echo ""
+    echo -e "${CYAN}Web UI (dev):${NC} http://localhost:5174"
+    echo -e "${CYAN}API:${NC} http://localhost:$(get_env_value API_PORT 2>/dev/null || echo "5078")"
+    echo ""
+}
+
 # Stop services
 stop_services() {
     if ! set_compose_cmd; then
@@ -539,6 +643,7 @@ show_menu_installed() {
     echo "  [6] Rebuild (keep config)"
     echo "  [7] Update (git pull + rebuild)"
     echo "  [8] Fresh Install (reset everything)"
+    echo "  [9] Dev Mode (API only + web dev env)"
     echo ""
     echo "  [Q] Quit"
     echo ""
@@ -546,6 +651,11 @@ show_menu_installed() {
 
 # Main menu loop
 main() {
+    if [ "$DEV_MODE" = true ]; then
+        start_dev_mode
+        exit 0
+    fi
+
     while true; do
         show_banner
         show_status
@@ -563,6 +673,7 @@ main() {
                 6) rebuild ;;
                 7) update ;;
                 8) fresh_install ;;
+                9) start_dev_mode; read -p "Press Enter to continue..." ;;
                 [Qq]) echo "Goodbye!"; exit 0 ;;
                 *) warn "Invalid option" ;;
             esac
