@@ -114,6 +114,10 @@ export type CreateServerRequest = {
 	ownerGid: number;
 };
 
+export type CloneServerRequest = {
+	newName: string;
+};
+
 export type InstalledMod = {
 	fileName: string;
 	sizeBytes: number;

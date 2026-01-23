@@ -207,6 +207,8 @@
 				return 'Restore';
 			case 'download':
 				return 'Download';
+			case 'buildtools':
+				return 'BuildTools';
 			default:
 				return type.charAt(0).toUpperCase() + type.slice(1);
 		}

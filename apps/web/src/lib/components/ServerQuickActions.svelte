@@ -62,6 +62,7 @@
 			actionLoading = false;
 		}
 	}
+
 </script>
 
 {#if server}
@@ -141,6 +142,7 @@
 		gap: 10px;
 		flex-wrap: wrap;
 	}
+
 
 	.btn {
 		background: #2b2f45;

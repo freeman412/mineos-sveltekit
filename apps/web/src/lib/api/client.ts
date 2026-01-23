@@ -139,6 +139,14 @@ export async function createServer(
 	});
 }
 
+export async function cloneServer(
+	fetcher: Fetcher,
+	name: string,
+	request: import('./types').CloneServerRequest
+): Promise<ApiResult<import('./types').ServerDetail>> {
+	return apiPost(fetcher, `/api/servers/${name}/clone`, request);
+}
+
 export async function deleteServer(fetcher: Fetcher, name: string): Promise<ApiResult<void>> {
 	return apiDelete(fetcher, `/api/servers/${name}`);
 }

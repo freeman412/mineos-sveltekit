@@ -28,6 +28,62 @@
 	let loading = $state(false);
 	let selectedProfile = $state(config.minecraft.profile ?? '');
 
+	const javaTweaksPresets = [
+		{
+			id: 'custom',
+			label: 'Custom (manual)',
+			value: null
+		},
+		{
+			id: 'none',
+			label: 'None (clear tweaks)',
+			value: ''
+		},
+		{
+			id: 'low-latency',
+			label: 'Low-latency G1 (Freeman)',
+			value:
+				'-XX:+UseG1GC -Dsun.rmi.dgc.server.gcInterval=2147483646 -XX:+UnlockExperimentalVMOptions -XX:G1NewSizePercent=20 -XX:G1ReservePercent=20 -XX:MaxGCPauseMillis=50 -XX:G1HeapRegionSize=32M'
+		},
+		{
+			id: 'balanced-g1',
+			label: 'Balanced G1GC (general)',
+			value:
+				'-XX:+UseG1GC -XX:+ParallelRefProcEnabled -XX:MaxGCPauseMillis=200 -XX:InitiatingHeapOccupancyPercent=20 -XX:+DisableExplicitGC'
+		},
+		{
+			id: 'aikar-high',
+			label: 'Aikar G1GC (8GB+)',
+			value:
+				'-XX:+UseG1GC -XX:+ParallelRefProcEnabled -XX:MaxGCPauseMillis=200 -XX:+UnlockExperimentalVMOptions -XX:+DisableExplicitGC -XX:+AlwaysPreTouch -XX:G1NewSizePercent=30 -XX:G1MaxNewSizePercent=40 -XX:G1HeapRegionSize=8M -XX:G1ReservePercent=20 -XX:G1HeapWastePercent=5 -XX:G1MixedGCCountTarget=4 -XX:InitiatingHeapOccupancyPercent=15 -XX:G1MixedGCLiveThresholdPercent=90 -XX:G1RSetUpdatingPauseTimePercent=5 -XX:SurvivorRatio=32 -XX:+PerfDisableSharedMem -XX:MaxTenuringThreshold=1'
+		}
+	];
+
+	const presetByValue = new Map(
+		javaTweaksPresets
+			.filter((preset) => preset.value !== null)
+			.map((preset) => [preset.value as string, preset.id])
+	);
+
+	let selectedJavaTweaksPreset = $state(
+		presetByValue.get(config.java.javaTweaks ?? '') ?? 'custom'
+	);
+
+	const jarOptions = $derived.by(() => {
+		const options = new Set<string>();
+		const jarFile = config.java.jarFile?.trim();
+		if (jarFile) {
+			options.add(jarFile);
+		}
+		for (const entry of data.jarFiles?.data ?? []) {
+			options.add(entry);
+		}
+		for (const entry of data.forgeArgFiles?.data ?? []) {
+			options.add(entry);
+		}
+		return Array.from(options).sort((a, b) => a.localeCompare(b));
+	});
+
 	const profiles = (data.profiles?.data ?? []) as Profile[];
 	const profileGroups = $derived.by(() => {
 		const groups: Record<string, Profile[]> = {};
@@ -62,6 +118,18 @@
 	$effect(() => {
 		config.minecraft.profile = selectedProfile.trim() ? selectedProfile : null;
 	});
+
+	function applyJavaTweaksPreset(presetId: string) {
+		selectedJavaTweaksPreset = presetId;
+		const preset = javaTweaksPresets.find((item) => item.id === presetId);
+		if (!preset) return;
+		if (preset.value === null) return;
+		config.java.javaTweaks = preset.value;
+	}
+
+	function markTweaksCustom() {
+		selectedJavaTweaksPreset = 'custom';
+	}
 </script>
 
 <div class="page">
@@ -143,7 +211,35 @@
 								id="jar-file"
 								bind:value={config.java.jarFile}
 								placeholder="server.jar"
+								list="jar-file-options"
 							/>
+							<datalist id="jar-file-options">
+								{#each jarOptions as option}
+									<option value={option}></option>
+								{/each}
+							</datalist>
+							{#if data.jarFiles?.error}
+								<p class="error-text">{data.jarFiles.error}</p>
+							{/if}
+							<p class="field-hint">
+								Select from detected JARs or Forge args files, or enter a custom path.
+							</p>
+						</div>
+
+						<div class="form-field full-width">
+							<label for="java-tweaks-preset">Java Tweaks Preset</label>
+							<select
+								id="java-tweaks-preset"
+								bind:value={selectedJavaTweaksPreset}
+								onchange={(event) => applyJavaTweaksPreset((event.target as HTMLSelectElement).value)}
+							>
+								{#each javaTweaksPresets as preset}
+									<option value={preset.id}>{preset.label}</option>
+								{/each}
+							</select>
+							<p class="field-hint">
+								Choose a tuned preset or keep custom tweaks below.
+							</p>
 						</div>
 
 						<div class="form-field full-width">
@@ -153,6 +249,7 @@
 								id="java-tweaks"
 								bind:value={config.java.javaTweaks}
 								placeholder="-XX:+UseG1GC -XX:+ParallelRefProcEnabled"
+								oninput={markTweaksCustom}
 							/>
 						</div>
 

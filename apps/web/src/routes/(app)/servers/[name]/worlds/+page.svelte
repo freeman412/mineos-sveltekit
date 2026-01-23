@@ -4,6 +4,7 @@
 	import { modal } from '$lib/stores/modal';
 	import { formatBytes, formatDate } from '$lib/utils/formatting';
 	import ProgressBar from '$lib/components/ProgressBar.svelte';
+	import type { World } from '$lib/api/types';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
@@ -15,8 +16,75 @@
 	let confirmDelete: string | null = $state(null);
 	let uploadingNew = $state(false);
 	let uploadNewProgress = $state<number>(0);
+	let serverProperties = $state<Record<string, string>>(data.serverProperties.data ?? {});
+	let newWorldName = $state('');
+	let newWorldSeed = $state('');
+	let newWorldType = $state('DEFAULT');
+	let creatingWorld = $state(false);
 
 	const isServerRunning = $derived(data.server?.status === 'running');
+	const canEditProperties = $derived(() => !!data.serverProperties.data && !data.serverProperties.error);
+	const activeWorldName = $derived(() => {
+		const value = serverProperties['level-name'];
+		return value && value.trim().length > 0 ? value.trim() : 'world';
+	});
+
+	type WorldGroup = {
+		key: string;
+		label: string;
+		worlds: World[];
+		isActive: boolean;
+	};
+
+	function getGroupKey(worldName: string) {
+		const normalized = worldName.trim();
+		if (normalized.endsWith('_nether')) return normalized.slice(0, -7);
+		if (normalized.endsWith('_the_end')) return normalized.slice(0, -8);
+		return normalized;
+	}
+
+	function getGroupLabel(groupKey: string) {
+		return groupKey === 'world' ? 'Default World' : groupKey;
+	}
+
+	function getWorldOrder(world: World) {
+		const type = world.type.toLowerCase();
+		if (type.startsWith('overworld')) return 0;
+		if (type === 'nether') return 1;
+		if (type === 'the end' || type === 'end') return 2;
+		return 3;
+	}
+
+	const worldGroups = $derived<WorldGroup[]>(() => {
+		if (!data.worlds.data) return [];
+		const groups = new Map<string, World[]>();
+		for (const world of data.worlds.data) {
+			const key = getGroupKey(world.name);
+			const existing = groups.get(key);
+			if (existing) {
+				existing.push(world);
+			} else {
+				groups.set(key, [world]);
+			}
+		}
+
+		return Array.from(groups.entries())
+			.map(([key, worlds]) => ({
+				key,
+				label: getGroupLabel(key),
+				worlds: [...worlds].sort((a, b) => getWorldOrder(a) - getWorldOrder(b)),
+				isActive: key.toLowerCase() === activeWorldName.toLowerCase()
+			}))
+			.sort((a, b) => {
+				if (a.isActive && !b.isActive) return -1;
+				if (!a.isActive && b.isActive) return 1;
+				return a.label.localeCompare(b.label);
+			});
+	});
+
+	$effect(() => {
+		serverProperties = data.serverProperties.data ?? {};
+	});
 
 	async function handleDownload(worldName: string) {
 		downloading = worldName;
@@ -191,6 +259,56 @@
 		};
 		input.click();
 	}
+
+	async function handleCreateWorld() {
+		if (!data.server) return;
+		if (!canEditProperties) {
+			await modal.error('Server properties are unavailable right now.');
+			return;
+		}
+		if (isServerRunning) {
+			await modal.error('Stop the server before creating a new world.');
+			return;
+		}
+
+		const name = newWorldName.trim();
+		if (!name) {
+			await modal.error('World name is required.');
+			return;
+		}
+
+		if (data.worlds.data?.some((world) => world.name.toLowerCase() === name.toLowerCase())) {
+			await modal.error('A world with that name already exists.');
+			return;
+		}
+
+		creatingWorld = true;
+		try {
+			const nextProperties = {
+				...serverProperties,
+				'level-name': name,
+				'level-seed': newWorldSeed.trim(),
+				'level-type': newWorldType
+			};
+
+			const result = await api.updateServerProperties(fetch, data.server.name, nextProperties);
+			if (result.error) {
+				await modal.error(result.error);
+				return;
+			}
+
+			serverProperties = nextProperties;
+			newWorldName = '';
+			newWorldSeed = '';
+			newWorldType = 'DEFAULT';
+			await modal.success('World settings saved. Start the server to generate the new world.');
+			await invalidateAll();
+		} catch (err) {
+			await modal.error(err instanceof Error ? err.message : 'Failed to create world.');
+		} finally {
+			creatingWorld = false;
+		}
+	}
 </script>
 
 <div class="worlds-page">
@@ -222,6 +340,63 @@
 			</div>
 		</div>
 	{/if}
+
+	<section class="create-world">
+		<div class="create-world__header">
+			<div>
+				<h3>Create New World</h3>
+				<p class="subtitle">Choose a world name and optional seed. Minecraft generates the world on next start.</p>
+			</div>
+			<span class="active-world">
+				Active world: <strong>{activeWorldName}</strong>
+			</span>
+		</div>
+		{#if data.serverProperties.error}
+			<p class="form-warning">Server properties are unavailable: {data.serverProperties.error}</p>
+		{/if}
+		<div class="create-world__form">
+			<div class="form-field">
+				<label for="world-name">World name</label>
+				<input
+					id="world-name"
+					type="text"
+					placeholder="world"
+					bind:value={newWorldName}
+					disabled={creatingWorld || isServerRunning || !canEditProperties}
+				/>
+			</div>
+			<div class="form-field">
+				<label for="world-seed">Seed (optional)</label>
+				<input
+					id="world-seed"
+					type="text"
+					placeholder="Leave blank for random"
+					bind:value={newWorldSeed}
+					disabled={creatingWorld || isServerRunning || !canEditProperties}
+				/>
+			</div>
+			<div class="form-field">
+				<label for="world-type">World type</label>
+				<select
+					id="world-type"
+					bind:value={newWorldType}
+					disabled={creatingWorld || isServerRunning || !canEditProperties}
+				>
+					<option value="DEFAULT">Default</option>
+					<option value="FLAT">Superflat</option>
+					<option value="LARGE_BIOMES">Large Biomes</option>
+					<option value="AMPLIFIED">Amplified</option>
+				</select>
+			</div>
+			<button
+				class="btn-primary"
+				onclick={handleCreateWorld}
+				disabled={creatingWorld || isServerRunning || !canEditProperties}
+			>
+				{creatingWorld ? 'Saving...' : 'Save World Settings'}
+			</button>
+		</div>
+	</section>
 
 	{#if data.worlds.error}
 		<div class="empty-state error">
@@ -255,79 +430,95 @@
 			{/if}
 		</div>
 	{:else}
-		<div class="worlds-grid">
-			{#each data.worlds.data as world}
-				<div class="world-card">
-					<div class="world-icon">
-						{#if world.type === 'Overworld'}
-							🌍
-						{:else if world.type === 'Nether'}
-							🔥
-						{:else if world.type === 'The End'}
-							🌌
-						{:else}
-							📁
+		<div class="world-groups">
+			{#each worldGroups as group}
+				<section class="world-group" class:active={group.isActive}>
+					<div class="world-group__header">
+						<div>
+							<h3>{group.label}</h3>
+							<p class="subtitle">{group.worlds.length} dimension{group.worlds.length === 1 ? '' : 's'}</p>
+						</div>
+						{#if group.isActive}
+							<span class="badge">Active</span>
 						{/if}
 					</div>
 
-					<div class="world-info">
-						<h3>{world.type}</h3>
-						<p class="world-name">{world.name}</p>
+					<div class="world-group__rows">
+						{#each group.worlds as world}
+							<div class="world-row">
+								<div class="world-icon">
+									{#if world.type === 'Overworld' || world.type.startsWith('Overworld')}
+										????
+									{:else if world.type === 'Nether'}
+										????
+									{:else if world.type === 'The End'}
+										????
+									{:else}
+										????
+									{/if}
+								</div>
 
-						<div class="world-stats">
-							<div class="stat">
-								<span class="stat-label">Size:</span>
-								<span class="stat-value">{formatBytes(world.sizeBytes)}</span>
+								<div class="world-info">
+									<h4>{world.type}</h4>
+									<p class="world-name">{world.name}</p>
+
+									<div class="world-stats">
+										<div class="stat">
+											<span class="stat-label">Size:</span>
+											<span class="stat-value">{formatBytes(world.sizeBytes)}</span>
+										</div>
+										<div class="stat">
+											<span class="stat-label">Modified:</span>
+											<span class="stat-value">{formatDate(world.lastModified)}</span>
+										</div>
+									</div>
+								</div>
+
+								<div class="world-actions">
+									<button
+										class="action-btn download"
+										onclick={() => handleDownload(world.name)}
+										disabled={downloading === world.name || uploading === world.name}
+									>
+										{downloading === world.name ? '??? Downloading...' : '???? Backup'}
+									</button>
+
+									<button
+										class="action-btn upload"
+										onclick={() => handleUpload(world.name)}
+										disabled={uploading === world.name || isServerRunning}
+										title={isServerRunning ? 'Stop server first' : 'Replace world from ZIP'}
+									>
+										{#if uploading === world.name}
+											???? Uploading... {uploadProgress}%
+										{:else}
+											???? Replace
+										{/if}
+									</button>
+
+									<button
+										class="action-btn delete"
+										onclick={() => handleDelete(world.name)}
+										disabled={deleting === world.name || isServerRunning}
+										title={isServerRunning ? 'Stop server first' : 'Delete world'}
+									>
+										{#if confirmDelete === world.name}
+											{deleting === world.name ? '??? Deleting...' : '?????? Confirm?'}
+										{:else}
+											??????? Delete
+										{/if}
+									</button>
+								</div>
+
+								{#if uploading === world.name && uploadProgress > 0}
+									<div class="upload-progress">
+										<ProgressBar value={uploadProgress} color="green" size="sm" />
+									</div>
+								{/if}
 							</div>
-							<div class="stat">
-								<span class="stat-label">Modified:</span>
-								<span class="stat-value">{formatDate(world.lastModified)}</span>
-							</div>
-						</div>
+						{/each}
 					</div>
-
-					<div class="world-actions">
-						<button
-							class="action-btn download"
-							onclick={() => handleDownload(world.name)}
-							disabled={downloading === world.name || uploading === world.name}
-						>
-							{downloading === world.name ? '⏳ Downloading...' : '💾 Backup'}
-						</button>
-
-						<button
-							class="action-btn upload"
-							onclick={() => handleUpload(world.name)}
-							disabled={uploading === world.name || isServerRunning}
-							title={isServerRunning ? 'Stop server first' : 'Replace world from ZIP'}
-						>
-							{#if uploading === world.name}
-								📤 Uploading... {uploadProgress}%
-							{:else}
-								📤 Replace
-							{/if}
-						</button>
-
-						<button
-							class="action-btn delete"
-							onclick={() => handleDelete(world.name)}
-							disabled={deleting === world.name || isServerRunning}
-							title={isServerRunning ? 'Stop server first' : 'Delete world'}
-						>
-							{#if confirmDelete === world.name}
-								{deleting === world.name ? '⏳ Deleting...' : '⚠️ Confirm?'}
-							{:else}
-								🗑️ Delete
-							{/if}
-						</button>
-					</div>
-
-					{#if uploading === world.name && uploadProgress > 0}
-						<div class="upload-progress">
-							<ProgressBar value={uploadProgress} color="green" size="sm" />
-						</div>
-					{/if}
-				</div>
+				</section>
 			{/each}
 		</div>
 
@@ -474,36 +665,143 @@
 		max-width: 400px;
 	}
 
-	.worlds-grid {
-		display: grid;
-		grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
-		gap: 20px;
-	}
-
-	.world-card {
+	.create-world {
 		background: linear-gradient(135deg, #1a1e2f 0%, #141827 100%);
 		border: 1px solid #2a2f47;
 		border-radius: 12px;
-		padding: 24px;
+		padding: 20px 24px;
+		display: flex;
+		flex-direction: column;
+		gap: 16px;
+	}
+
+	.create-world__header {
+		display: flex;
+		align-items: flex-start;
+		justify-content: space-between;
+		gap: 16px;
+	}
+
+	.active-world {
+		font-size: 12px;
+		color: #c8f0b9;
+		background: rgba(106, 176, 76, 0.15);
+		border: 1px solid rgba(106, 176, 76, 0.35);
+		padding: 6px 12px;
+		border-radius: 999px;
+		white-space: nowrap;
+	}
+
+	.create-world__form {
+		display: grid;
+		grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+		gap: 16px;
+		align-items: end;
+	}
+
+	.form-field {
+		display: flex;
+		flex-direction: column;
+		gap: 6px;
+	}
+
+	.form-field label {
+		font-size: 12px;
+		color: #9aa2c5;
+	}
+
+	.form-field input,
+	.form-field select {
+		background: #111624;
+		border: 1px solid #2a2f47;
+		border-radius: 8px;
+		padding: 10px 12px;
+		color: #e6e9f5;
+		font-family: inherit;
+		font-size: 14px;
+	}
+
+	.form-warning {
+		margin: 0;
+		padding: 10px 12px;
+		background: rgba(255, 183, 77, 0.12);
+		border: 1px solid rgba(255, 183, 77, 0.3);
+		color: #e2c08a;
+		border-radius: 10px;
+		font-size: 13px;
+	}
+
+	.world-groups {
+		display: flex;
+		flex-direction: column;
+		gap: 20px;
+	}
+
+	.world-group {
+		background: linear-gradient(135deg, #1a1e2f 0%, #141827 100%);
+		border: 1px solid #2a2f47;
+		border-radius: 14px;
+		padding: 20px 22px;
 		display: flex;
 		flex-direction: column;
 		gap: 16px;
 		transition: all 0.2s;
 	}
 
-	.world-card:hover {
-		border-color: rgba(106, 176, 76, 0.4);
-		box-shadow: 0 4px 12px rgba(106, 176, 76, 0.1);
+	.world-group.active {
+		border-color: rgba(106, 176, 76, 0.6);
+		box-shadow: 0 6px 16px rgba(106, 176, 76, 0.12);
+	}
+
+	.world-group__header {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 16px;
+	}
+
+	.world-group__header h3 {
+		margin: 0 0 4px;
+		font-size: 20px;
+		color: #eef0f8;
+		font-weight: 600;
+	}
+
+	.badge {
+		background: rgba(106, 176, 76, 0.2);
+		color: #bdf3a7;
+		border: 1px solid rgba(106, 176, 76, 0.4);
+		padding: 6px 12px;
+		border-radius: 999px;
+		font-size: 12px;
+		font-weight: 600;
+	}
+
+	.world-group__rows {
+		display: flex;
+		flex-direction: column;
+		gap: 16px;
+	}
+
+	.world-row {
+		display: grid;
+		grid-template-columns: auto minmax(0, 1fr) auto;
+		gap: 16px;
+		align-items: center;
+		padding: 12px 14px;
+		border-radius: 12px;
+		background: rgba(15, 19, 31, 0.65);
+		border: 1px solid rgba(42, 47, 71, 0.7);
 	}
 
 	.world-icon {
-		font-size: 48px;
+		font-size: 32px;
 		text-align: center;
 	}
 
-	.world-info h3 {
+	.world-info h4 {
 		margin: 0 0 4px;
-		font-size: 20px;
+		font-size: 18px;
 		color: #eef0f8;
 		font-weight: 600;
 	}
@@ -625,12 +923,18 @@
 			align-items: flex-start;
 		}
 
-		.worlds-grid {
+		.create-world__header {
+			flex-direction: column;
+			align-items: flex-start;
+		}
+
+		.world-row {
 			grid-template-columns: 1fr;
+			align-items: flex-start;
 		}
 
 		.world-actions {
-			flex-direction: column;
+			grid-template-columns: 1fr;
 		}
 	}
 </style>

@@ -1,5 +1,6 @@
 <script lang="ts">
 	const version = '2.0.0-alpha';
+	const buildId = import.meta.env.PUBLIC_BUILD_ID ?? 'dev';
 </script>
 
 <div class="about-page">
@@ -42,6 +43,7 @@
 		<div class="hero-text">
 			<h2>MineOS SvelteKit Edition</h2>
 			<p class="version">Version {version}</p>
+			<p class="build-id">Build {buildId}</p>
 			<p class="tagline">
 				A complete rewrite of the beloved MineOS web UI, built with modern technologies
 				for a faster, more responsive Minecraft server management experience.
@@ -319,6 +321,17 @@
 		font-size: 13px;
 		font-weight: 600;
 		margin-bottom: 16px;
+	}
+
+	.build-id {
+		display: inline-block;
+		background: rgba(88, 101, 242, 0.12);
+		color: #8fa3ff;
+		padding: 4px 12px;
+		border-radius: 20px;
+		font-size: 12px;
+		font-weight: 600;
+		margin: 0 0 16px;
 	}
 
 	.tagline {
