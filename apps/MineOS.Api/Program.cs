@@ -168,6 +168,9 @@ builder.Services.AddSingleton<BackgroundJobService>();
 builder.Services.AddSingleton<IBackgroundJobService>(sp => sp.GetRequiredService<BackgroundJobService>());
 builder.Services.AddHostedService(sp => sp.GetRequiredService<BackgroundJobService>());
 builder.Services.AddHostedService<PerformanceCollectorService>();
+builder.Services.AddSingleton<WatchdogService>();
+builder.Services.AddSingleton<IWatchdogService>(sp => sp.GetRequiredService<WatchdogService>());
+builder.Services.AddHostedService(sp => sp.GetRequiredService<WatchdogService>());
 builder.Services.AddHttpClient<IProfileService, ProfileService>();
 builder.Services.AddHttpClient<IModService, ModService>(client =>
 {

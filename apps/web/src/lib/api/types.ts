@@ -71,6 +71,7 @@ export type ServerConfig = {
 	java: JavaConfig;
 	minecraft: MinecraftConfig;
 	onReboot: OnRebootConfig;
+	autoRestart: AutoRestartConfig;
 };
 
 export type JavaConfig = {
@@ -89,6 +90,35 @@ export type MinecraftConfig = {
 
 export type OnRebootConfig = {
 	start: boolean;
+};
+
+export type AutoRestartConfig = {
+	enabled: boolean;
+	maxAttempts: number;
+	cooldownSeconds: number;
+	attemptResetMinutes: number;
+	notifyOnCrash: boolean;
+	notifyOnRestart: boolean;
+};
+
+export type CrashEvent = {
+	id: number;
+	serverName: string;
+	detectedAt: string;
+	crashType: string;
+	crashDetails: string | null;
+	autoRestartAttempted: boolean;
+	autoRestartSucceeded: boolean;
+};
+
+export type WatchdogStatus = {
+	serverName: string;
+	isMonitoring: boolean;
+	wasRunning: boolean;
+	restartAttempts: number;
+	lastCrashTime: string | null;
+	lastRestartAttempt: string | null;
+	cooldownEndsAt: string | null;
 };
 
 export type ServerHeartbeat = {

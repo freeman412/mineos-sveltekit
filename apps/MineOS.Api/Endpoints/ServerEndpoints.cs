@@ -302,6 +302,7 @@ public static class ServerEndpoints
         // Phase 3: Console and monitoring endpoints
         servers.MapConsoleEndpoints();
         servers.MapMonitoringEndpoints();
+        servers.MapWatchdogEndpoints();
 
         // Phase 4: File management endpoints
         servers.MapFileEndpoints();

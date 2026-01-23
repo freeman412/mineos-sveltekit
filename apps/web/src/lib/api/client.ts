@@ -429,3 +429,41 @@ export async function getForgeInstallStatus(
 	}
 	return { data: result.data?.data ?? null, error: null };
 }
+
+// Watchdog / Crash Detection
+export async function getServerCrashEvents(
+	fetcher: Fetcher,
+	serverName: string,
+	limit?: number
+): Promise<ApiResult<import('./types').CrashEvent[]>> {
+	const params = limit ? `?limit=${limit}` : '';
+	return apiFetch(fetcher, `/api/servers/${serverName}/crashes${params}`);
+}
+
+export async function clearServerCrashHistory(
+	fetcher: Fetcher,
+	serverName: string
+): Promise<ApiResult<void>> {
+	return apiDelete(fetcher, `/api/servers/${serverName}/crashes`);
+}
+
+export async function getServerWatchdogStatus(
+	fetcher: Fetcher,
+	serverName: string
+): Promise<ApiResult<import('./types').WatchdogStatus>> {
+	return apiFetch(fetcher, `/api/servers/${serverName}/watchdog`);
+}
+
+export async function getAllCrashEvents(
+	fetcher: Fetcher,
+	limit?: number
+): Promise<ApiResult<import('./types').CrashEvent[]>> {
+	const params = limit ? `?limit=${limit}` : '';
+	return apiFetch(fetcher, `/api/watchdog/crashes${params}`);
+}
+
+export async function getAllWatchdogStatus(
+	fetcher: Fetcher
+): Promise<ApiResult<Record<string, import('./types').WatchdogStatus>>> {
+	return apiFetch(fetcher, `/api/watchdog/status`);
+}

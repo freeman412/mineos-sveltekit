@@ -538,7 +538,8 @@ public class ServerService : IServerService
             return new ServerConfigDto(
                 new JavaConfigDto("", 4096, 4096, null, null, null),
                 new MinecraftConfigDto(null, false),
-                new OnRebootConfigDto(false)
+                new OnRebootConfigDto(false),
+                new AutoRestartConfigDto(false, 3, 300, 30, true, true)
             );
         }
 
@@ -553,6 +554,9 @@ public class ServerService : IServerService
             : new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         var onrebootSection = sections.TryGetValue("onreboot", out var onrebootSectionRaw)
             ? onrebootSectionRaw
+            : new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var autorestartSection = sections.TryGetValue("autorestart", out var autorestartSectionRaw)
+            ? autorestartSectionRaw
             : new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
         var java = new JavaConfigDto(
@@ -573,7 +577,16 @@ public class ServerService : IServerService
             bool.TryParse(onrebootSection.GetValueOrDefault("start", "false"), out var start) && start
         );
 
-        return new ServerConfigDto(java, minecraft, onreboot);
+        var autorestart = new AutoRestartConfigDto(
+            bool.TryParse(autorestartSection.GetValueOrDefault("enabled", "false"), out var arEnabled) && arEnabled,
+            int.TryParse(autorestartSection.GetValueOrDefault("max_attempts", "3"), out var maxAttempts) ? maxAttempts : 3,
+            int.TryParse(autorestartSection.GetValueOrDefault("cooldown_seconds", "300"), out var cooldown) ? cooldown : 300,
+            int.TryParse(autorestartSection.GetValueOrDefault("attempt_reset_minutes", "30"), out var resetMins) ? resetMins : 30,
+            bool.TryParse(autorestartSection.GetValueOrDefault("notify_on_crash", "true"), out var notifyCrash) && notifyCrash,
+            bool.TryParse(autorestartSection.GetValueOrDefault("notify_on_restart", "true"), out var notifyRestart) && notifyRestart
+        );
+
+        return new ServerConfigDto(java, minecraft, onreboot, autorestart);
     }
 
     public async Task UpdateServerConfigAsync(string name, ServerConfigDto config, CancellationToken cancellationToken)
@@ -598,6 +611,15 @@ public class ServerService : IServerService
             ["onreboot"] = new()
             {
                 ["start"] = config.OnReboot.Start.ToString().ToLower()
+            },
+            ["autorestart"] = new()
+            {
+                ["enabled"] = config.AutoRestart.Enabled.ToString().ToLower(),
+                ["max_attempts"] = config.AutoRestart.MaxAttempts.ToString(),
+                ["cooldown_seconds"] = config.AutoRestart.CooldownSeconds.ToString(),
+                ["attempt_reset_minutes"] = config.AutoRestart.AttemptResetMinutes.ToString(),
+                ["notify_on_crash"] = config.AutoRestart.NotifyOnCrash.ToString().ToLower(),
+                ["notify_on_restart"] = config.AutoRestart.NotifyOnRestart.ToString().ToLower()
             }
         };
 

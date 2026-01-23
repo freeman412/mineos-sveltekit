@@ -21,6 +21,14 @@
 			},
 			onReboot: {
 				start: false
+			},
+			autoRestart: {
+				enabled: false,
+				maxAttempts: 3,
+				cooldownSeconds: 300,
+				attemptResetMinutes: 30,
+				notifyOnCrash: true,
+				notifyOnRestart: true
 			}
 		}
 	);
@@ -313,6 +321,76 @@
 						</div>
 					</div>
 				</div>
+
+				<!-- Auto-Restart Configuration -->
+				<div class="section">
+					<h3>Crash Detection & Auto-Restart</h3>
+					<p class="section-desc">Automatically restart the server when it crashes unexpectedly.</p>
+					<div class="form-grid">
+						<div class="form-field full-width">
+							<label class="checkbox-label">
+								<input type="checkbox" bind:checked={config.autoRestart.enabled} />
+								<span>Enable auto-restart on crash</span>
+							</label>
+							<p class="field-hint">When enabled, the server will automatically restart if it crashes or stops unexpectedly.</p>
+						</div>
+
+						{#if config.autoRestart.enabled}
+							<div class="form-field">
+								<label for="max-attempts">Max Restart Attempts</label>
+								<input
+									type="number"
+									id="max-attempts"
+									bind:value={config.autoRestart.maxAttempts}
+									min="0"
+									max="10"
+								/>
+								<p class="field-hint">Maximum restart attempts before giving up (0 = unlimited)</p>
+							</div>
+
+							<div class="form-field">
+								<label for="cooldown">Cooldown (seconds)</label>
+								<input
+									type="number"
+									id="cooldown"
+									bind:value={config.autoRestart.cooldownSeconds}
+									min="30"
+									max="3600"
+									step="30"
+								/>
+								<p class="field-hint">Minimum time between restart attempts</p>
+							</div>
+
+							<div class="form-field">
+								<label for="reset-time">Stability Reset (minutes)</label>
+								<input
+									type="number"
+									id="reset-time"
+									bind:value={config.autoRestart.attemptResetMinutes}
+									min="5"
+									max="120"
+								/>
+								<p class="field-hint">Reset attempt counter after this many minutes of uptime</p>
+							</div>
+
+							<div class="form-field">
+								<label class="checkbox-label">
+									<input type="checkbox" bind:checked={config.autoRestart.notifyOnCrash} />
+									<span>Notify on crash</span>
+								</label>
+								<p class="field-hint">Send a notification when a crash is detected</p>
+							</div>
+
+							<div class="form-field">
+								<label class="checkbox-label">
+									<input type="checkbox" bind:checked={config.autoRestart.notifyOnRestart} />
+									<span>Notify on auto-restart</span>
+								</label>
+								<p class="field-hint">Send a notification when auto-restart is triggered</p>
+							</div>
+						{/if}
+					</div>
+				</div>
 			</div>
 
 			{#if form?.error}
@@ -384,10 +462,20 @@
 	}
 
 	.section h3 {
-		margin: 0 0 20px;
+		margin: 0 0 8px;
 		font-size: 18px;
 		font-weight: 600;
 		color: #9aa2c5;
+	}
+
+	.section-desc {
+		margin: 0 0 20px;
+		font-size: 14px;
+		color: #7c87b2;
+	}
+
+	.section h3:last-of-type:not(:has(+ .section-desc)) {
+		margin-bottom: 20px;
 	}
 
 	.form-grid {

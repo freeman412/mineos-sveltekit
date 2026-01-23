@@ -55,6 +55,9 @@ public sealed class AppDbContext : DbContext
     // Settings
     public DbSet<SystemSetting> SystemSettings => Set<SystemSetting>();
 
+    // Crash Detection
+    public DbSet<CrashEvent> CrashEvents => Set<CrashEvent>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.Entity<ApiKey>(entity =>
@@ -292,6 +295,26 @@ public sealed class AppDbContext : DbContext
             entity.Property(x => x.Key).HasMaxLength(128).IsRequired();
             entity.Property(x => x.Value).HasMaxLength(1024);
             entity.Property(x => x.Description).HasMaxLength(512);
+        });
+
+        // Crash Events
+        modelBuilder.Entity<CrashEvent>(entity =>
+        {
+            entity.HasKey(x => x.Id);
+            entity.HasIndex(x => x.ServerName);
+            entity.HasIndex(x => x.DetectedAt);
+            entity.Property(x => x.ServerName).HasMaxLength(256);
+            entity.Property(x => x.CrashType).HasMaxLength(64);
+
+            var timestampConverter = new ValueConverter<DateTimeOffset, long>(
+                value => value.ToUnixTimeSeconds(),
+                value => DateTimeOffset.FromUnixTimeSeconds(value));
+            entity.Property(x => x.DetectedAt)
+                .HasConversion(timestampConverter)
+                .HasColumnType("INTEGER");
+            entity.Property(x => x.RestartAttemptedAt)
+                .HasConversion(timestampConverter)
+                .HasColumnType("INTEGER");
         });
     }
 }
