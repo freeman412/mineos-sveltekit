@@ -1,31 +1,21 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
-  <!-- Creeper Face - Iconic Minecraft Mob -->
-  <rect width="64" height="64" fill="#0DA70D" rx="4"/>
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
+  <!-- Minecraft Grass Block - Main Logo -->
+  <rect width="64" height="64" rx="12" fill="#1b1f2b"/>
 
-  <!-- Dark green shadow/depth -->
-  <rect x="0" y="56" width="64" height="8" fill="#0A8A0A"/>
+  <!-- Grass top (green) -->
+  <rect x="8" y="12" width="48" height="18" fill="#6ab04c"/>
 
-  <!-- Left Eye (pixelated style) -->
-  <rect x="12" y="16" width="12" height="16" fill="#0A0A0A"/>
+  <!-- Dirt/Block side (brown) -->
+  <rect x="8" y="30" width="48" height="22" fill="#8b5a2b"/>
 
-  <!-- Right Eye (pixelated style) -->
-  <rect x="40" y="16" width="12" height="16" fill="#0A0A0A"/>
+  <!-- Bottom shadow -->
+  <rect x="8" y="52" width="48" height="4" fill="#5d3b1f"/>
 
-  <!-- Nose (center) -->
-  <rect x="28" y="28" width="8" height="12" fill="#0A0A0A"/>
+  <!-- Grass texture highlights -->
+  <rect x="12" y="16" width="10" height="6" fill="#7ad05a"/>
+  <rect x="30" y="18" width="14" height="6" fill="#5fa73b"/>
 
-  <!-- Mouth Left Side -->
-  <rect x="20" y="44" width="8" height="12" fill="#0A0A0A"/>
-
-  <!-- Mouth Right Side -->
-  <rect x="36" y="44" width="8" height="12" fill="#0A0A0A"/>
-
-  <!-- Mouth Bottom (connecting piece) -->
-  <rect x="28" y="52" width="8" height="4" fill="#0A0A0A"/>
-
-  <!-- Pixel texture highlights -->
-  <rect x="4" y="4" width="4" height="4" fill="#12E012" opacity="0.3"/>
-  <rect x="56" y="8" width="4" height="4" fill="#12E012" opacity="0.3"/>
-  <rect x="12" y="52" width="4" height="4" fill="#0A8A0A" opacity="0.5"/>
-  <rect x="48" y="56" width="4" height="4" fill="#0A8A0A" opacity="0.5"/>
+  <!-- Dirt texture -->
+  <rect x="20" y="34" width="10" height="6" fill="#9b6a3a"/>
+  <rect x="38" y="36" width="8" height="6" fill="#a87440"/>
 </svg>
