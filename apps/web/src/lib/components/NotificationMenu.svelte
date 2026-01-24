@@ -483,23 +483,23 @@
 	}
 
 	.bell-icon svg {
-		width: 20px;
-		height: 20px;
+		width: 27px;
+		height: 27px;
 		display: block;
 	}
 
 	.badge {
 		position: absolute;
-		top: 4px;
-		right: 4px;
+		top: 2px;
+		right: 1px;
 		background: #ff6b6b;
 		color: white;
-		font-size: 8px;
+		font-size: 10px;
 		font-weight: 700;
 		padding: 1px 3px;
 		border-radius: 6px;
 		min-width: 12px;
-		height: 12px;
+		height: 16px;
 		display: flex;
 		align-items: center;
 		justify-content: center;
