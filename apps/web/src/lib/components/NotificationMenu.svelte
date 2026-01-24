@@ -494,12 +494,18 @@
 		right: 4px;
 		background: #ff6b6b;
 		color: white;
-		font-size: 10px;
-		font-weight: 600;
-		padding: 2px 5px;
-		border-radius: 10px;
-		min-width: 18px;
+		font-size: 8px;
+		font-weight: 700;
+		padding: 1px 3px;
+		border-radius: 6px;
+		min-width: 12px;
+		height: 12px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
 		text-align: center;
+		line-height: 1;
+		border: 1px solid var(--mc-panel-dark, #141827);
 	}
 
 	.notification-dropdown {
