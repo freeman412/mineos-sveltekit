@@ -416,13 +416,12 @@
 						<span class="badge">Profile: {server.profile}</span>
 					{/if}
 					{#if server.port}
-						<span class="badge badge-muted">Port: {server.port}</span>
+						<span class="badge badge-muted">localhost:{server.port}</span>
 					{/if}
 					{#if server.needsRestart}
 						<span class="badge badge-warning">Restart required</span>
 					{/if}
 				</div>
-
 				<div class="card-metrics">
 					<div class="metric">
 						<span class="metric-label">Players</span>

@@ -3,6 +3,7 @@
 	import { page } from '$app/stores';
 	import StatusBadge from '$lib/components/StatusBadge.svelte';
 	import ServerQuickActions from '$lib/components/ServerQuickActions.svelte';
+	import ServerIconUploader from '$lib/components/ServerIconUploader.svelte';
 	import type { LayoutData } from './$types';
 
 	let { data, children }: { data: LayoutData; children: any } = $props();
@@ -105,6 +106,11 @@
 				{/if}
 			</div>
 		</div>
+		<div class="server-icon">
+			{#if server?.name}
+				<ServerIconUploader serverName={server.name} />
+			{/if}
+		</div>
 		<div class="server-actions">
 			<ServerQuickActions server={server} on:refresh={scheduleBurstRefresh} />
 		</div>
@@ -140,6 +146,11 @@
 
 	.server-info {
 		min-width: 240px;
+	}
+
+	.server-icon {
+		display: flex;
+		align-items: center;
 	}
 
 	.server-actions {
@@ -208,6 +219,15 @@
 	}
 
 	@media (max-width: 640px) {
+		.server-header {
+			flex-direction: column;
+		}
+
+		.server-icon {
+			width: 100%;
+			justify-content: center;
+		}
+
 		.server-actions {
 			width: 100%;
 			margin-left: 0;

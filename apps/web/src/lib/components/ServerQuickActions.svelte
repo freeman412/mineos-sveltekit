@@ -9,6 +9,7 @@
 	const dispatch = createEventDispatcher<{ refresh: void }>();
 
 	let actionLoading = $state(false);
+	let copied = $state(false);
 	let status = $derived((server?.status ?? '').toLowerCase());
 	let isRunning = $derived(status === 'up' || status === 'running');
 
@@ -63,16 +64,80 @@
 		}
 	}
 
+	async function copyServerAddress() {
+		if (!server) return;
+		const port = server.config?.minecraft?.serverPort || 25565;
+		const address = `localhost:${port}`;
+
+		try {
+			await navigator.clipboard.writeText(address);
+			copied = true;
+			setTimeout(() => {
+				copied = false;
+			}, 2000);
+		} catch (err) {
+			await modal.error('Failed to copy to clipboard');
+		}
+	}
+
 </script>
 
 {#if server}
-	<div class="quick-actions">
-		<div class="quick-actions__header">
-			<span class="title">Quick actions</span>
+	<div class="server-controls">
+		<!-- Server Address Section -->
+		<div class="address-section">
+			<div class="address-display">
+				<code class="server-address">
+					localhost:{server.config?.minecraft?.serverPort || 25565}
+				</code>
+				<button
+					class="btn-copy"
+					onclick={copyServerAddress}
+					title="Copy server address"
+				>
+					{#if copied}
+						<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+							<path
+								d="M5 13l4 4L19 7"
+								fill="none"
+								stroke="currentColor"
+								stroke-width="2.5"
+								stroke-linecap="round"
+								stroke-linejoin="round"
+							/>
+						</svg>
+					{:else}
+						<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+							<rect
+								x="9"
+								y="9"
+								width="13"
+								height="13"
+								rx="2"
+								fill="none"
+								stroke="currentColor"
+								stroke-width="2"
+								stroke-linecap="round"
+								stroke-linejoin="round"
+							/>
+							<path
+								d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"
+								fill="none"
+								stroke="currentColor"
+								stroke-width="2"
+								stroke-linecap="round"
+								stroke-linejoin="round"
+							/>
+						</svg>
+					{/if}
+				</button>
+			</div>
 			{#if server.needsRestart}
 				<span class="pill">Restart required</span>
 			{/if}
 		</div>
+
+		<!-- Action Buttons -->
 		<div class="action-buttons">
 			{#if isRunning}
 				<button class="btn btn-warning" onclick={() => handleAction('stop')} disabled={actionLoading}>
@@ -101,40 +166,80 @@
 {/if}
 
 <style>
-	.quick-actions {
-		background: #1a1e2f;
+	.server-controls {
+		background: var(--mc-panel-dark, #141827);
 		border-radius: 14px;
 		padding: 16px;
-		border: 1px solid #2a2f47;
+		border: 1px solid var(--border-color, #2a2f47);
 		display: flex;
 		flex-direction: column;
-		gap: 12px;
-		min-width: 260px;
+		gap: 14px;
+		min-width: 300px;
 	}
 
-	.quick-actions__header {
+	.address-section {
+		display: flex;
+		flex-direction: column;
+		gap: 8px;
+	}
+
+	.address-display {
 		display: flex;
 		align-items: center;
-		justify-content: space-between;
-		gap: 12px;
+		gap: 10px;
 	}
 
-	.title {
-		font-size: 13px;
+	.server-address {
+		flex: 1;
+		background: var(--mc-panel-darkest, #0d1117);
+		border: 1px solid var(--border-color, #2a2f47);
+		padding: 10px 14px;
+		border-radius: 8px;
+		font-family: 'Courier New', 'Consolas', monospace;
+		font-size: 14px;
+		color: var(--mc-grass, #6ab04c);
 		font-weight: 600;
-		letter-spacing: 0.02em;
-		text-transform: uppercase;
-		color: #9aa2c5;
+		letter-spacing: 0.5px;
+		display: block;
+	}
+
+	.btn-copy {
+		background: var(--mc-grass, #6ab04c);
+		color: white;
+		border: none;
+		padding: 10px;
+		border-radius: 8px;
+		cursor: pointer;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		transition: all 0.2s;
+		flex-shrink: 0;
+		width: 40px;
+		height: 40px;
+	}
+
+	.btn-copy:hover {
+		background: var(--mc-grass-dark, #4a8b34);
+		transform: translateY(-1px);
+		box-shadow: 0 4px 12px rgba(106, 176, 76, 0.3);
+	}
+
+	.btn-copy svg {
+		flex-shrink: 0;
 	}
 
 	.pill {
 		background: rgba(255, 200, 87, 0.15);
 		border: 1px solid rgba(255, 200, 87, 0.3);
 		color: #f4c08e;
-		padding: 4px 10px;
+		padding: 6px 12px;
 		border-radius: 999px;
-		font-size: 12px;
+		font-size: 11px;
 		font-weight: 600;
+		text-transform: uppercase;
+		letter-spacing: 0.03em;
+		align-self: flex-start;
 	}
 
 	.action-buttons {
@@ -220,8 +325,13 @@
 	}
 
 	@media (max-width: 720px) {
-		.quick-actions {
+		.server-controls {
 			width: 100%;
+			min-width: unset;
+		}
+
+		.server-address {
+			font-size: 13px;
 		}
 	}
 </style>

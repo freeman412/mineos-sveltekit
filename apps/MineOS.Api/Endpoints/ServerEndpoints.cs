@@ -292,6 +292,81 @@ public static class ServerEndpoints
             }
         });
 
+        // Server icon upload
+        servers.MapPost("/{name}/icon", async (
+            string name,
+            HttpRequest request,
+            IFileService fileService,
+            CancellationToken cancellationToken) =>
+        {
+            try
+            {
+                using var buffer = new MemoryStream();
+                await request.Body.CopyToAsync(buffer, cancellationToken);
+                var imageData = buffer.ToArray();
+
+                // Validate it's a PNG file (check PNG header: 89 50 4E 47)
+                if (imageData.Length < 8 ||
+                    imageData[0] != 0x89 || imageData[1] != 0x50 ||
+                    imageData[2] != 0x4E || imageData[3] != 0x47)
+                {
+                    return Results.BadRequest(new { error = "File must be a PNG image" });
+                }
+
+                // Save as server-icon.png in the server directory
+                await fileService.WriteFileBytesAsync(name, "/server-icon.png", imageData, cancellationToken);
+                return Results.Ok(new { message = "Server icon uploaded successfully" });
+            }
+            catch (ArgumentException ex)
+            {
+                return Results.BadRequest(new { error = ex.Message });
+            }
+            catch (DirectoryNotFoundException ex)
+            {
+                return Results.NotFound(new { error = ex.Message });
+            }
+        });
+
+        servers.MapGet("/{name}/icon", async (
+            string name,
+            IFileService fileService,
+            CancellationToken cancellationToken) =>
+        {
+            try
+            {
+                var iconData = await fileService.ReadFileBytesAsync(name, "/server-icon.png", cancellationToken);
+                return Results.File(iconData, "image/png");
+            }
+            catch (FileNotFoundException)
+            {
+                return Results.NotFound(new { error = "Server icon not found" });
+            }
+            catch (DirectoryNotFoundException ex)
+            {
+                return Results.NotFound(new { error = ex.Message });
+            }
+        });
+
+        servers.MapDelete("/{name}/icon", async (
+            string name,
+            IFileService fileService,
+            CancellationToken cancellationToken) =>
+        {
+            try
+            {
+                await fileService.DeleteFileAsync(name, "/server-icon.png", cancellationToken);
+                return Results.Ok(new { message = "Server icon deleted successfully" });
+            }
+            catch (FileNotFoundException)
+            {
+                return Results.NotFound(new { error = "Server icon not found" });
+            }
+            catch (DirectoryNotFoundException ex)
+            {
+                return Results.NotFound(new { error = ex.Message });
+            }
+        });
+
         // Phase 2: Backup and archive endpoints
         servers.MapBackupEndpoints();
         servers.MapArchiveEndpoints();
