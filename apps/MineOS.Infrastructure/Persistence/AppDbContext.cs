@@ -58,6 +58,10 @@ public sealed class AppDbContext : DbContext
     // Crash Detection
     public DbSet<CrashEvent> CrashEvents => Set<CrashEvent>();
 
+    // Player Activity Tracking
+    public DbSet<PlayerSession> PlayerSessions => Set<PlayerSession>();
+    public DbSet<PlayerActivityEvent> PlayerActivityEvents => Set<PlayerActivityEvent>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.Entity<ApiKey>(entity =>
@@ -313,6 +317,52 @@ public sealed class AppDbContext : DbContext
                 .HasConversion(timestampConverter)
                 .HasColumnType("INTEGER");
             entity.Property(x => x.RestartAttemptedAt)
+                .HasConversion(timestampConverter)
+                .HasColumnType("INTEGER");
+        });
+
+        // Player Sessions
+        modelBuilder.Entity<PlayerSession>(entity =>
+        {
+            entity.HasKey(x => x.Id);
+            entity.HasIndex(x => x.ServerName);
+            entity.HasIndex(x => x.PlayerUuid);
+            entity.HasIndex(x => new { x.ServerName, x.PlayerUuid });
+            entity.HasIndex(x => x.JoinedAt);
+            entity.Property(x => x.ServerName).HasMaxLength(256);
+            entity.Property(x => x.PlayerUuid).HasMaxLength(36);
+            entity.Property(x => x.PlayerName).HasMaxLength(16);
+            entity.Property(x => x.LeaveReason).HasMaxLength(64);
+
+            var timestampConverter = new ValueConverter<DateTimeOffset, long>(
+                value => value.ToUnixTimeSeconds(),
+                value => DateTimeOffset.FromUnixTimeSeconds(value));
+            entity.Property(x => x.JoinedAt)
+                .HasConversion(timestampConverter)
+                .HasColumnType("INTEGER");
+            entity.Property(x => x.LeftAt)
+                .HasConversion(timestampConverter)
+                .HasColumnType("INTEGER");
+        });
+
+        // Player Activity Events
+        modelBuilder.Entity<PlayerActivityEvent>(entity =>
+        {
+            entity.HasKey(x => x.Id);
+            entity.HasIndex(x => x.ServerName);
+            entity.HasIndex(x => x.PlayerUuid);
+            entity.HasIndex(x => new { x.ServerName, x.PlayerUuid });
+            entity.HasIndex(x => x.Timestamp);
+            entity.HasIndex(x => new { x.ServerName, x.Timestamp });
+            entity.Property(x => x.ServerName).HasMaxLength(256);
+            entity.Property(x => x.PlayerUuid).HasMaxLength(36);
+            entity.Property(x => x.PlayerName).HasMaxLength(16);
+            entity.Property(x => x.EventType).HasMaxLength(32);
+
+            var timestampConverter = new ValueConverter<DateTimeOffset, long>(
+                value => value.ToUnixTimeSeconds(),
+                value => DateTimeOffset.FromUnixTimeSeconds(value));
+            entity.Property(x => x.Timestamp)
                 .HasConversion(timestampConverter)
                 .HasColumnType("INTEGER");
         });

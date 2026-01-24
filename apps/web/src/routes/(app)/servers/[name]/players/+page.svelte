@@ -69,6 +69,7 @@
 	}
 
 	async function handleWhitelist(player: PlayerSummary | MojangProfile) {
+		if (!data.server) return;
 		working = actionKey(player.uuid, 'whitelist');
 		try {
 			const result = await api.whitelistPlayer(fetch, data.server.name, player.uuid, player.name);
@@ -84,6 +85,7 @@
 	}
 
 	async function handleRemoveWhitelist(player: PlayerSummary) {
+		if (!data.server) return;
 		working = actionKey(player.uuid, 'unwhitelist');
 		try {
 			const result = await api.removeWhitelist(fetch, data.server.name, player.uuid);
@@ -98,6 +100,7 @@
 	}
 
 	async function handleOp(player: PlayerSummary | MojangProfile) {
+		if (!data.server) return;
 		working = actionKey(player.uuid, 'op');
 		try {
 			const result = await api.opPlayer(fetch, data.server.name, player.uuid, {
@@ -115,6 +118,7 @@
 	}
 
 	async function handleDeop(player: PlayerSummary) {
+		if (!data.server) return;
 		working = actionKey(player.uuid, 'deop');
 		try {
 			const result = await api.deopPlayer(fetch, data.server.name, player.uuid);
@@ -129,6 +133,7 @@
 	}
 
 	async function handleBan(player: PlayerSummary) {
+		if (!data.server) return;
 		const reason = prompt(`Reason for banning ${player.name}?`, 'Banned by MineOS');
 		if (reason === null) return;
 
@@ -149,6 +154,7 @@
 	}
 
 	async function handleUnban(player: PlayerSummary) {
+		if (!data.server) return;
 		working = actionKey(player.uuid, 'unban');
 		try {
 			const result = await api.unbanPlayer(fetch, data.server.name, player.uuid);
@@ -163,6 +169,7 @@
 	}
 
 	async function openStats(player: PlayerSummary) {
+		if (!data.server) return;
 		statsOpen = true;
 		statsLoading = true;
 		statsError = null;
@@ -347,8 +354,10 @@
 
 <!-- Stats Modal -->
 {#if statsOpen}
-	<div class="modal-backdrop" onclick={closeStats}>
-		<div class="modal" onclick={(event) => event.stopPropagation()}>
+	<!-- svelte-ignore a11y_no_static_element_interactions, a11y_click_events_have_key_events -->
+	<div class="modal-backdrop" onclick={closeStats} role="presentation">
+		<!-- svelte-ignore a11y_no_static_element_interactions, a11y_click_events_have_key_events, a11y_interactive_supports_focus -->
+		<div class="modal" role="dialog" aria-modal="true" tabindex="-1" onclick={(event) => event.stopPropagation()}>
 			<header class="modal-header">
 				<div class="modal-title">
 					{#if statsPlayer}
@@ -377,8 +386,10 @@
 
 <!-- Add Player Modal -->
 {#if addPlayerOpen}
-	<div class="modal-backdrop" onclick={closeAddPlayer}>
-		<div class="modal add-player-modal" onclick={(event) => event.stopPropagation()}>
+	<!-- svelte-ignore a11y_no_static_element_interactions, a11y_click_events_have_key_events -->
+	<div class="modal-backdrop" onclick={closeAddPlayer} role="presentation">
+		<!-- svelte-ignore a11y_no_static_element_interactions, a11y_click_events_have_key_events, a11y_interactive_supports_focus -->
+		<div class="modal add-player-modal" role="dialog" aria-modal="true" tabindex="-1" onclick={(event) => event.stopPropagation()}>
 			<header class="modal-header">
 				<h3>Add Player</h3>
 				<button class="btn secondary" onclick={closeAddPlayer}>Close</button>

@@ -33,11 +33,35 @@ export async function proxyEventStream(
 	if (apiKey) requestHeaders['X-Api-Key'] = apiKey;
 	if (token) requestHeaders['Authorization'] = `Bearer ${token}`;
 
-	let response = await fetch(url, { headers: requestHeaders });
+	const abortController = new AbortController();
+	if (event.request.signal) {
+		if (event.request.signal.aborted) {
+			abortController.abort();
+		} else {
+			event.request.signal.addEventListener('abort', () => abortController.abort());
+		}
+	}
+
+	let response: Response;
+	try {
+		response = await fetch(url, { headers: requestHeaders, signal: abortController.signal });
+	} catch (error) {
+		if (abortController.signal.aborted) {
+			return new Response(null, { status: 204 });
+		}
+		return new Response('Upstream stream unavailable', { status: 502 });
+	}
 	if (response.status === 404 && options.fallbackPath) {
 		response.body?.cancel();
 		const fallbackUrl = `${baseUrl}${options.fallbackPath}${event.url.search}`;
-		response = await fetch(fallbackUrl, { headers: requestHeaders });
+		try {
+			response = await fetch(fallbackUrl, { headers: requestHeaders, signal: abortController.signal });
+		} catch (error) {
+			if (abortController.signal.aborted) {
+				return new Response(null, { status: 204 });
+			}
+			return new Response('Upstream stream unavailable', { status: 502 });
+		}
 	}
 
 	if (!response.body) {
@@ -57,6 +81,7 @@ export async function proxyEventStream(
 			if (value) controller.enqueue(value);
 		},
 		cancel() {
+			abortController.abort();
 			reader.releaseLock();
 		}
 	});

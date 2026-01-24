@@ -1,7 +1,6 @@
 <script lang="ts">
 	import type { SystemNotification, JobStatus, ModpackInstallProgress, ForgeInstallStatus } from '$lib/api/types';
 	import { onMount } from 'svelte';
-	import { modal } from '$lib/stores/modal';
 	import { uploads, type UploadEntry } from '$lib/stores/uploads';
 	import ProgressBar from './ProgressBar.svelte';
 
@@ -11,6 +10,7 @@
 	let activeForgeInstalls = $state<ForgeInstallStatus[]>([]);
 	let isOpen = $state(false);
 	let loading = $state(false);
+	let showDismissed = $state(false);
 	let notificationsSource: EventSource | null = null;
 	let jobsSource: EventSource | null = null;
 
@@ -20,6 +20,11 @@
 	);
 	const unreadCount = $derived(notifications.filter((n) => !n.isRead && !n.dismissedAt).length);
 	const totalBadgeCount = $derived(unreadCount + activeTaskCount);
+	const activeNotifications = $derived.by(() => notifications.filter((n) => !n.dismissedAt));
+	const dismissedNotifications = $derived.by(() => notifications.filter((n) => n.dismissedAt));
+	const hasVisibleNotifications = $derived.by(
+		() => activeNotifications.length > 0 || (showDismissed && dismissedNotifications.length > 0)
+	);
 
 	onMount(() => {
 		loadNotifications();
@@ -34,7 +39,7 @@
 
 	function connectNotificationStream() {
 		notificationsSource?.close();
-		notificationsSource = new EventSource('/api/notifications/stream?includeDismissed=false');
+		notificationsSource = new EventSource('/api/notifications/stream');
 		notificationsSource.onmessage = (event) => {
 			try {
 				notifications = JSON.parse(event.data);
@@ -71,7 +76,7 @@
 		if (loading) return;
 		loading = true;
 		try {
-			const res = await fetch('/api/notifications?includeDismissed=false', { cache: 'no-store' });
+			const res = await fetch('/api/notifications', { cache: 'no-store' });
 			if (res.ok) {
 				notifications = await res.json();
 			}
@@ -113,7 +118,11 @@
 		try {
 			const res = await fetch(`/api/notifications/${id}/dismiss`, { method: 'PATCH' });
 			if (res.ok) {
-				notifications = notifications.filter((n) => n.id !== id);
+				const now = new Date().toISOString();
+				notifications = notifications.map((notification) =>
+					notification.id === id ? { ...notification, dismissedAt: now } : notification
+				);
+				showDismissed = true;
 			}
 		} catch (err) {
 			console.error('Failed to dismiss:', err);
@@ -121,16 +130,13 @@
 	}
 
 	async function deleteNotification(id: number) {
-		const confirmed = await modal.confirm('Delete this notification?', 'Delete Notification');
-		if (!confirmed) return;
-
 		try {
 			const res = await fetch(`/api/notifications/${id}`, { method: 'DELETE' });
 			if (res.ok) {
 				notifications = notifications.filter((n) => n.id !== id);
 			}
 		} catch (err) {
-			await modal.error(err instanceof Error ? err.message : 'Delete failed');
+			console.error('Failed to delete notification:', err);
 		}
 	}
 
@@ -145,7 +151,11 @@
 				body: JSON.stringify(ids)
 			});
 			if (res.ok) {
-				notifications = [];
+				const now = new Date().toISOString();
+				notifications = notifications.map((notification) =>
+					ids.includes(notification.id) ? { ...notification, dismissedAt: now } : notification
+				);
+				showDismissed = true;
 			}
 		} catch (err) {
 			console.error('Failed to dismiss all:', err);
@@ -155,15 +165,15 @@
 	function getIconForType(type: SystemNotification['type']) {
 		switch (type) {
 			case 'info':
-				return 'ℹ️';
+				return '[i]';
 			case 'warning':
-				return '⚠️';
+				return '[!]';
 			case 'error':
-				return '❌';
+				return '[x]';
 			case 'success':
-				return '✅';
+				return '[ok]';
 			default:
-				return '📢';
+				return '[N]';
 		}
 	}
 
@@ -234,7 +244,24 @@
 
 <div class="notification-menu">
 	<button class="notification-bell" onclick={toggleMenu} aria-label="Notifications">
-		<span class="bell-icon">🔔</span>
+		<span class="bell-icon" aria-hidden="true">
+			<svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">
+				<path
+					d="M12 4c-3.1 0-5.5 2.5-5.5 5.5v3.8l-1.5 2.7h14l-1.5-2.7V9.5C17.5 6.5 15.1 4 12 4z"
+					fill="none"
+					stroke="currentColor"
+					stroke-width="2"
+					stroke-linejoin="round"
+				/>
+				<path
+					d="M9.5 18c0 1.4 1.1 2.5 2.5 2.5s2.5-1.1 2.5-2.5"
+					fill="none"
+					stroke="currentColor"
+					stroke-width="2"
+					stroke-linecap="round"
+				/>
+			</svg>
+		</span>
 		{#if totalBadgeCount > 0}
 			<span class="badge" class:has-tasks={activeTaskCount > 0}>
 				{totalBadgeCount > 9 ? '9+' : totalBadgeCount}
@@ -246,7 +273,7 @@
 		<div class="notification-dropdown">
 			{#if activeTaskCount > 0}
 				<div class="section-header tasks-header">
-					<span class="section-icon">⏳</span>
+					<span class="section-icon">[~]</span>
 					<h3>Active Tasks</h3>
 				</div>
 				<div class="tasks-list">
@@ -315,7 +342,7 @@
 								onclick={() => uploads.cancel(upload.id)}
 								title="Cancel upload"
 							>
-								✕
+								X
 							</button>
 						</div>
 					{/each}
@@ -324,21 +351,34 @@
 
 			<div class="dropdown-header">
 				<h3>Notifications</h3>
-				{#if notifications.length > 0}
-					<button class="dismiss-all-btn" onclick={dismissAll}>Dismiss All</button>
-				{/if}
+				<div class="header-actions">
+					{#if dismissedNotifications.length > 0}
+						<button
+							class="toggle-dismissed"
+							onclick={() => {
+								showDismissed = !showDismissed;
+							}}
+						>
+							{showDismissed ? 'Hide Dismissed' : 'Show Dismissed'}
+						</button>
+					{/if}
+					{#if activeNotifications.length > 0}
+						<button class="dismiss-all-btn" onclick={dismissAll}>Dismiss All</button>
+					{/if}
+				</div>
 			</div>
 
 			<div class="notification-list">
-				{#if notifications.length === 0}
+				{#if !hasVisibleNotifications}
 					<div class="empty-state">
 						<p>No notifications</p>
 					</div>
 				{:else}
-					{#each notifications as notification (notification.id)}
+					{#each activeNotifications as notification (notification.id)}
 						<div
 							class="notification-item"
 							class:unread={!notification.isRead}
+							class:dismissed={!!notification.dismissedAt}
 							onclick={() => !notification.isRead && markAsRead(notification.id)}
 						>
 							<div class="notification-icon" style="color: {getColorForType(notification.type)}">
@@ -362,8 +402,9 @@
 										dismiss(notification.id);
 									}}
 									title="Dismiss"
+									disabled={!!notification.dismissedAt}
 								>
-									✓
+									Dismiss
 								</button>
 								<button
 									class="action-btn danger"
@@ -373,11 +414,43 @@
 									}}
 									title="Delete"
 								>
-									🗑️
+									Delete
 								</button>
 							</div>
 						</div>
 					{/each}
+					{#if showDismissed && dismissedNotifications.length > 0}
+						<div class="dismissed-header">Dismissed</div>
+						{#each dismissedNotifications as notification (notification.id)}
+							<div class="notification-item dismissed">
+								<div class="notification-icon" style="color: {getColorForType(notification.type)}">
+									{getIconForType(notification.type)}
+								</div>
+								<div class="notification-content">
+									<div class="notification-header">
+										<h4>{notification.title}</h4>
+										<span class="time">{formatTime(notification.createdAt)}</span>
+									</div>
+									<p>{notification.message}</p>
+									{#if notification.serverName}
+										<span class="server-tag">{notification.serverName}</span>
+									{/if}
+								</div>
+								<div class="notification-actions">
+									<button
+										class="action-btn danger"
+										onclick={(e) => {
+											e.stopPropagation();
+											deleteNotification(notification.id);
+										}}
+										title="Delete"
+									>
+										Delete
+									</button>
+								</div>
+							</div>
+						{/each}
+					{/if}
 				{/if}
 			</div>
 		</div>
@@ -406,6 +479,12 @@
 	}
 
 	.bell-icon {
+		display: block;
+	}
+
+	.bell-icon svg {
+		width: 20px;
+		height: 20px;
 		display: block;
 	}
 
@@ -445,11 +524,34 @@
 		border-bottom: 1px solid #2a2f47;
 	}
 
+	.header-actions {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+	}
+
 	.dropdown-header h3 {
 		margin: 0;
 		font-size: 18px;
 		font-weight: 600;
 		color: #eef0f8;
+	}
+
+	.toggle-dismissed {
+		background: none;
+		border: 1px solid transparent;
+		color: #9aa2c5;
+		font-size: 12px;
+		cursor: pointer;
+		padding: 4px 8px;
+		border-radius: 6px;
+		transition: background 0.2s, color 0.2s, border-color 0.2s;
+	}
+
+	.toggle-dismissed:hover {
+		background: rgba(255, 255, 255, 0.05);
+		color: #eef0f8;
+		border-color: rgba(255, 255, 255, 0.08);
 	}
 
 	.dismiss-all-btn {
@@ -498,6 +600,22 @@
 
 	.notification-item.unread {
 		background: rgba(88, 101, 242, 0.05);
+	}
+
+	.notification-item.dismissed {
+		opacity: 0.6;
+		cursor: default;
+	}
+
+	.dismissed-header {
+		padding: 10px 20px;
+		font-size: 12px;
+		font-weight: 600;
+		color: #7c87b2;
+		text-transform: uppercase;
+		letter-spacing: 0.05em;
+		border-top: 1px solid #2a2f47;
+		background: #141827;
 	}
 
 	.notification-icon {
@@ -566,6 +684,11 @@
 		padding: 4px 8px;
 		border-radius: 6px;
 		transition: all 0.2s;
+	}
+
+	.action-btn:disabled {
+		opacity: 0.5;
+		cursor: not-allowed;
 	}
 
 	.action-btn:hover {

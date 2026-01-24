@@ -44,7 +44,7 @@ public sealed class ServerAccessService : IServerAccessService
     {
         var serverNames = await _db.ServerAccesses
             .AsNoTracking()
-            .Where(x => x.UserId == userId && x.CanView)
+            .Where(x => x.UserId == userId && (x.CanView || x.CanControl || x.CanConsole))
             .Select(x => x.ServerName)
             .ToListAsync(cancellationToken);
 

@@ -5,6 +5,7 @@
 	import TopBar from '$lib/components/TopBar.svelte';
 	import FeedbackButton from '$lib/components/FeedbackButton.svelte';
 	import MinecraftSheepPet from '$lib/components/MinecraftSheepPet.svelte';
+	import { sheepEnabled } from '$lib/stores/uiPreferences';
 
 	let { data, children }: { data: LayoutData; children: any } = $props();
 
@@ -20,7 +21,7 @@
 		{ href: '/servers', label: 'Servers', icon: '[S]' },
 		{ href: '/profiles', label: 'Profiles', icon: '[P]' },
 		{ href: '/profiles/buildtools', label: 'BuildTools', icon: '[B]' },
-		{ href: '/curseforge', label: 'CurseForge', icon: '[C]' },
+		{ href: '/mods', label: 'Mods', icon: '[M]' },
 		{ href: '/admin/access', label: 'Users', icon: '[U]', requiresAdmin: true },
 		{ href: '/admin/settings', label: 'Settings', icon: '[G]', requiresAdmin: true },
 		{ href: '/admin/shell', label: 'Admin Shell', icon: '[T]', requiresAdmin: true }
@@ -96,7 +97,9 @@
 	</div>
 
 	<FeedbackButton />
-	<MinecraftSheepPet />
+	{#if $sheepEnabled}
+		<MinecraftSheepPet />
+	{/if}
 </div>
 
 <style>

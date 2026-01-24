@@ -2,7 +2,7 @@
 	import { modal } from '$lib/stores/modal';
 	import { formatBytes, formatDate } from '$lib/utils/formatting';
 	import type { PageData } from './$types';
-	import type { LayoutData } from '../$layout';
+	import type { LayoutData } from '../$types';
 
 	let { data }: { data: PageData & { server: LayoutData['server'] } } = $props();
 

@@ -52,6 +52,7 @@ public sealed class WatchdogService : BackgroundService, IWatchdogService
         using var scope = _scopeFactory.CreateScope();
         var serverService = scope.ServiceProvider.GetRequiredService<IServerService>();
         var processManager = scope.ServiceProvider.GetRequiredService<IProcessManager>();
+        var activityService = scope.ServiceProvider.GetRequiredService<IPlayerActivityService>();
 
         // Get all servers
         var servers = await serverService.ListServersAsync(cancellationToken);
@@ -60,7 +61,7 @@ public sealed class WatchdogService : BackgroundService, IWatchdogService
         {
             try
             {
-                await CheckServerAsync(server.Name, serverService, processManager, cancellationToken);
+                await CheckServerAsync(server.Name, serverService, processManager, activityService, cancellationToken);
             }
             catch (Exception ex)
             {
@@ -80,6 +81,7 @@ public sealed class WatchdogService : BackgroundService, IWatchdogService
         string serverName,
         IServerService serverService,
         IProcessManager processManager,
+        IPlayerActivityService activityService,
         CancellationToken cancellationToken)
     {
         var config = await serverService.GetServerConfigAsync(serverName, cancellationToken);
@@ -89,16 +91,43 @@ public sealed class WatchdogService : BackgroundService, IWatchdogService
         var state = _serverStates.GetOrAdd(serverName, _ => new ServerMonitorState(serverName));
         state.IsMonitoring = autoRestart.Enabled;
 
+        // Check if process is running
+        var isRunning = await processManager.IsServerRunningAsync(serverName, cancellationToken);
+
+        // Process player activity logs for running servers
+        if (isRunning)
+        {
+            try
+            {
+                await activityService.ProcessServerLogsAsync(serverName, cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Error processing activity logs for server {ServerName}", serverName);
+            }
+        }
+
+        // Close open sessions when server stops
+        if (state.WasRunning && !isRunning)
+        {
+            try
+            {
+                await activityService.CloseOpenSessionsAsync(serverName, "server_stop", cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Error closing sessions for server {ServerName}", serverName);
+            }
+        }
+
         if (!autoRestart.Enabled)
         {
             // Reset state when disabled
             state.RestartAttempts = 0;
             state.LastCrashTime = null;
+            state.WasRunning = isRunning;
             return;
         }
-
-        // Check if process is running
-        var isRunning = await processManager.IsServerRunningAsync(serverName, cancellationToken);
 
         // Detect crash: was running, now not running
         if (state.WasRunning && !isRunning)

@@ -32,7 +32,8 @@ public static class AuthEndpoints
                 AppDbContext db,
                 CancellationToken cancellationToken) =>
             {
-                var userIdClaim = user.Claims.FirstOrDefault(c => c.Type == JwtRegisteredClaimNames.Sub)?.Value;
+                var userIdClaim = user.Claims.FirstOrDefault(c => c.Type == System.Security.Claims.ClaimTypes.NameIdentifier)?.Value
+                    ?? user.Claims.FirstOrDefault(c => c.Type == JwtRegisteredClaimNames.Sub)?.Value;
                 if (int.TryParse(userIdClaim, out var userId))
                 {
                     var dbUser = await db.Users.AsNoTracking().FirstOrDefaultAsync(u => u.Id == userId, cancellationToken);
@@ -55,7 +56,8 @@ public static class AuthEndpoints
             IUserService userService,
             CancellationToken cancellationToken) =>
         {
-            var userIdClaim = user.Claims.FirstOrDefault(c => c.Type == JwtRegisteredClaimNames.Sub)?.Value;
+            var userIdClaim = user.Claims.FirstOrDefault(c => c.Type == System.Security.Claims.ClaimTypes.NameIdentifier)?.Value
+                ?? user.Claims.FirstOrDefault(c => c.Type == JwtRegisteredClaimNames.Sub)?.Value;
             if (!int.TryParse(userIdClaim, out var userId))
             {
                 return Results.Unauthorized();

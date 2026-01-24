@@ -3,7 +3,7 @@
 	import { formatBytes, formatDate } from '$lib/utils/formatting';
 	import ModrinthPluginSearch from '$lib/components/ModrinthPluginSearch.svelte';
 	import type { PageData } from './$types';
-	import type { LayoutData } from '../$layout';
+	import type { LayoutData } from '../$types';
 	import type { InstalledPlugin } from '$lib/api/types';
 
 	let { data }: { data: PageData & { server: LayoutData['server'] } } = $props();
@@ -50,6 +50,7 @@
 			return;
 		}
 
+		const serverName = data.server.name;
 		uploading = true;
 		uploadingFileName = file.name;
 		uploadProgress = 0;
@@ -77,7 +78,7 @@
 				xhr.addEventListener('error', () => reject(new Error('Upload failed')));
 				xhr.addEventListener('abort', () => reject(new Error('Upload cancelled')));
 
-				xhr.open('POST', `/api/servers/${data.server.name}/plugins/upload`);
+				xhr.open('POST', `/api/servers/${serverName}/plugins/upload`);
 				xhr.send(form);
 			});
 

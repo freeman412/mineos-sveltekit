@@ -16,15 +16,17 @@
 	let confirmDelete: string | null = $state(null);
 	let uploadingNew = $state(false);
 	let uploadNewProgress = $state<number>(0);
-	let serverProperties = $state<Record<string, string>>(data.serverProperties.data ?? {});
+	let serverProperties = $state<Record<string, string>>({});
 	let newWorldName = $state('');
 	let newWorldSeed = $state('');
 	let newWorldType = $state('DEFAULT');
 	let creatingWorld = $state(false);
 
 	const isServerRunning = $derived(data.server?.status === 'running');
-	const canEditProperties = $derived(() => !!data.serverProperties.data && !data.serverProperties.error);
-	const activeWorldName = $derived(() => {
+	const canEditProperties = $derived.by(
+		() => !!data.serverProperties.data && !data.serverProperties.error
+	);
+	const activeWorldName = $derived.by(() => {
 		const value = serverProperties['level-name'];
 		return value && value.trim().length > 0 ? value.trim() : 'world';
 	});
@@ -55,7 +57,7 @@
 		return 3;
 	}
 
-	const worldGroups = $derived<WorldGroup[]>(() => {
+	const worldGroups = $derived.by<WorldGroup[]>(() => {
 		if (!data.worlds.data) return [];
 		const groups = new Map<string, World[]>();
 		for (const world of data.worlds.data) {
@@ -87,6 +89,7 @@
 	});
 
 	async function handleDownload(worldName: string) {
+		if (!data.server) return;
 		downloading = worldName;
 		try {
 			await api.downloadWorld(fetch, data.server.name, worldName);
@@ -98,6 +101,7 @@
 	}
 
 	async function handleDelete(worldName: string) {
+		if (!data.server) return;
 		if (isServerRunning) {
 			await modal.error('Cannot delete worlds while server is running. Please stop the server first.');
 			return;
@@ -125,6 +129,7 @@
 	}
 
 	async function handleUpload(worldName: string) {
+		if (!data.server) return;
 		if (isServerRunning) {
 			await modal.error('Cannot upload worlds while server is running. Please stop the server first.');
 			return;
@@ -136,6 +141,7 @@
 		);
 		if (!confirmed) return;
 
+		const serverName = data.server.name;
 		const input = document.createElement('input');
 		input.type = 'file';
 		input.accept = '.zip';
@@ -179,7 +185,7 @@
 					const formData = new FormData();
 					formData.append('file', file);
 
-					xhr.open('POST', `/api/servers/${data.server.name}/worlds/${worldName}/upload`);
+					xhr.open('POST', `/api/servers/${serverName}/worlds/${worldName}/upload`);
 					xhr.send(formData);
 				});
 
@@ -196,11 +202,13 @@
 	}
 
 	async function handleUploadNew() {
+		if (!data.server) return;
 		if (isServerRunning) {
 			await modal.error('Cannot upload worlds while server is running. Please stop the server first.');
 			return;
 		}
 
+		const serverName = data.server.name;
 		const input = document.createElement('input');
 		input.type = 'file';
 		input.accept = '.zip';
@@ -244,7 +252,7 @@
 					const formData = new FormData();
 					formData.append('file', file);
 
-					xhr.open('POST', `/api/servers/${data.server.name}/worlds/upload`);
+					xhr.open('POST', `/api/servers/${serverName}/worlds/upload`);
 					xhr.send(formData);
 				});
 
@@ -324,16 +332,16 @@
 			title={isServerRunning ? 'Stop server first' : 'Upload world from ZIP'}
 		>
 			{#if uploadingNew}
-				📤 Uploading... {uploadNewProgress}%
+				Uploading... {uploadNewProgress}%
 			{:else}
-				📤 Upload World
+				Upload World
 			{/if}
 		</button>
 	</header>
 
 	{#if isServerRunning}
 		<div class="warning-banner">
-			<div class="warning-icon">⚠️</div>
+			<div class="warning-icon">[!]</div>
 			<div class="warning-content">
 				<strong>Server is running</strong>
 				<p>Upload and delete operations are disabled while the server is running. Stop the server to modify worlds.</p>
@@ -400,13 +408,13 @@
 
 	{#if data.worlds.error}
 		<div class="empty-state error">
-			<div class="empty-icon">❌</div>
+			<div class="empty-icon">[x]</div>
 			<h3>Error Loading Worlds</h3>
 			<p>{data.worlds.error}</p>
 		</div>
 	{:else if !data.worlds.data || data.worlds.data.length === 0}
 		<div class="empty-state">
-			<div class="empty-icon">🌍</div>
+			<div class="empty-icon">[W]</div>
 			<h3>No Worlds Found</h3>
 			<p>
 				No world folders detected. Upload a world ZIP file or start the server to generate new worlds.
@@ -418,9 +426,9 @@
 				title={isServerRunning ? 'Stop server first' : 'Upload world from ZIP'}
 			>
 				{#if uploadingNew}
-					📤 Uploading... {uploadNewProgress}%
+					Uploading... {uploadNewProgress}%
 				{:else}
-					📤 Upload World
+					Upload World
 				{/if}
 			</button>
 			{#if uploadingNew && uploadNewProgress > 0}
@@ -448,13 +456,13 @@
 							<div class="world-row">
 								<div class="world-icon">
 									{#if world.type === 'Overworld' || world.type.startsWith('Overworld')}
-										????
+										[O]
 									{:else if world.type === 'Nether'}
-										????
+										[N]
 									{:else if world.type === 'The End'}
-										????
+										[E]
 									{:else}
-										????
+										[C]
 									{/if}
 								</div>
 
@@ -480,7 +488,7 @@
 										onclick={() => handleDownload(world.name)}
 										disabled={downloading === world.name || uploading === world.name}
 									>
-										{downloading === world.name ? '??? Downloading...' : '???? Backup'}
+										{downloading === world.name ? 'Downloading...' : 'Backup'}
 									</button>
 
 									<button
@@ -490,9 +498,9 @@
 										title={isServerRunning ? 'Stop server first' : 'Replace world from ZIP'}
 									>
 										{#if uploading === world.name}
-											???? Uploading... {uploadProgress}%
+											Uploading... {uploadProgress}%
 										{:else}
-											???? Replace
+											Replace
 										{/if}
 									</button>
 
@@ -503,9 +511,9 @@
 										title={isServerRunning ? 'Stop server first' : 'Delete world'}
 									>
 										{#if confirmDelete === world.name}
-											{deleting === world.name ? '??? Deleting...' : '?????? Confirm?'}
+											{deleting === world.name ? 'Deleting...' : 'Confirm?'}
 										{:else}
-											??????? Delete
+											Delete
 										{/if}
 									</button>
 								</div>
@@ -523,7 +531,7 @@
 		</div>
 
 		<div class="info-box">
-			<h4>ℹ️ World Management Tips</h4>
+			<h4>World Management Tips</h4>
 			<ul>
 				<li><strong>Upload New:</strong> Upload a world ZIP file to add a new world to the server (auto-detects world name from ZIP structure)</li>
 				<li><strong>Backup:</strong> Downloads a ZIP archive of the world folder for safekeeping</li>
@@ -540,7 +548,7 @@
 					<strong>Paper/Spigot:</strong> Use a single "world" folder containing DIM-1 (Nether) and DIM1 (End) subfolders
 				</li>
 				<li>
-					<strong>World Types:</strong> Overworld (🌍), Nether (🔥), The End (🌌), Custom (📁)
+					<strong>World Types:</strong> Overworld ([O]), Nether ([N]), The End ([E]), Custom ([C])
 				</li>
 			</ul>
 		</div>

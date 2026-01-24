@@ -2,7 +2,7 @@ import { redirect } from '@sveltejs/kit';
 import type { LayoutServerLoad } from './$types';
 import * as api from '$lib/api/client';
 
-export const load: LayoutServerLoad = async ({ cookies, fetch }) => {
+export const load: LayoutServerLoad = async ({ cookies, fetch, url }) => {
 	const token = cookies.get('auth_token');
 	const userJson = cookies.get('auth_user');
 
@@ -11,13 +11,28 @@ export const load: LayoutServerLoad = async ({ cookies, fetch }) => {
 	}
 
 	let user = null;
-	if (userJson) {
+	try {
+		const meResponse = await fetch('/api/auth/me');
+		if (meResponse.ok) {
+			user = await meResponse.json();
+		} else if (meResponse.status === 401 || meResponse.status === 403) {
+			throw redirect(303, '/login');
+		}
+	} catch {
+		// Ignore network/API errors and fall back to cookie data.
+	}
+
+	if (!user && userJson) {
 		try {
 			user = JSON.parse(userJson);
 		} catch {
 			// Invalid user data, force re-login
 			throw redirect(303, '/login');
 		}
+	}
+
+	if (url.pathname.startsWith('/profiles/buildtools')) {
+		console.info('[layout] buildtools load', url.pathname, url.search);
 	}
 
 	// Load servers and profiles for search

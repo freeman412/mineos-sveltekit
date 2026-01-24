@@ -467,3 +467,139 @@ export async function getAllWatchdogStatus(
 ): Promise<ApiResult<Record<string, import('./types').WatchdogStatus>>> {
 	return apiFetch(fetcher, `/api/watchdog/status`);
 }
+
+// Modpack Installation
+export async function installModpack(
+	fetcher: Fetcher,
+	serverName: string,
+	modpackId: number,
+	modpackName: string,
+	fileId?: number,
+	modpackVersion?: string,
+	logoUrl?: string
+): Promise<ApiResult<{ jobId: string; message: string }>> {
+	return apiPost(fetcher, `/api/servers/${serverName}/modpacks/install-enhanced`, {
+		modpackId,
+		fileId: fileId ?? null,
+		modpackName,
+		modpackVersion: modpackVersion ?? null,
+		logoUrl: logoUrl ?? null
+	});
+}
+
+export function streamModpackInstall(
+	serverName: string,
+	jobId: string,
+	onProgress: (progress: import('./types').ModpackInstallProgress) => void,
+	onError: (error: string) => void,
+	onComplete: () => void
+): () => void {
+	const eventSource = new EventSource(`/api/servers/${serverName}/modpacks/install/${jobId}/stream`);
+
+	eventSource.onmessage = (event) => {
+		try {
+			const progress = JSON.parse(event.data) as import('./types').ModpackInstallProgress;
+			onProgress(progress);
+
+			if (progress.status === 'completed' || progress.status === 'failed') {
+				eventSource.close();
+				if (progress.status === 'completed') {
+					onComplete();
+				} else {
+					onError(progress.error || 'Installation failed');
+				}
+			}
+		} catch (err) {
+			console.error('Failed to parse modpack progress:', err);
+		}
+	};
+
+	eventSource.onerror = () => {
+		eventSource.close();
+		onError('Connection to server lost');
+	};
+
+	return () => eventSource.close();
+}
+
+// Player Activity
+export async function getRecentActivity(
+	fetcher: Fetcher,
+	serverName: string,
+	limit?: number
+): Promise<ApiResult<import('./types').PlayerActivityEvent[]>> {
+	const params = limit ? `?limit=${limit}` : '';
+	const result = await apiFetch<{ data: import('./types').PlayerActivityEvent[] }>(
+		fetcher,
+		`/api/servers/${serverName}/players/activity${params}`
+	);
+	if (result.error) {
+		return { data: null, error: result.error };
+	}
+	return { data: result.data?.data ?? null, error: null };
+}
+
+export async function getRecentSessions(
+	fetcher: Fetcher,
+	serverName: string,
+	limit?: number
+): Promise<ApiResult<import('./types').PlayerSession[]>> {
+	const params = limit ? `?limit=${limit}` : '';
+	const result = await apiFetch<{ data: import('./types').PlayerSession[] }>(
+		fetcher,
+		`/api/servers/${serverName}/players/sessions${params}`
+	);
+	if (result.error) {
+		return { data: null, error: result.error };
+	}
+	return { data: result.data?.data ?? null, error: null };
+}
+
+export async function getPlayerActivity(
+	fetcher: Fetcher,
+	serverName: string,
+	uuid: string,
+	limit?: number
+): Promise<ApiResult<import('./types').PlayerActivityEvent[]>> {
+	const params = limit ? `?limit=${limit}` : '';
+	const result = await apiFetch<{ data: import('./types').PlayerActivityEvent[] }>(
+		fetcher,
+		`/api/servers/${serverName}/players/${uuid}/activity${params}`
+	);
+	if (result.error) {
+		return { data: null, error: result.error };
+	}
+	return { data: result.data?.data ?? null, error: null };
+}
+
+export async function getPlayerSessions(
+	fetcher: Fetcher,
+	serverName: string,
+	uuid: string,
+	limit?: number
+): Promise<ApiResult<import('./types').PlayerSession[]>> {
+	const params = limit ? `?limit=${limit}` : '';
+	const result = await apiFetch<{ data: import('./types').PlayerSession[] }>(
+		fetcher,
+		`/api/servers/${serverName}/players/${uuid}/sessions${params}`
+	);
+	if (result.error) {
+		return { data: null, error: result.error };
+	}
+	return { data: result.data?.data ?? null, error: null };
+}
+
+export async function getPlayerActivityStats(
+	fetcher: Fetcher,
+	serverName: string,
+	uuid: string
+): Promise<ApiResult<import('./types').PlayerActivityStats>> {
+	const result = await apiFetch<{ data: import('./types').PlayerActivityStats }>(
+		fetcher,
+		`/api/servers/${serverName}/players/${uuid}/activity-stats`
+	);
+	if (result.error) {
+		return { data: null, error: result.error };
+	}
+	return { data: result.data?.data ?? null, error: null };
+}

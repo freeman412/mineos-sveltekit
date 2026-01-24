@@ -481,8 +481,10 @@
 </div>
 
 {#if detailOpen && detailItem}
-	<div class="modal-overlay" onclick={closeDetail}>
-		<div class="modal" onclick={(e) => e.stopPropagation()}>
+	<!-- svelte-ignore a11y_no_static_element_interactions, a11y_click_events_have_key_events -->
+	<div class="modal-overlay" onclick={closeDetail} role="presentation">
+		<!-- svelte-ignore a11y_no_static_element_interactions, a11y_click_events_have_key_events, a11y_interactive_supports_focus -->
+		<div class="modal" role="dialog" aria-modal="true" tabindex="-1" onclick={(e) => e.stopPropagation()}>
 			{#if modpackInstallProgress || modInstallProgress}
 				<div class="install-progress">
 					{#if modpackInstallProgress}

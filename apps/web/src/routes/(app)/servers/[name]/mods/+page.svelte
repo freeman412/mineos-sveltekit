@@ -5,7 +5,7 @@
 	import { modal } from '$lib/stores/modal';
 	import { formatBytes, formatDate } from '$lib/utils/formatting';
 	import type { PageData } from './$types';
-	import type { LayoutData } from '../$layout';
+	import type { LayoutData } from '../$types';
 	import type { ClientPackageEntry, InstalledModWithModpack, InstalledModpack } from '$lib/api/types';
 
 	let { data }: { data: PageData & { server: LayoutData['server'] } } = $props();
@@ -198,6 +198,7 @@
 			return;
 		}
 
+		const serverName = data.server.name;
 		uploading = true;
 		uploadingFileName = file.name;
 		uploadProgress = 0;
@@ -227,7 +228,7 @@
 				xhr.addEventListener('error', () => reject(new Error('Upload failed')));
 				xhr.addEventListener('abort', () => reject(new Error('Upload cancelled')));
 
-				xhr.open('POST', `/api/servers/${data.server.name}/mods/upload`);
+				xhr.open('POST', `/api/servers/${serverName}/mods/upload`);
 				xhr.send(form);
 			});
 
