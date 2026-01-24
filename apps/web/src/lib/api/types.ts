@@ -430,3 +430,38 @@ export type SystemNotification = {
 	isRead: boolean;
 	serverName: string | null;
 };
+
+// Player Activity types
+export type PlayerActivityEvent = {
+	id: number;
+	serverName: string;
+	playerUuid: string;
+	playerName: string;
+	timestamp: string;
+	eventType: string;
+	eventData: string | null;
+};
+
+export type PlayerSession = {
+	id: number;
+	serverName: string;
+	playerUuid: string;
+	playerName: string;
+	joinedAt: string;
+	leftAt: string | null;
+	durationSeconds: number | null;
+	leaveReason: string | null;
+};
+
+export type PlayerActivityStats = {
+	playerUuid: string;
+	playerName: string;
+	totalSessions: number;
+	totalPlayTimeSeconds: number;
+	averageSessionSeconds: number;
+	firstSeen: string | null;
+	lastSeen: string | null;
+	joinCount: number;
+	leaveCount: number;
+	deathCount: number;
+};

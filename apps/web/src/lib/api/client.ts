@@ -521,3 +521,85 @@ export function streamModpackInstall(
 
 	return () => eventSource.close();
 }
+
+// Player Activity
+export async function getRecentActivity(
+	fetcher: Fetcher,
+	serverName: string,
+	limit?: number
+): Promise<ApiResult<import('./types').PlayerActivityEvent[]>> {
+	const params = limit ? `?limit=${limit}` : '';
+	const result = await apiFetch<{ data: import('./types').PlayerActivityEvent[] }>(
+		fetcher,
+		`/api/servers/${serverName}/players/activity${params}`
+	);
+	if (result.error) {
+		return { data: null, error: result.error };
+	}
+	return { data: result.data?.data ?? null, error: null };
+}
+
+export async function getRecentSessions(
+	fetcher: Fetcher,
+	serverName: string,
+	limit?: number
+): Promise<ApiResult<import('./types').PlayerSession[]>> {
+	const params = limit ? `?limit=${limit}` : '';
+	const result = await apiFetch<{ data: import('./types').PlayerSession[] }>(
+		fetcher,
+		`/api/servers/${serverName}/players/sessions${params}`
+	);
+	if (result.error) {
+		return { data: null, error: result.error };
+	}
+	return { data: result.data?.data ?? null, error: null };
+}
+
+export async function getPlayerActivity(
+	fetcher: Fetcher,
+	serverName: string,
+	uuid: string,
+	limit?: number
+): Promise<ApiResult<import('./types').PlayerActivityEvent[]>> {
+	const params = limit ? `?limit=${limit}` : '';
+	const result = await apiFetch<{ data: import('./types').PlayerActivityEvent[] }>(
+		fetcher,
+		`/api/servers/${serverName}/players/${uuid}/activity${params}`
+	);
+	if (result.error) {
+		return { data: null, error: result.error };
+	}
+	return { data: result.data?.data ?? null, error: null };
+}
+
+export async function getPlayerSessions(
+	fetcher: Fetcher,
+	serverName: string,
+	uuid: string,
+	limit?: number
+): Promise<ApiResult<import('./types').PlayerSession[]>> {
+	const params = limit ? `?limit=${limit}` : '';
+	const result = await apiFetch<{ data: import('./types').PlayerSession[] }>(
+		fetcher,
+		`/api/servers/${serverName}/players/${uuid}/sessions${params}`
+	);
+	if (result.error) {
+		return { data: null, error: result.error };
+	}
+	return { data: result.data?.data ?? null, error: null };
+}
+
+export async function getPlayerActivityStats(
+	fetcher: Fetcher,
+	serverName: string,
+	uuid: string
+): Promise<ApiResult<import('./types').PlayerActivityStats>> {
+	const result = await apiFetch<{ data: import('./types').PlayerActivityStats }>(
+		fetcher,
+		`/api/servers/${serverName}/players/${uuid}/activity-stats`
+	);
+	if (result.error) {
+		return { data: null, error: result.error };
+	}
+	return { data: result.data?.data ?? null, error: null };
+}

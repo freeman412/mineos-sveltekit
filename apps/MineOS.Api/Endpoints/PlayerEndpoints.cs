@@ -186,6 +186,74 @@ public static class PlayerEndpoints
         }).WithName("GetPlayerStats")
           .WithSummary("Get player stats");
 
+        // Player activity tracking endpoints
+        players.MapGet("/activity", async (
+            string serverName,
+            [FromQuery] int? limit,
+            IPlayerActivityService activityService,
+            CancellationToken cancellationToken) =>
+        {
+            var events = await activityService.GetRecentActivityAsync(serverName, limit ?? 50, cancellationToken);
+            return Results.Ok(new { data = events });
+        }).WithName("GetRecentActivity")
+          .WithSummary("Get recent player activity events for a server");
+
+        players.MapGet("/sessions", async (
+            string serverName,
+            [FromQuery] int? limit,
+            IPlayerActivityService activityService,
+            CancellationToken cancellationToken) =>
+        {
+            var sessions = await activityService.GetRecentSessionsAsync(serverName, limit ?? 50, cancellationToken);
+            return Results.Ok(new { data = sessions });
+        }).WithName("GetRecentSessions")
+          .WithSummary("Get recent player sessions for a server");
+
+        players.MapGet("/{uuid}/activity", async (
+            string serverName,
+            string uuid,
+            [FromQuery] int? limit,
+            IPlayerActivityService activityService,
+            CancellationToken cancellationToken) =>
+        {
+            var events = await activityService.GetPlayerActivityAsync(serverName, uuid, limit ?? 50, cancellationToken);
+            return Results.Ok(new { data = events });
+        }).WithName("GetPlayerActivity")
+          .WithSummary("Get activity events for a specific player");
+
+        players.MapGet("/{uuid}/sessions", async (
+            string serverName,
+            string uuid,
+            [FromQuery] int? limit,
+            IPlayerActivityService activityService,
+            CancellationToken cancellationToken) =>
+        {
+            var sessions = await activityService.GetPlayerSessionsAsync(serverName, uuid, limit ?? 20, cancellationToken);
+            return Results.Ok(new { data = sessions });
+        }).WithName("GetPlayerSessions")
+          .WithSummary("Get session history for a specific player");
+
+        players.MapGet("/{uuid}/activity-stats", async (
+            string serverName,
+            string uuid,
+            IPlayerActivityService activityService,
+            CancellationToken cancellationToken) =>
+        {
+            var stats = await activityService.GetPlayerActivityStatsAsync(serverName, uuid, cancellationToken);
+            return Results.Ok(new { data = stats });
+        }).WithName("GetPlayerActivityStats")
+          .WithSummary("Get activity statistics for a specific player");
+
+        players.MapPost("/activity/process", async (
+            string serverName,
+            IPlayerActivityService activityService,
+            CancellationToken cancellationToken) =>
+        {
+            await activityService.ProcessServerLogsAsync(serverName, cancellationToken);
+            return Results.Ok(new { message = "Log processing completed" });
+        }).WithName("ProcessServerLogs")
+          .WithSummary("Process server logs to extract player activity events");
+
         // Mojang API lookup endpoint (not server-specific)
         var mojang = api.MapGroup("/mojang")
             .WithTags("Mojang")

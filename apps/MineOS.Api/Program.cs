@@ -157,6 +157,7 @@ builder.Services.AddScoped<IPluginService, PluginService>();
 builder.Services.AddScoped<ICurseForgeService, CurseForgeService>();
 builder.Services.AddScoped<IWorldService, WorldService>();
 builder.Services.AddScoped<IPlayerService, PlayerService>();
+builder.Services.AddScoped<IPlayerActivityService, PlayerActivityService>();
 builder.Services.AddHttpClient<IForgeService, ForgeService>();
 builder.Services.AddHttpClient<IMojangApiService, MojangApiService>();
 builder.Services.AddMemoryCache();
