@@ -5,8 +5,7 @@
 
 	let { data, form }: { data: PageData; form: ActionData } = $props();
 
-	let config = $state<ServerConfig>(
-		data.config.data || {
+	let config = $state<ServerConfig>({
 			java: {
 				javaBinary: '',
 				javaXmx: 4096,
@@ -35,6 +34,35 @@
 
 	let loading = $state(false);
 	let selectedProfile = $state(config.minecraft.profile ?? '');
+
+	$effect(() => {
+		config = data.config.data || {
+			java: {
+				javaBinary: '',
+				javaXmx: 4096,
+				javaXms: 4096,
+				javaTweaks: null,
+				jarFile: null,
+				jarArgs: null
+			},
+			minecraft: {
+				profile: null,
+				unconventional: false
+			},
+			onReboot: {
+				start: false
+			},
+			autoRestart: {
+				enabled: false,
+				maxAttempts: 3,
+				cooldownSeconds: 60,
+				attemptResetMinutes: 30,
+				notifyOnCrash: true,
+				notifyOnRestart: true
+			}
+		};
+		selectedProfile = config.minecraft.profile ?? '';
+	});
 
 	const javaTweaksPresets = [
 		{
@@ -92,7 +120,7 @@
 		return Array.from(options).sort((a, b) => a.localeCompare(b));
 	});
 
-	const profiles = (data.profiles?.data ?? []) as Profile[];
+	const profiles = $derived((data.profiles?.data ?? []) as Profile[]);
 	const profileGroups = $derived.by(() => {
 		const groups: Record<string, Profile[]> = {};
 		for (const profile of profiles) {

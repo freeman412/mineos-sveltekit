@@ -869,13 +869,14 @@
 
 						<div class="form-field">
 							<label for="server-name">Server Name</label>
+t				<!-- svelte-ignore a11y_autofocus -->
 							<input
 								type="text"
 								id="server-name"
 								bind:value={serverName}
 								placeholder="my-awesome-server"
 								autofocus
-								onkeydown={(e) => e.key === 'Enter' && handleCreate()}
+								onkeydown={(e: KeyboardEvent) => e.key === 'Enter' && handleCreate()}
 							/>
 							{#if createError}
 								<span class="error-text">{createError}</span>
