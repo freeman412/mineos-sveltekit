@@ -25,6 +25,7 @@
 	let heartbeatStatus = $derived((heartbeat?.status ?? '').toLowerCase());
 	let isRunning = $derived(heartbeatStatus === 'up' || heartbeatStatus === 'running');
 	let memoryHistory = $state<number[]>([]);
+	let copied = $state(false);
 
 	const maxMemoryPoints = 40;
 
@@ -224,6 +225,21 @@
 			clearingLogs = false;
 		}
 	}
+
+	async function copyServerAddress() {
+		const port = heartbeat?.ping?.port || data.server?.config?.minecraft?.serverPort || 25565;
+		const address = `localhost:${port}`;
+
+		try {
+			await navigator.clipboard.writeText(address);
+			copied = true;
+			setTimeout(() => {
+				copied = false;
+			}, 2000);
+		} catch (err) {
+			await modal.error('Failed to copy to clipboard');
+		}
+	}
 </script>
 
 <div class="dashboard">
@@ -290,6 +306,58 @@
 				{/if}
 			</div>
 		{/if}
+
+		<div class="card server-address-card">
+			<h3>Server Address</h3>
+			<div class="address-container">
+				<code class="server-address">
+					localhost:{heartbeat?.ping?.port || data.server?.config?.minecraft?.serverPort || 25565}
+				</code>
+				<button
+					class="btn btn-copy"
+					onclick={copyServerAddress}
+					title="Copy server address"
+				>
+					{#if copied}
+						<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+							<path
+								d="M5 13l4 4L19 7"
+								fill="none"
+								stroke="currentColor"
+								stroke-width="2.5"
+								stroke-linecap="round"
+								stroke-linejoin="round"
+							/>
+						</svg>
+						Copied!
+					{:else}
+						<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+							<rect
+								x="9"
+								y="9"
+								width="13"
+								height="13"
+								rx="2"
+								fill="none"
+								stroke="currentColor"
+								stroke-width="2"
+								stroke-linecap="round"
+								stroke-linejoin="round"
+							/>
+							<path
+								d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"
+								fill="none"
+								stroke="currentColor"
+								stroke-width="2"
+								stroke-linecap="round"
+								stroke-linejoin="round"
+							/>
+						</svg>
+						Copy Address
+					{/if}
+				</button>
+			</div>
+		</div>
 
 		{#if heartbeat?.ping}
 			<div class="card">
@@ -504,6 +572,57 @@
 		width: 100%;
 		height: 60px;
 		opacity: 0.9;
+	}
+
+	.server-address-card {
+		grid-column: span 2;
+	}
+
+	.address-container {
+		display: flex;
+		align-items: center;
+		gap: 12px;
+		flex-wrap: wrap;
+	}
+
+	.server-address {
+		flex: 1;
+		min-width: 200px;
+		background: var(--mc-panel-darkest, #0d1117);
+		border: 1px solid var(--border-color, #2a2f47);
+		padding: 12px 16px;
+		border-radius: 8px;
+		font-family: 'Courier New', 'Consolas', monospace;
+		font-size: 16px;
+		color: var(--mc-grass, #6ab04c);
+		font-weight: 600;
+		letter-spacing: 0.5px;
+	}
+
+	.btn-copy {
+		background: var(--mc-grass, #6ab04c);
+		color: white;
+		border: none;
+		padding: 12px 20px;
+		border-radius: 8px;
+		font-size: 14px;
+		font-weight: 600;
+		cursor: pointer;
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		transition: all 0.2s;
+		white-space: nowrap;
+	}
+
+	.btn-copy:hover {
+		background: var(--mc-grass-dark, #4a8b34);
+		transform: translateY(-1px);
+		box-shadow: 0 4px 12px rgba(106, 176, 76, 0.3);
+	}
+
+	.btn-copy svg {
+		flex-shrink: 0;
 	}
 
 	.info-grid {
