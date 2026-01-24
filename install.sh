@@ -347,7 +347,12 @@ $([ -n "$discord_webhook" ] && echo "Discord__WebhookUrl=${discord_webhook}" || 
 # Ports
 API_PORT=${api_port}
 WEB_PORT=${web_port}
+
+# Web Origins
+#CORS Backend
 WEB_ORIGIN_PROD=${web_origin}
+# CSRF / Absolute URLs
+ORIGIN=${web_origin}
 
 # Logging
 Logging__LogLevel__Default=Information

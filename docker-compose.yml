@@ -73,7 +73,7 @@ services:
 
       # SvelteKit node server bind
       HOST: 0.0.0.0
-      PORT: 3000
+      PORT: ${WEB_PORT:-3000}
 
       # If you actually need it for CSRF / absolute URLs, set it to your real site URL in prod
       ORIGIN: http://localhost:${WEB_PORT:-3000}
