@@ -1,3 +1,5 @@
+using System.IdentityModel.Tokens.Jwt;
+using System.Security.Claims;
 using System.Text.Json;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
@@ -67,17 +69,32 @@ public static class HostEndpoints
                 }
             });
 
-        host.MapGet("/servers", async (IHostService hostService, CancellationToken cancellationToken) =>
-            Results.Ok(await hostService.GetServersAsync(cancellationToken)));
+        host.MapGet("/servers", async (
+            IHostService hostService,
+            IServerAccessService serverAccessService,
+            ClaimsPrincipal user,
+            CancellationToken cancellationToken) =>
+        {
+            var servers = await hostService.GetServersAsync(cancellationToken);
+            var filtered = await FilterServersAsync(servers, user, serverAccessService, cancellationToken);
+            return filtered == null ? Results.Unauthorized() : Results.Ok(filtered);
+        });
 
         host.MapGet("/servers/stream",
             async (HttpContext context,
                 IHostService hostService,
+                IServerAccessService serverAccessService,
                 IOptions<Microsoft.AspNetCore.Http.Json.JsonOptions> jsonOptions,
                 CancellationToken cancellationToken) =>
             {
                 try
                 {
+                    if (!TryValidateUser(context.User, out var isAdmin, out var userId))
+                    {
+                        context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+                        return;
+                    }
+
                     context.Response.ContentType = "text/event-stream";
                     context.Response.Headers["Cache-Control"] = "no-cache";
                     context.Response.Headers["Connection"] = "keep-alive";
@@ -96,6 +113,12 @@ public static class HostEndpoints
                     while (!cancellationToken.IsCancellationRequested)
                     {
                         var servers = await hostService.GetServersAsync(cancellationToken);
+                        if (!isAdmin)
+                        {
+                            var allowed = await serverAccessService.ListServerNamesAsync(userId, cancellationToken);
+                            var allowedSet = new HashSet<string>(allowed, StringComparer.OrdinalIgnoreCase);
+                            servers = servers.Where(server => allowedSet.Contains(server.Name)).ToList();
+                        }
                         var payload = JsonSerializer.Serialize(servers, jsonOptions.Value.SerializerOptions);
                         await context.Response.WriteAsync($"data: {payload}\n\n", cancellationToken);
                         await context.Response.Body.FlushAsync(cancellationToken);
@@ -367,6 +390,62 @@ public static class HostEndpoints
             Results.Ok(await hostService.GetGroupsAsync(cancellationToken)));
 
         return api;
+    }
+
+    private static async Task<IReadOnlyList<ServerSummaryDto>?> FilterServersAsync(
+        IReadOnlyList<ServerSummaryDto> servers,
+        ClaimsPrincipal user,
+        IServerAccessService serverAccessService,
+        CancellationToken cancellationToken)
+    {
+        if (user?.Identity?.IsAuthenticated != true)
+        {
+            return servers;
+        }
+
+        var role = user.FindFirstValue(ClaimTypes.Role) ?? "user";
+        if (string.Equals(role, "admin", StringComparison.OrdinalIgnoreCase))
+        {
+            return servers;
+        }
+
+        if (!TryGetUserId(user, out var userId))
+        {
+            return null;
+        }
+
+        var allowedServerNames = await serverAccessService.ListServerNamesAsync(userId, cancellationToken);
+        var allowedSet = new HashSet<string>(allowedServerNames, StringComparer.OrdinalIgnoreCase);
+        return servers.Where(server => allowedSet.Contains(server.Name)).ToList();
+    }
+
+    private static bool TryValidateUser(ClaimsPrincipal user, out bool isAdmin, out int userId)
+    {
+        isAdmin = false;
+        userId = 0;
+
+        if (user?.Identity?.IsAuthenticated != true)
+        {
+            isAdmin = true;
+            return true;
+        }
+
+        var role = user.FindFirstValue(ClaimTypes.Role) ?? "user";
+        if (string.Equals(role, "admin", StringComparison.OrdinalIgnoreCase))
+        {
+            isAdmin = true;
+            return true;
+        }
+
+        return TryGetUserId(user, out userId);
+    }
+
+    private static bool TryGetUserId(ClaimsPrincipal user, out int userId)
+    {
+        userId = 0;
+        var claim = user.Claims.FirstOrDefault(c => c.Type == ClaimTypes.NameIdentifier)?.Value
+            ?? user.Claims.FirstOrDefault(c => c.Type == JwtRegisteredClaimNames.Sub)?.Value;
+        return int.TryParse(claim, out userId);
     }
 }
 
