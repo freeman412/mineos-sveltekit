@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { onMount } from 'svelte';
 	import CurseForgeSearch from '$lib/components/CurseForgeSearch.svelte';
 	import ModrinthSearch from '$lib/components/ModrinthSearch.svelte';
 	import ProgressBar from '$lib/components/ProgressBar.svelte';
@@ -6,7 +7,7 @@
 	import { formatBytes, formatDate } from '$lib/utils/formatting';
 	import type { PageData } from './$types';
 	import type { LayoutData } from '../$types';
-	import type { ClientPackageEntry, InstalledModWithModpack, InstalledModpack } from '$lib/api/types';
+	import type { ClientPackageEntry, InstalledModWithModpack, InstalledModpack, ServerHeartbeat } from '$lib/api/types';
 
 	let { data }: { data: PageData & { server: LayoutData['server'] } } = $props();
 
@@ -23,13 +24,31 @@
 	let clientPackageLoading = $state(false);
 	let clientPackageCreating = $state(false);
 	let clientPackageActions = $state<Record<string, boolean>>({});
+	let serverVersion = $state<string | null>(null);
 
 	const isServerRunning = $derived(data.server?.status === 'running');
+
+	onMount(() => {
+		loadServerVersion();
+	});
 
 	$effect(() => {
 		loadMods();
 		loadClientPackages();
 	});
+
+	async function loadServerVersion() {
+		if (!data.server) return;
+		try {
+			const res = await fetch(`/api/servers/${data.server.name}/heartbeat`);
+			if (res.ok) {
+				const heartbeat: ServerHeartbeat = await res.json();
+				serverVersion = heartbeat.ping?.serverVersion || null;
+			}
+		} catch (err) {
+			console.error('Failed to load server version:', err);
+		}
+	}
 
 	async function loadMods() {
 		if (!data.server) return;
@@ -576,13 +595,13 @@
 	<!-- CurseForge Install -->
 	<div class="curseforge-section">
 		<h3>Install from CurseForge</h3>
-		<CurseForgeSearch serverName={data.server?.name ?? ''} onInstallComplete={loadMods} />
+		<CurseForgeSearch serverName={data.server?.name ?? ''} {serverVersion} onInstallComplete={loadMods} />
 	</div>
 
 	<!-- Modrinth Install -->
 	<div class="modrinth-section">
 		<h3>Install from Modrinth</h3>
-		<ModrinthSearch serverName={data.server?.name ?? ''} onInstallComplete={loadMods} />
+		<ModrinthSearch serverName={data.server?.name ?? ''} {serverVersion} onInstallComplete={loadMods} />
 	</div>
 </div>
 

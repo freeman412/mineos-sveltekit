@@ -4,10 +4,11 @@
 
 	interface Props {
 		serverName: string;
+		serverVersion?: string | null;
 		onInstallComplete?: () => void;
 	}
 
-	let { serverName, onInstallComplete }: Props = $props();
+	let { serverName, serverVersion, onInstallComplete }: Props = $props();
 	let searchType = $state<'mods' | 'modpacks'>('mods');
 </script>
 
@@ -36,9 +37,9 @@
 	</div>
 
 	{#if searchType === 'mods'}
-		<ModrinthModSearch {serverName} {onInstallComplete} />
+		<ModrinthModSearch {serverName} {serverVersion} {onInstallComplete} />
 	{:else}
-		<ModrinthModpackSearch {serverName} {onInstallComplete} />
+		<ModrinthModpackSearch {serverName} {serverVersion} {onInstallComplete} />
 	{/if}
 </div>
 

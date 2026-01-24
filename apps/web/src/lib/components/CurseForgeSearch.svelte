@@ -1,15 +1,17 @@
 <script lang="ts">
 	import { onMount, tick } from 'svelte';
 	import { modal } from '$lib/stores/modal';
+	import { extractMinecraftVersion } from '$lib/utils/version';
 	import type { CurseForgeModSummary, CurseForgeMod, ModpackInstallProgress } from '$lib/api/types';
 	import ProgressBar from './ProgressBar.svelte';
 
 	interface Props {
 		serverName: string;
+		serverVersion?: string | null;
 		onInstallComplete?: () => void;
 	}
 
-	let { serverName, onInstallComplete }: Props = $props();
+	let { serverName, serverVersion, onInstallComplete }: Props = $props();
 
 	let searchQuery = $state('');
 	let searchResults = $state<CurseForgeModSummary[]>([]);
@@ -31,7 +33,9 @@
 	let detailLoading = $state(false);
 	let detailError = $state<string | null>(null);
 	let detailItem = $state<CurseForgeMod | null>(null);
-	let selectedMinecraftVersion = $state<string>('');
+	// Auto-detect and set version from server
+	const detectedVersion = $derived(extractMinecraftVersion(serverVersion));
+	let selectedMinecraftVersion = $state(detectedVersion || '');
 	let availableFiles = $state<any[]>([]);
 	let filesLoading = $state(false);
 
