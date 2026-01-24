@@ -4,14 +4,20 @@
 
 	let { data, form }: { data: PageData; form: ActionData } = $props();
 
-	let properties = $state<Record<string, string>>({});
+	let properties = $state<Record<string, string>>(data.properties.data || {});
 	let loading = $state(false);
 	let showAddModal = $state(false);
 	let newKey = $state('');
 	let newValue = $state('');
+	let lastDataProps = $state(data.properties.data);
 
+	// Only update properties when server data actually changes (not on every reactive update)
 	$effect(() => {
-		properties = data.properties.data || {};
+		const currentData = data.properties.data;
+		if (currentData !== lastDataProps) {
+			properties = currentData || {};
+			lastDataProps = currentData;
+		}
 	});
 
 	function addProperty() {

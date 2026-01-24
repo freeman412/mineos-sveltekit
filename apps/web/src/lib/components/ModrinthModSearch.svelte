@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { modal } from '$lib/stores/modal';
+	import { extractMinecraftVersion, isVersionCompatible, getCompatibilityBadge } from '$lib/utils/version';
 	import type {
 		ModrinthSearchResult,
 		ModrinthProjectHit,
@@ -9,10 +10,11 @@
 
 	interface Props {
 		serverName: string;
+		serverVersion?: string | null;
 		onInstallComplete?: () => void;
 	}
 
-	let { serverName, onInstallComplete }: Props = $props();
+	let { serverName, serverVersion, onInstallComplete }: Props = $props();
 
 	let searchQuery = $state('');
 	let searchResults = $state<ModrinthProjectHit[]>([]);
@@ -24,8 +26,10 @@
 	let loadingMore = $state(false);
 	let searchDebounce: ReturnType<typeof setTimeout> | null = null;
 
+	// Auto-detect and set version from server
+	const detectedVersion = $derived(extractMinecraftVersion(serverVersion));
 	let selectedLoader = $state('auto');
-	let selectedVersion = $state('auto');
+	let selectedVersion = $state(detectedVersion || 'auto');
 
 	let detailOpen = $state(false);
 	let detailLoading = $state(false);
@@ -227,11 +231,23 @@
 
 			<select bind:value={selectedVersion} onchange={scheduleSearch}>
 				{#each commonMinecraftVersions as version}
-					<option value={version}>{version === 'auto' ? 'Auto (server)' : version}</option>
+					<option value={version}>
+						{version === 'auto'
+							? detectedVersion
+								? `Auto (${detectedVersion})`
+								: 'Auto (server)'
+							: version}
+					</option>
 				{/each}
 			</select>
 		</div>
 	</div>
+
+	{#if detectedVersion}
+		<div class="version-hint">
+			Filtering for Minecraft {detectedVersion}
+		</div>
+	{/if}
 
 	{#if searchLoading}
 		<div class="loading">Searching...</div>
@@ -301,9 +317,15 @@
 						<p class="muted">No versions match your filters.</p>
 					{:else}
 						{#each detailVersions as version}
-							<div class="version-card">
+							{@const badge = detectedVersion ? getCompatibilityBadge(detectedVersion, version.gameVersions) : null}
+							<div class="version-card" class:compatible={badge?.variant === 'success'}>
 								<div class="version-info">
-									<div class="version-name">{version.name || version.versionNumber}</div>
+									<div class="version-header">
+										<div class="version-name">{version.name || version.versionNumber}</div>
+										{#if badge}
+											<span class="badge badge-{badge.variant}">{badge.label}</span>
+										{/if}
+									</div>
 									<div class="version-meta">
 										<span>{version.gameVersions.slice(0, 4).join(', ')}</span>
 										<span class="muted">
@@ -371,6 +393,16 @@
 		border-radius: 8px;
 		padding: 10px 12px;
 		color: #eef0f8;
+	}
+
+	.version-hint {
+		background: rgba(106, 176, 76, 0.15);
+		border: 1px solid rgba(106, 176, 76, 0.3);
+		color: #b7f5a2;
+		padding: 8px 12px;
+		border-radius: 8px;
+		font-size: 12px;
+		text-align: center;
 	}
 
 	.results {
@@ -563,13 +595,52 @@
 		border-radius: 12px;
 		background: #1a1f33;
 		border: 1px solid #2a2f47;
+		transition: border-color 0.2s;
+	}
+
+	.version-card.compatible {
+		border-color: rgba(106, 176, 76, 0.4);
+	}
+
+	.version-header {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		flex-wrap: wrap;
+		margin-bottom: 4px;
 	}
 
 	.version-name {
 		font-size: 14px;
 		font-weight: 600;
 		color: #eef0f8;
-		margin-bottom: 4px;
+	}
+
+	.badge {
+		font-size: 10px;
+		font-weight: 700;
+		padding: 3px 8px;
+		border-radius: 999px;
+		text-transform: uppercase;
+		letter-spacing: 0.03em;
+	}
+
+	.badge-success {
+		background: rgba(106, 176, 76, 0.2);
+		color: #b7f5a2;
+		border: 1px solid rgba(106, 176, 76, 0.4);
+	}
+
+	.badge-warning {
+		background: rgba(255, 183, 77, 0.15);
+		color: #ffcc80;
+		border: 1px solid rgba(255, 183, 77, 0.3);
+	}
+
+	.badge-error {
+		background: rgba(255, 92, 92, 0.15);
+		color: #ff9f9f;
+		border: 1px solid rgba(255, 92, 92, 0.3);
 	}
 
 	.version-meta {

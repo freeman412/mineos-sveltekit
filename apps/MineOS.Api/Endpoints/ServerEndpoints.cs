@@ -5,6 +5,9 @@ using Microsoft.AspNetCore.Mvc;
 using MineOS.Api.Authorization;
 using MineOS.Application.Dtos;
 using MineOS.Application.Interfaces;
+using SixLabors.ImageSharp;
+using SixLabors.ImageSharp.Processing;
+using SixLabors.ImageSharp.Formats.Png;
 
 namespace MineOS.Api.Endpoints;
 
@@ -303,19 +306,29 @@ public static class ServerEndpoints
             {
                 using var buffer = new MemoryStream();
                 await request.Body.CopyToAsync(buffer, cancellationToken);
-                var imageData = buffer.ToArray();
+                buffer.Position = 0; // Reset stream position for reading
 
-                // Validate it's a PNG file (check PNG header: 89 50 4E 47)
-                if (imageData.Length < 8 ||
-                    imageData[0] != 0x89 || imageData[1] != 0x50 ||
-                    imageData[2] != 0x4E || imageData[3] != 0x47)
+                // Load image using ImageSharp
+                using var image = await Image.LoadAsync(buffer, cancellationToken);
+
+                // Resize to 64x64 if needed (Minecraft server icon requirement)
+                if (image.Width != 64 || image.Height != 64)
                 {
-                    return Results.BadRequest(new { error = "File must be a PNG image" });
+                    image.Mutate(x => x.Resize(64, 64));
                 }
 
+                // Save as PNG
+                using var output = new MemoryStream();
+                await image.SaveAsPngAsync(output, cancellationToken);
+                var resizedImageData = output.ToArray();
+
                 // Save as server-icon.png in the server directory
-                await fileService.WriteFileBytesAsync(name, "/server-icon.png", imageData, cancellationToken);
+                await fileService.WriteFileBytesAsync(name, "/server-icon.png", resizedImageData, cancellationToken);
                 return Results.Ok(new { message = "Server icon uploaded successfully" });
+            }
+            catch (UnknownImageFormatException)
+            {
+                return Results.BadRequest(new { error = "File must be a valid image (PNG, JPG, etc.)" });
             }
             catch (ArgumentException ex)
             {

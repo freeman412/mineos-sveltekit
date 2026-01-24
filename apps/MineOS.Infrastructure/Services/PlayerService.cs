@@ -19,11 +19,16 @@ public sealed class PlayerService : IPlayerService
 
     private readonly HostOptions _hostOptions;
     private readonly ILogger<PlayerService> _logger;
+    private readonly IProcessManager _processManager;
 
-    public PlayerService(IOptions<HostOptions> hostOptions, ILogger<PlayerService> logger)
+    public PlayerService(
+        IOptions<HostOptions> hostOptions,
+        ILogger<PlayerService> logger,
+        IProcessManager processManager)
     {
         _hostOptions = hostOptions.Value;
         _logger = logger;
+        _processManager = processManager;
     }
 
     public async Task<IReadOnlyList<PlayerSummaryDto>> ListPlayersAsync(
@@ -260,6 +265,19 @@ public sealed class PlayerService : IPlayerService
 
         entries.Add(new OpEntry(uuid, resolvedName, level, bypassesPlayerLimit));
         await SaveJsonListAsync(GetOpsPath(serverName), entries, cancellationToken);
+
+        // Send command to running server if applicable
+        var isRunning = await _processManager.IsServerRunningAsync(serverName, cancellationToken);
+        if (isRunning)
+        {
+            await _processManager.SendCommandAsync(
+                serverName,
+                $"op {resolvedName}",
+                _hostOptions.RunAsUid,
+                _hostOptions.RunAsGid,
+                cancellationToken);
+            _logger.LogInformation("Sent OP command to running server {ServerName} for player {PlayerName}", serverName, resolvedName);
+        }
     }
 
     public async Task BanPlayerAsync(
@@ -299,6 +317,23 @@ public sealed class PlayerService : IPlayerService
 
         entries.Add(new BanEntry(uuid, resolvedName, created, source, expires, finalReason));
         await SaveJsonListAsync(GetBannedPlayersPath(serverName), entries, cancellationToken);
+
+        // Send command to running server if applicable
+        var isRunning = await _processManager.IsServerRunningAsync(serverName, cancellationToken);
+        if (isRunning)
+        {
+            var banCommand = string.IsNullOrWhiteSpace(reason)
+                ? $"ban {resolvedName}"
+                : $"ban {resolvedName} {finalReason}";
+
+            await _processManager.SendCommandAsync(
+                serverName,
+                banCommand,
+                _hostOptions.RunAsUid,
+                _hostOptions.RunAsGid,
+                cancellationToken);
+            _logger.LogInformation("Sent BAN command to running server {ServerName} for player {PlayerName}", serverName, resolvedName);
+        }
     }
 
     public async Task UnbanPlayerAsync(string serverName, string uuid, CancellationToken cancellationToken)
@@ -310,8 +345,27 @@ public sealed class PlayerService : IPlayerService
         }
 
         var entries = await LoadJsonListAsync<BanEntry>(GetBannedPlayersPath(serverName), cancellationToken);
+        var existing = entries.FirstOrDefault(e => string.Equals(e.Uuid, uuid, StringComparison.OrdinalIgnoreCase));
+        var playerName = existing?.Name;
+
         entries.RemoveAll(e => string.Equals(e.Uuid, uuid, StringComparison.OrdinalIgnoreCase));
         await SaveJsonListAsync(GetBannedPlayersPath(serverName), entries, cancellationToken);
+
+        // Send command to running server if applicable
+        if (!string.IsNullOrWhiteSpace(playerName))
+        {
+            var isRunning = await _processManager.IsServerRunningAsync(serverName, cancellationToken);
+            if (isRunning)
+            {
+                await _processManager.SendCommandAsync(
+                    serverName,
+                    $"pardon {playerName}",
+                    _hostOptions.RunAsUid,
+                    _hostOptions.RunAsGid,
+                    cancellationToken);
+                _logger.LogInformation("Sent PARDON command to running server {ServerName} for player {PlayerName}", serverName, playerName);
+            }
+        }
     }
 
     public async Task DeopPlayerAsync(string serverName, string uuid, CancellationToken cancellationToken)
@@ -323,8 +377,27 @@ public sealed class PlayerService : IPlayerService
         }
 
         var entries = await LoadJsonListAsync<OpEntry>(GetOpsPath(serverName), cancellationToken);
+        var existing = entries.FirstOrDefault(e => string.Equals(e.Uuid, uuid, StringComparison.OrdinalIgnoreCase));
+        var playerName = existing?.Name;
+
         entries.RemoveAll(e => string.Equals(e.Uuid, uuid, StringComparison.OrdinalIgnoreCase));
         await SaveJsonListAsync(GetOpsPath(serverName), entries, cancellationToken);
+
+        // Send command to running server if applicable
+        if (!string.IsNullOrWhiteSpace(playerName))
+        {
+            var isRunning = await _processManager.IsServerRunningAsync(serverName, cancellationToken);
+            if (isRunning)
+            {
+                await _processManager.SendCommandAsync(
+                    serverName,
+                    $"deop {playerName}",
+                    _hostOptions.RunAsUid,
+                    _hostOptions.RunAsGid,
+                    cancellationToken);
+                _logger.LogInformation("Sent DEOP command to running server {ServerName} for player {PlayerName}", serverName, playerName);
+            }
+        }
     }
 
     private string GetServerPath(string serverName) =>
