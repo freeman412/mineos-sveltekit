@@ -288,6 +288,9 @@ run_config_wizard() {
     read -p "Web UI port (default: 3000): " web_port
     web_port=${web_port:-3000}
 
+    read -p "Web UI origin (default: http://localhost:${web_port}): " web_origin
+    web_origin=${web_origin:-http://localhost:${web_port}}
+
     echo ""
 
     # Optional: CurseForge API key
@@ -344,6 +347,7 @@ $([ -n "$discord_webhook" ] && echo "Discord__WebhookUrl=${discord_webhook}" || 
 # Ports
 API_PORT=${api_port}
 WEB_PORT=${web_port}
+WEB_ORIGIN_PROD=${web_origin}
 
 # Logging
 Logging__LogLevel__Default=Information
