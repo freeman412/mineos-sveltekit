@@ -11,7 +11,18 @@ export const load: LayoutServerLoad = async ({ cookies, fetch, url }) => {
 	}
 
 	let user = null;
-	if (userJson) {
+	try {
+		const meResponse = await fetch('/api/auth/me');
+		if (meResponse.ok) {
+			user = await meResponse.json();
+		} else if (meResponse.status === 401 || meResponse.status === 403) {
+			throw redirect(303, '/login');
+		}
+	} catch {
+		// Ignore network/API errors and fall back to cookie data.
+	}
+
+	if (!user && userJson) {
 		try {
 			user = JSON.parse(userJson);
 		} catch {

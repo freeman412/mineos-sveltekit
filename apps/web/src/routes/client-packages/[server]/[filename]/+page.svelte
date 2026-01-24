@@ -3,9 +3,10 @@
 
 	let { params }: { params: { server: string; filename: string } } = $props();
 
-	const downloadPath = `/api/servers/${encodeURIComponent(
-		params.server
-	)}/client-packages/${encodeURIComponent(params.filename)}/download?raw=1`;
+	// Use $derived since params come from route and won't change during component lifetime
+	const downloadPath = $derived(
+		`/api/servers/${encodeURIComponent(params.server)}/client-packages/${encodeURIComponent(params.filename)}/download?raw=1`
+	);
 
 	onMount(() => {
 		const timer = setTimeout(() => {

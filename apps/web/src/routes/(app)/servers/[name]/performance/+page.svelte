@@ -1,24 +1,24 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import type { PageData } from './$types';
-	import type { LayoutData } from '../$layout';
+	import type { LayoutData } from '../$types';
 	import type { PerformanceSample } from '$lib/api/types';
 	import PerformanceChart from '$lib/components/PerformanceChart.svelte';
 
 	let { data }: { data: PageData & { server: LayoutData['server'] } } = $props();
 
-	let samples = $state<PerformanceSample[]>(
-		data.history.data?.length ? data.history.data : data.realtime.data ? [data.realtime.data] : []
-	);
+	let samples = $state<PerformanceSample[]>([]);
 	let streamStatus = $state<'connecting' | 'live' | 'stopped'>('connecting');
 	let streamSource: EventSource | null = null;
 	let streamRetry: ReturnType<typeof setTimeout> | null = null;
-	let sparkStatus = $state(data.spark.data ?? null);
-	let sparkError = $state<string | null>(data.spark.error);
+	let sparkStatus = $state<typeof data.spark.data | null>(null);
+	let sparkError = $state<string | null>(null);
 
 	$effect(() => {
+		// Initialize samples from data
+		samples = data.history.data?.length ? data.history.data : data.realtime.data ? [data.realtime.data] : [];
 		sparkStatus = data.spark.data ?? null;
-		sparkError = data.spark.error;
+		sparkError = data.spark.error ?? null;
 	});
 
 	const latest = $derived(samples[samples.length - 1] ?? data.realtime.data ?? null);
@@ -46,6 +46,7 @@
 	}
 
 	function connectStream() {
+		if (!data.server) return;
 		streamSource?.close();
 		streamSource = new EventSource(`/api/servers/${data.server.name}/performance/streaming`);
 		streamStatus = 'connecting';

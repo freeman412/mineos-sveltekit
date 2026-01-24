@@ -2,7 +2,7 @@
 	import { onMount } from 'svelte';
 	import '@xterm/xterm/css/xterm.css';
 	import type { PageData } from './$types';
-	import type { LayoutData } from '../$layout';
+	import type { LayoutData } from '../$types';
 	import { modal } from '$lib/stores/modal';
 
 	type TerminalType = import('@xterm/xterm').Terminal;
