@@ -1,0 +1,183 @@
+questions:
+  - variable: api_image
+    label: MineOS API Image
+    description: Container image for the MineOS API service.
+    schema:
+      type: string
+      default: ghcr.io/freemancraft/mineos-api:0.1.0
+
+  - variable: web_image
+    label: MineOS Web Image
+    description: Container image for the MineOS web UI.
+    schema:
+      type: string
+      default: ghcr.io/freemancraft/mineos-web:0.1.0
+
+  - variable: host_base_directory
+    label: Minecraft Base Directory
+    description: Host path where server data, profiles, and backups are stored.
+    schema:
+      type: string
+      default: /mnt/tank/minecraft
+
+  - variable: data_directory
+    label: MineOS Data Directory
+    description: Host path for the MineOS application data (SQLite, metadata).
+    schema:
+      type: string
+      default: /mnt/tank/mineos/data
+
+  - variable: api_port
+    label: API Port
+    description: Port for the MineOS API.
+    schema:
+      type: int
+      default: 5078
+
+  - variable: web_port
+    label: Web UI Port
+    description: Port for the MineOS web UI.
+    schema:
+      type: int
+      default: 3000
+
+  - variable: mc_port_range
+    label: Minecraft Port Range
+    description: Port range exposed for Minecraft servers (TCP/UDP).
+    schema:
+      type: string
+      default: 25565-25570
+
+  - variable: public_api_base_url
+    label: Public API Base URL
+    description: Base URL the web UI uses to reach the API from the browser.
+    schema:
+      type: string
+      default: http://truenas.local:5078
+
+  - variable: web_origin
+    label: Web UI Origin
+    description: Origin used for CORS and absolute URLs.
+    schema:
+      type: string
+      default: http://truenas.local:3000
+
+  - variable: seed_username
+    label: Admin Username
+    description: Seed admin username created on first run.
+    schema:
+      type: string
+      default: admin
+
+  - variable: seed_password
+    label: Admin Password
+    description: Seed admin password created on first run.
+    schema:
+      type: string
+      default: changeme
+
+  - variable: jwt_signing_key
+    label: JWT Signing Key
+    description: Random secret used to sign auth tokens (32+ chars).
+    schema:
+      type: string
+      default: change-this-to-a-random-secret-key-at-least-32-characters-long
+
+  - variable: jwt_issuer
+    label: JWT Issuer
+    schema:
+      type: string
+      default: mineos
+
+  - variable: jwt_audience
+    label: JWT Audience
+    schema:
+      type: string
+      default: mineos
+
+  - variable: jwt_expires_minutes
+    label: JWT Expiry Minutes
+    schema:
+      type: int
+      default: 60
+
+  - variable: api_key
+    label: API Key
+    description: API key used by the web UI to talk to the API.
+    schema:
+      type: string
+      default: ""
+
+  - variable: owner_uid
+    label: Host Owner UID
+    description: UID that owns files in the Minecraft data directory.
+    schema:
+      type: int
+      default: 1000
+
+  - variable: owner_gid
+    label: Host Owner GID
+    description: GID that owns files in the Minecraft data directory.
+    schema:
+      type: int
+      default: 1000
+
+  - variable: servers_path_segment
+    label: Servers Path Segment
+    schema:
+      type: string
+      default: servers
+
+  - variable: profiles_path_segment
+    label: Profiles Path Segment
+    schema:
+      type: string
+      default: profiles
+
+  - variable: backups_path_segment
+    label: Backups Path Segment
+    schema:
+      type: string
+      default: backups
+
+  - variable: archives_path_segment
+    label: Archives Path Segment
+    schema:
+      type: string
+      default: archives
+
+  - variable: imports_path_segment
+    label: Imports Path Segment
+    schema:
+      type: string
+      default: imports
+
+  - variable: curseforge_api_key
+    label: CurseForge API Key
+    schema:
+      type: string
+      default: ""
+
+  - variable: discord_webhook_url
+    label: Discord Webhook URL
+    schema:
+      type: string
+      default: ""
+
+  - variable: log_level_default
+    label: Log Level Default
+    schema:
+      type: string
+      default: Information
+
+  - variable: log_level_aspnet
+    label: Log Level ASP.NET Core
+    schema:
+      type: string
+      default: Warning
+
+  - variable: db_connection
+    label: Database Connection String
+    schema:
+      type: string
+      default: Data Source=/app/data/mineos.db
