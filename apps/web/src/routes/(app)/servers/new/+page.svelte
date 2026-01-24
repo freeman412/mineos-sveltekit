@@ -869,7 +869,7 @@
 
 						<div class="form-field">
 							<label for="server-name">Server Name</label>
-t				<!-- svelte-ignore a11y_autofocus -->
+				<!-- svelte-ignore a11y_autofocus -->
 							<input
 								type="text"
 								id="server-name"
