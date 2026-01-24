@@ -149,24 +149,6 @@
 		});
 	});
 
-	// Available Minecraft versions for version selector
-	const availableVersions = $derived.by(() => {
-		if (!data.profiles.data) return [];
-
-		const versions = new Set<string>();
-		data.profiles.data
-			.filter((p) => p.group === 'vanilla')
-			.forEach((p) => versions.add(p.version));
-
-		return Array.from(versions).sort((a, b) => {
-			const [aMajor, aMinor, aPatch] = a.split('.').map(Number);
-			const [bMajor, bMinor, bPatch] = b.split('.').map(Number);
-			if (aMajor !== bMajor) return bMajor - aMajor;
-			if (aMinor !== bMinor) return bMinor - aMinor;
-			return (bPatch || 0) - (aPatch || 0);
-		});
-	});
-
 	// Available Forge Minecraft versions (from API)
 	const forgeMinecraftVersions = $derived.by(() => {
 		if (!forgeVersions.length) return [];
