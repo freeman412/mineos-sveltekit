@@ -393,14 +393,14 @@ build_services() {
         exit 1
     fi
 
-    info "Building Docker images..."
+    info "Building Docker images (this may take a few minutes)..."
     PUBLIC_BUILD_ID=$(date +%Y%m%d%H%M%S)
     export PUBLIC_BUILD_ID
     info "Build ID: ${PUBLIC_BUILD_ID}"
     if [ "${COMPOSE_CMD[0]}" = "docker" ]; then
-        "${COMPOSE_CMD[@]}" build --progress plain
+        "${COMPOSE_CMD[@]}" build --no-cache --progress plain
     else
-        "${COMPOSE_CMD[@]}" build
+        "${COMPOSE_CMD[@]}" build --no-cache
     fi
 
     success "Build complete"
