@@ -30,6 +30,40 @@
 	function isActive(href: string) {
 		return $page.url.pathname === href || $page.url.pathname.startsWith(href + '/');
 	}
+
+	function handleKeyboardShortcut(event: KeyboardEvent) {
+		// Only handle shortcuts with Shift key pressed
+		if (!event.shiftKey) return;
+
+		// Don't trigger shortcuts if user is typing in an input field
+		const target = event.target as HTMLElement;
+		if (
+			target.tagName === 'INPUT' ||
+			target.tagName === 'TEXTAREA' ||
+			target.isContentEditable
+		) {
+			return;
+		}
+
+		const key = event.key.toUpperCase();
+		const shortcuts: Record<string, string> = {
+			'D': '/dashboard',
+			'S': '/servers',
+			'P': '/profiles',
+			'M': '/mods',
+			'N': '/servers#new',
+			'B': '/profiles/buildtools',
+			'U': '/admin/access',
+			'G': '/admin/settings',
+			'T': '/admin/shell'
+		};
+
+		const path = shortcuts[key];
+		if (path) {
+			event.preventDefault();
+			goto(path);
+		}
+	}
 </script>
 
 <svelte:head>
@@ -44,6 +78,8 @@
 		rel="stylesheet"
 	/>
 </svelte:head>
+
+<svelte:window onkeydown={handleKeyboardShortcut} />
 
 <div class="app-container">
 	<nav class="sidebar">
