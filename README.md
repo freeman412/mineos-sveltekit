@@ -1,66 +1,73 @@
-MineOS SvelteKit
-================
+# MineOS - Minecraft Server Manager
 
-MineOS is a web UI and API for managing Minecraft servers. This project runs fully in Docker and is intended to be beginner-friendly.
+A simple web interface to create and manage Minecraft servers. Run as many servers as you want, install mods with one click, and manage everything from your browser.
 
-Quick Start
------------
+## One-Click Install
 
-Requirements:
-- Docker Desktop (Windows/macOS) or Docker Engine + Docker Compose (Linux)
-- Node.js and .NET SDK are only needed if you plan to build/run without Docker.
+**What you need:**
+- [Docker Desktop](https://www.docker.com/products/docker-desktop) (Windows/Mac) or Docker + Docker Compose (Linux)
+- That's it!
 
-Install:
+**Installation:**
 
-Linux/macOS:
-    ./install.sh
+**Windows:** Right-click `install.ps1` → Run with PowerShell
 
-Windows (PowerShell):
-    .\install.ps1
+**Mac/Linux:** Open Terminal, run `./install.sh`
 
-The installer:
-- Checks Docker and Docker Compose.
-- Creates a `.env` file with everything needed to start.
-- Creates the required folders.
-- Starts Docker Compose in the background.
+The installer does everything automatically:
+- ✓ Checks that Docker is installed
+- ✓ Creates all necessary files and folders
+- ✓ Starts MineOS in the background
+- ✓ Sets up automatic startup with Docker
 
-Open the UI at:
-- Web UI: http://localhost:3000
-- API: http://localhost:5078
+**Access MineOS:** Open [http://localhost:3000](http://localhost:3000) in your browser
 
-Containers are configured with `restart: unless-stopped` and will start automatically when Docker starts.
+## That's It!
 
-If your shell blocks scripts:
-- Linux/macOS: `chmod +x install.sh uninstall.sh`
-- Windows: `Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass`
+MineOS will start automatically whenever Docker starts. Create servers, install mods, and manage everything from the web interface.
 
-Manual Docker Compose (optional)
---------------------------------
+## Uninstall
 
-If you prefer to manage `.env` yourself:
+**Windows:** Run `uninstall.ps1`
 
-    cp .env.template .env
-    docker compose up -d
+**Mac/Linux:** Run `./uninstall.sh`
 
-Uninstall
----------
+The uninstall script will ask if you want to keep your server data before removing anything.
 
-Linux/macOS:
-    ./uninstall.sh
+## Where Are My Files?
 
-Windows (PowerShell):
-    .\uninstall.ps1
+- **Server data:** `./minecraft/` folder (all your Minecraft servers)
+- **Database:** `./data/mineos.db` (MineOS settings)
 
-The uninstall script includes warnings and lets you keep data or back it up before removal.
+## Troubleshooting
 
-Data Locations
---------------
+**Script won't run on Windows?**
+Open PowerShell as Administrator and run:
+```powershell
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+```
+Then try running `install.ps1` again.
 
-- SQLite database: `./data/mineos.db`
-- Minecraft files: path configured by `HOST_BASE_DIRECTORY` in `.env` (default: `./minecraft`)
+**Script won't run on Mac/Linux?**
+```bash
+chmod +x install.sh uninstall.sh
+```
 
-Notes
------
+**Need to change ports?**
+Edit `.env` and run `docker compose restart`
 
-- The older `run.sh` and `run.ps1` are kept as wrappers and now call the installers.
-- If you change ports or DB settings later, re-run the installer to regenerate `.env`.
+## Screenshots
+
+![Server List](docs/screenshots/servers.png)
+
+![Create Server](docs/screenshots/create-server.png)
+
+![Server Configuration](docs/screenshots/create-server-2.png)
+
+![Profile Selection](docs/screenshots/create-server-3.png)
+
+![Advanced Settings](docs/screenshots/create-server-4.png)
+
+![Installing Forge](docs/screenshots/installing-forge.png)
+
+![Server Dashboard](docs/screenshots/server-page.png)

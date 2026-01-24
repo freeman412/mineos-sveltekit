@@ -1,0 +1,51 @@
+services:
+  api:
+    image: "{{ .Values.api_image }}"
+    restart: unless-stopped
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ASPNETCORE_URLS: http://+:5078
+      ConnectionStrings__DefaultConnection: "{{ .Values.db_connection }}"
+      Auth__SeedUsername: "{{ .Values.seed_username }}"
+      Auth__SeedPassword: "{{ .Values.seed_password }}"
+      Auth__Jwt__SigningKey: "{{ .Values.jwt_signing_key }}"
+      Auth__Jwt__Issuer: "{{ .Values.jwt_issuer }}"
+      Auth__Jwt__Audience: "{{ .Values.jwt_audience }}"
+      Auth__Jwt__ExpiresMinutes: "{{ .Values.jwt_expires_minutes }}"
+      ApiKey__SeedKey: "{{ .Values.api_key }}"
+      Host__BaseDirectory: /var/games/minecraft
+      Host__ServersPathSegment: "{{ .Values.servers_path_segment }}"
+      Host__ProfilesPathSegment: "{{ .Values.profiles_path_segment }}"
+      Host__BackupsPathSegment: "{{ .Values.backups_path_segment }}"
+      Host__ArchivesPathSegment: "{{ .Values.archives_path_segment }}"
+      Host__ImportsPathSegment: "{{ .Values.imports_path_segment }}"
+      Host__OwnerUid: "{{ .Values.owner_uid }}"
+      Host__OwnerGid: "{{ .Values.owner_gid }}"
+      CurseForge__ApiKey: "{{ .Values.curseforge_api_key }}"
+      Discord__WebhookUrl: "{{ .Values.discord_webhook_url }}"
+      Logging__LogLevel__Default: "{{ .Values.log_level_default }}"
+      Logging__LogLevel__Microsoft.AspNetCore: "{{ .Values.log_level_aspnet }}"
+      Cors__AllowedOrigins__0: "{{ .Values.web_origin }}"
+    volumes:
+      - "{{ .Values.host_base_directory }}:/var/games/minecraft"
+      - "{{ .Values.data_directory }}:/app/data"
+    ports:
+      - "{{ .Values.api_port }}:5078"
+      - "{{ .Values.mc_port_range }}:{{ .Values.mc_port_range }}/tcp"
+      - "{{ .Values.mc_port_range }}:{{ .Values.mc_port_range }}/udp"
+
+  web:
+    image: "{{ .Values.web_image }}"
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PUBLIC_API_BASE_URL: "{{ .Values.public_api_base_url }}"
+      PRIVATE_API_BASE_URL: "http://api:5078"
+      PRIVATE_API_KEY: "{{ .Values.api_key }}"
+      HOST: 0.0.0.0
+      PORT: 3000
+      ORIGIN: "{{ .Values.web_origin }}"
+    ports:
+      - "{{ .Values.web_port }}:3000"
+    depends_on:
+      - api

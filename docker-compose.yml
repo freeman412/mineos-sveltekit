@@ -32,6 +32,7 @@ services:
       - Logging__LogLevel__Microsoft.AspNetCore=Warning
       - Cors__AllowedOrigins__0=${WEB_ORIGIN:-http://localhost:${WEB_PORT:-3000}}
       - Cors__AllowedOrigins__1=${WEB_ORIGIN_DEV:-http://localhost:5174}
+      - Cors__AllowedOrigins__2=${WEB_ORIGIN_PROD:-}
     volumes:
       - ${HOST_BASE_DIRECTORY:-/var/games/minecraft}:/var/games/minecraft
       - ${Data__Directory:-./data}:/app/data
@@ -61,9 +62,6 @@ services:
     environment:
       NODE_ENV: production
 
-      # Client-side (browser) should call the API via the host (or your real domain in prod)
-      PUBLIC_API_BASE_URL: http://localhost:${API_PORT:-5078}
-
       # Server-side (SSR, +server.ts) should call the API via docker DNS
       PRIVATE_API_BASE_URL: http://api:5078
 
@@ -74,8 +72,11 @@ services:
       HOST: 0.0.0.0
       PORT: 3000
 
-      # If you actually need it for CSRF / absolute URLs, set it to your real site URL in prod
-      ORIGIN: http://localhost:${WEB_PORT:-3000}
+      # Browser should call the API on dev-server-1 (or your real domain)
+      PUBLIC_API_BASE_URL: ${PUBLIC_API_BASE_URL:-http://dev-server-1:${API_PORT:-5078}}
+
+      # SvelteKit CSRF/origin check must match exactly what you type in the browser
+      ORIGIN: ${ORIGIN:-http://dev-server-1:${WEB_PORT:-3000}}
 
     ports:
       - "${WEB_PORT:-3000}:3000"

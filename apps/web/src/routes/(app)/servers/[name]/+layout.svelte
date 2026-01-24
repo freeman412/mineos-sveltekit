@@ -71,12 +71,14 @@
 		statusSource.onmessage = (event) => {
 			try {
 				const heartbeat = JSON.parse(event.data);
-				server = {
-					...server,
-					status: heartbeat.status,
-					javaPid: heartbeat.javaPid,
-					screenPid: heartbeat.screenPid
-				};
+				if (server) {
+					server = {
+						...server,
+						status: heartbeat.status,
+						javaPid: heartbeat.javaPid,
+						screenPid: heartbeat.screenPid
+					};
+				}
 			} catch (err) {
 				console.error('Failed to parse heartbeat:', err);
 			}

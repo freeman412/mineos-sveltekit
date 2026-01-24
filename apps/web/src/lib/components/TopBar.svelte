@@ -3,7 +3,7 @@
 	import { browser } from '$app/environment';
 	import { onMount } from 'svelte';
 	import NotificationMenu from './NotificationMenu.svelte';
-	import type { Profile, ServerSummary } from '$lib/api/types';
+	import type { Profile, ServerSummary, ServerDetail } from '$lib/api/types';
 	import * as api from '$lib/api/client';
 
 	let {
@@ -12,7 +12,7 @@
 		profiles = []
 	}: {
 		user: { username: string; role: string } | null;
-		servers: ServerSummary[];
+		servers: ServerSummary[] | ServerDetail[];
 		profiles: Profile[];
 	} = $props();
 
@@ -38,7 +38,7 @@
 		label: string;
 		meta: string;
 		href: string;
-		server?: ServerSummary;
+		server?: ServerSummary | ServerDetail;
 		profile?: Profile;
 	};
 
@@ -111,12 +111,13 @@
 		saveRecent(recentProfileKey, next);
 	}
 
-	function buildServerResult(server: ServerSummary): SearchResult {
+	function buildServerResult(server: ServerSummary | ServerDetail): SearchResult {
+		const isRunning = 'up' in server ? server.up : server.status === 'running';
 		return {
 			key: `server:${server.name}`,
 			type: 'server',
 			label: server.name,
-			meta: server.up ? 'RUNNING' : 'STOPPED',
+			meta: isRunning ? 'RUNNING' : 'STOPPED',
 			href: `/servers/${encodeURIComponent(server.name)}`,
 			server
 		};
@@ -138,7 +139,7 @@
 		const map = new Map(servers.map((server) => [server.name.toLowerCase(), server]));
 		return recentServerNames
 			.map((name) => map.get(name.toLowerCase()))
-			.filter((server): server is ServerSummary => !!server)
+			.filter((server): server is ServerSummary | ServerDetail => !!server)
 			.map(buildServerResult);
 	});
 
@@ -281,7 +282,7 @@
 
 	async function handleServerAction(
 		event: MouseEvent,
-		server: ServerSummary,
+		server: ServerSummary | ServerDetail,
 		action: 'start' | 'stop' | 'restart'
 	) {
 		event.preventDefault();
@@ -310,7 +311,10 @@
 		}
 	}
 
-	function isActionBusy(server: ServerSummary, action: 'start' | 'stop' | 'restart') {
+	function isActionBusy(
+		server: ServerSummary | ServerDetail,
+		action: 'start' | 'stop' | 'restart'
+	) {
 		return actionBusy === `${server.name}:${action}`;
 	}
 
@@ -414,32 +418,35 @@
 											<span class:highlight={part.match}>{part.text}</span>
 										{/each}
 									</div>
-									<span class="result-meta" class:running={result.server?.up}>
+									<span
+										class="result-meta"
+										class:running={result.server && ('up' in result.server ? result.server.up : result.server.status === 'running')}
+									>
 										{result.meta}
 									</span>
 								</div>
 								{#if result.server}
 									<div class="result-actions">
-										{#if result.server.up}
+										{#if 'up' in result.server ? result.server.up : result.server.status === 'running'}
 											<button
 												class="result-action"
-												onclick={(e) => handleServerAction(e, result.server, 'restart')}
-												disabled={isActionBusy(result.server, 'restart')}
+												onclick={(e) => handleServerAction(e, result.server!, 'restart')}
+												disabled={isActionBusy(result.server!, 'restart')}
 											>
 												Restart
 											</button>
 											<button
 												class="result-action danger"
-												onclick={(e) => handleServerAction(e, result.server, 'stop')}
-												disabled={isActionBusy(result.server, 'stop')}
+												onclick={(e) => handleServerAction(e, result.server!, 'stop')}
+												disabled={isActionBusy(result.server!, 'stop')}
 											>
 												Stop
 											</button>
 										{:else}
 											<button
 												class="result-action"
-												onclick={(e) => handleServerAction(e, result.server, 'start')}
-												disabled={isActionBusy(result.server, 'start')}
+												onclick={(e) => handleServerAction(e, result.server!, 'start')}
+												disabled={isActionBusy(result.server!, 'start')}
 											>
 												Start
 											</button>

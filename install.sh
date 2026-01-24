@@ -288,6 +288,9 @@ run_config_wizard() {
     read -p "Web UI port (default: 3000): " web_port
     web_port=${web_port:-3000}
 
+    read -p "Web UI origin (default: http://localhost:${web_port}): " web_origin
+    web_origin=${web_origin:-http://localhost:${web_port}}
+
     echo ""
 
     # Optional: CurseForge API key
@@ -345,6 +348,12 @@ $([ -n "$discord_webhook" ] && echo "Discord__WebhookUrl=${discord_webhook}" || 
 API_PORT=${api_port}
 WEB_PORT=${web_port}
 
+# Web Origins
+#CORS Backend
+WEB_ORIGIN_PROD=${web_origin}
+# CSRF / Absolute URLs
+ORIGIN=${web_origin}
+
 # Logging
 Logging__LogLevel__Default=Information
 Logging__LogLevel__Microsoft.AspNetCore=Warning
@@ -384,14 +393,14 @@ build_services() {
         exit 1
     fi
 
-    info "Building Docker images..."
+    info "Building Docker images (this may take a few minutes)..."
     PUBLIC_BUILD_ID=$(date +%Y%m%d%H%M%S)
     export PUBLIC_BUILD_ID
     info "Build ID: ${PUBLIC_BUILD_ID}"
     if [ "${COMPOSE_CMD[0]}" = "docker" ]; then
-        "${COMPOSE_CMD[@]}" build --progress plain
+        "${COMPOSE_CMD[@]}" build --no-cache --progress plain
     else
-        "${COMPOSE_CMD[@]}" build
+        "${COMPOSE_CMD[@]}" build --no-cache
     fi
 
     success "Build complete"

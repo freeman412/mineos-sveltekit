@@ -4,11 +4,15 @@
 
 	let { data, form }: { data: PageData; form: ActionData } = $props();
 
-	let properties = $state<Record<string, string>>(data.properties.data || {});
+	let properties = $state<Record<string, string>>({});
 	let loading = $state(false);
 	let showAddModal = $state(false);
 	let newKey = $state('');
 	let newValue = $state('');
+
+	$effect(() => {
+		properties = data.properties.data || {};
+	});
 
 	function addProperty() {
 		if (!newKey.trim()) return;
@@ -102,11 +106,14 @@
 </div>
 
 {#if showAddModal}
-	<div class="modal-overlay" onclick={() => (showAddModal = false)}>
-		<div class="modal" onclick={(e) => e.stopPropagation()}>
+	<!-- svelte-ignore a11y_no_static_element_interactions, a11y_click_events_have_key_events -->
+	<div class="modal-overlay" onclick={() => (showAddModal = false)} role="presentation">
+		<!-- svelte-ignore a11y_no_static_element_interactions, a11y_click_events_have_key_events, a11y_interactive_supports_focus -->
+		<div class="modal" onclick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" tabindex="-1">
 			<h3>Add Property</h3>
 			<div class="form-field">
 				<label for="prop-key">Key</label>
+				<!-- svelte-ignore a11y_autofocus -->
 				<input
 					type="text"
 					id="prop-key"

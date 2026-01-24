@@ -1,0 +1,8 @@
+name: mineos-sveltekit
+title: MineOS SvelteKit
+description: MineOS SvelteKit Minecraft server control panel with mod and profile management.
+category: Game Servers
+version: 0.1.0
+app_version: "0.1.0"
+maintainers:
+  - name: MineOS

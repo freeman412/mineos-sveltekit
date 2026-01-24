@@ -23,9 +23,9 @@
 	let searchDebounce: ReturnType<typeof setTimeout> | null = null;
 	let pageIndex = 0;
 	let pageSize = 20;
-	let hasMore = true;
+	let hasMore = $state(true);
 	let loadingMore = $state(false);
-	let loadMoreTrigger: HTMLDivElement;
+	let loadMoreTrigger = $state<HTMLDivElement | undefined>(undefined);
 
 	let detailOpen = $state(false);
 	let detailLoading = $state(false);
@@ -40,7 +40,7 @@
 	let modpackEventSource: EventSource | null = null;
 	let modInstallProgress = $state<any | null>(null);
 	let modEventSource: EventSource | null = null;
-	let outputEl: HTMLDivElement | null = null;
+	let outputEl = $state<HTMLDivElement | null>(null);
 
 	const classIdMap: Record<'mods' | 'modpacks', number> = {
 		mods: 6,
@@ -721,6 +721,7 @@
 		overflow: hidden;
 		text-overflow: ellipsis;
 		display: -webkit-box;
+		line-clamp: 2;
 		-webkit-line-clamp: 2;
 		-webkit-box-orient: vertical;
 	}

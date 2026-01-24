@@ -8,7 +8,7 @@
 	let password = $state('');
 	let confirmPassword = $state('');
 
-	const statusMessage = $derived(() => {
+	const statusMessage = $derived.by(() => {
 		if (form?.error) {
 			return { type: 'error', message: form.error };
 		}
