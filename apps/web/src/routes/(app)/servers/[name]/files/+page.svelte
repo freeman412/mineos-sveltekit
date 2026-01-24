@@ -310,7 +310,8 @@
 		justify-content: space-between;
 		align-items: center;
 		padding: 1rem;
-		background: #1a1a1a;
+		background: var(--mc-panel-dark, #141827);
+		border: 1px solid var(--border-color, #2a2f47);
 		border-radius: 8px;
 	}
 
@@ -328,7 +329,7 @@
 
 	.path {
 		font-family: 'Courier New', monospace;
-		color: #888;
+		color: var(--mc-text-muted, #9aa2c5);
 	}
 
 	.content {
@@ -340,18 +341,20 @@
 	}
 
 	.file-list {
-		background: #1a1a1a;
+		background: var(--mc-panel-dark, #141827);
+		border: 1px solid var(--border-color, #2a2f47);
 		border-radius: 8px;
-		padding: 1rem;
+		padding: 1.25rem;
 		overflow: auto;
 		scrollbar-width: thin;
-		scrollbar-color: rgba(106, 176, 76, 0.35) transparent;
+		scrollbar-color: var(--mc-panel-lighter, #3a3f5a) transparent;
 	}
 
 	.file-viewer {
-		background: #1a1a1a;
+		background: var(--mc-panel-dark, #141827);
+		border: 1px solid var(--border-color, #2a2f47);
 		border-radius: 8px;
-		padding: 1rem;
+		padding: 1.25rem 1.25rem 1rem 1.25rem;
 		overflow: hidden;
 		display: flex;
 		flex-direction: column;
@@ -367,18 +370,18 @@
 	}
 
 	.file-list::-webkit-scrollbar-thumb {
-		background: rgba(106, 176, 76, 0.35);
+		background: var(--mc-panel-lighter, #3a3f5a);
 		border-radius: 999px;
 	}
 
 	.file-list::-webkit-scrollbar-thumb:hover {
-		background: rgba(106, 176, 76, 0.6);
+		background: var(--mc-grass, #6ab04c);
 	}
 
 	.file-list h3,
 	.file-viewer h3 {
 		margin-top: 0;
-		color: #fff;
+		color: var(--mc-text, #eef0f8);
 	}
 
 	table {
@@ -387,7 +390,7 @@
 	}
 
 	thead {
-		background: #2a2a2a;
+		background: var(--mc-panel, #1a1e2f);
 		position: sticky;
 		top: 0;
 	}
@@ -396,46 +399,53 @@
 	td {
 		padding: 0.5rem;
 		text-align: left;
-		border-bottom: 1px solid #333;
+		border-bottom: 1px solid var(--border-color, #2a2f47);
 	}
 
 	th {
 		font-weight: 600;
-		color: #888;
+		color: var(--mc-text-muted, #9aa2c5);
 	}
 
 	tr:hover {
-		background: #2a2a2a;
+		background: var(--mc-panel-light, #2a2f47);
 	}
 
 	tr.selected {
-		background: #2d3748;
+		background: rgba(106, 176, 76, 0.15);
+		border-left: 2px solid var(--mc-grass, #6ab04c);
 	}
 
 	.file-name {
 		background: none;
 		border: none;
-		color: #4299e1;
+		color: var(--color-info, #5b9eff);
 		cursor: pointer;
 		padding: 0;
 		font-size: 1rem;
 		text-align: left;
+		transition: color 0.2s;
 	}
 
 	.file-name:hover {
+		color: var(--color-info-light, #a5b4fc);
 		text-decoration: underline;
 	}
 
 	.empty {
-		color: #666;
+		color: var(--mc-text-dim, #7c87b2);
 		text-align: center;
 		padding: 2rem;
 	}
 
 	.error {
-		color: #ff9f9f;
+		color: var(--color-error-light, #ff9f9f);
 		font-size: 0.85rem;
 		margin-bottom: 0.5rem;
+		padding: 0.5rem;
+		background: var(--color-error-bg, rgba(255, 92, 92, 0.15));
+		border: 1px solid var(--color-error-border, rgba(255, 92, 92, 0.3));
+		border-radius: 4px;
 	}
 
 	.viewer-toolbar {
@@ -450,16 +460,18 @@
 		width: 100%;
 		flex: 1;
 		min-height: 0;
-		background: #0d1117;
-		color: #c9d1d9;
-		border: 1px solid #333;
-		border-radius: 4px;
+		background: var(--mc-panel-darkest, #0d1117);
+		color: var(--mc-text-secondary, #c4cff5);
+		border: 1px solid var(--border-color, #2a2f47);
+		border-radius: 8px;
 		padding: 1rem;
-		font-family: 'Courier New', monospace;
+		font-family: 'Courier New', 'Consolas', monospace;
 		font-size: 0.9rem;
+		line-height: 1.5;
 		resize: none;
+		transition: border-color 0.2s, box-shadow 0.2s;
 		scrollbar-width: thin;
-		scrollbar-color: #3a3f5a #1a1e2f;
+		scrollbar-color: var(--mc-panel-lighter, #3a3f5a) var(--mc-panel, #1a1e2f);
 	}
 
 	.file-content::-webkit-scrollbar {
@@ -468,37 +480,40 @@
 	}
 
 	.file-content::-webkit-scrollbar-track {
-		background: #1a1e2f;
+		background: var(--mc-panel, #1a1e2f);
 		border-radius: 4px;
 	}
 
 	.file-content::-webkit-scrollbar-thumb {
-		background: #3a3f5a;
+		background: var(--mc-panel-lighter, #3a3f5a);
 		border-radius: 4px;
 	}
 
 	.file-content::-webkit-scrollbar-thumb:hover {
-		background: #4a5070;
+		background: var(--mc-grass, #6ab04c);
 	}
 
 	.file-content.editable {
-		border-color: #4299e1;
+		border-color: var(--mc-grass, #6ab04c);
+		box-shadow: 0 0 0 2px rgba(106, 176, 76, 0.1);
 	}
 
 	.btn,
 	.btn-small {
-		background: #2d3748;
-		color: #fff;
-		border: none;
+		background: var(--mc-panel-light, #2a2f47);
+		color: var(--mc-text, #eef0f8);
+		border: 1px solid var(--border-color, #2a2f47);
 		padding: 0.5rem 1rem;
-		border-radius: 4px;
+		border-radius: 8px;
 		cursor: pointer;
 		font-size: 0.9rem;
+		transition: all 0.2s;
+		font-family: inherit;
 	}
 
 	.btn-small {
-		padding: 0.25rem 0.5rem;
-		font-size: 0.8rem;
+		padding: 0.4rem 0.75rem;
+		font-size: 0.85rem;
 	}
 
 	.icon-button {
@@ -507,7 +522,7 @@
 		justify-content: center;
 		gap: 0;
 		line-height: 0;
-		padding: 0.3rem;
+		padding: 0.4rem;
 	}
 
 	.icon-button svg {
@@ -517,7 +532,8 @@
 
 	.btn:hover,
 	.btn-small:hover {
-		background: #4a5568;
+		background: var(--mc-panel-lighter, #3a3f5a);
+		border-color: var(--mc-panel-lighter, #3a3f5a);
 	}
 
 	.btn:disabled,
@@ -529,35 +545,42 @@
 	.btn-icon {
 		background: none;
 		border: none;
-		color: #4299e1;
+		color: var(--color-info, #5b9eff);
 		cursor: pointer;
 		font-size: 1rem;
-		padding: 0.25rem 0.5rem;
+		padding: 0.4rem 0.75rem;
+		transition: color 0.2s;
 	}
 
 	.btn-icon:hover:not(:disabled) {
-		color: #63b3ed;
+		color: var(--color-info-light, #a5b4fc);
 	}
 
 	.btn-icon:disabled {
-		color: #555;
+		color: var(--mc-text-dim, #7c87b2);
 		cursor: not-allowed;
 	}
 
 	.btn-primary {
-		background: #4299e1;
+		background: var(--mc-grass, #6ab04c);
+		border-color: var(--mc-grass, #6ab04c);
+		color: #fff;
 	}
 
 	.btn-primary:hover:not(:disabled) {
-		background: #3182ce;
+		background: var(--mc-grass-dark, #4a8b34);
+		border-color: var(--mc-grass-dark, #4a8b34);
 	}
 
 	.btn-danger {
-		background: #f56565;
+		background: var(--color-error, #ff6b6b);
+		border-color: var(--color-error, #ff6b6b);
+		color: #fff;
 	}
 
 	.btn-danger:hover {
-		background: #e53e3e;
+		background: var(--color-error-light, #ff9f9f);
+		border-color: var(--color-error-light, #ff9f9f);
 	}
 
 	.upload-btn {
