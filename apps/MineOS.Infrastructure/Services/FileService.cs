@@ -101,6 +101,25 @@ public sealed class FileService : IFileService
         return new FileContentDto(path, content, fileInfo.Length, fileInfo.LastWriteTimeUtc);
     }
 
+    public async Task<byte[]> ReadFileBytesAsync(string serverName, string path, CancellationToken cancellationToken)
+    {
+        var fullPath = GetSafePath(serverName, path);
+
+        if (!File.Exists(fullPath))
+        {
+            throw new FileNotFoundException($"File not found: {path}");
+        }
+
+        var fileInfo = new FileInfo(fullPath);
+        // Limit file size to 5MB for images
+        if (fileInfo.Length > 5 * 1024 * 1024)
+        {
+            throw new InvalidOperationException("File too large to read (max 5MB)");
+        }
+
+        return await File.ReadAllBytesAsync(fullPath, cancellationToken);
+    }
+
     public async Task WriteFileAsync(string serverName, string path, string content, CancellationToken cancellationToken)
     {
         var fullPath = GetSafePath(serverName, path);
