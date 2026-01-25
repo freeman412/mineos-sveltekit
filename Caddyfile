@@ -2,6 +2,8 @@
 	# API routes
 	reverse_proxy /api/* api:5078
 
-	# SvelteKit SSR app
-	reverse_proxy * web:3000
+	# SvelteKit SSR app - preserve original Host header
+	reverse_proxy * web:3000 {
+		header_up Host {http.request.host}
+	}
 }
