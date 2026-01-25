@@ -2,6 +2,7 @@
 	import { onMount } from 'svelte';
 	import { goto, invalidateAll } from '$app/navigation';
 	import { env } from '$env/dynamic/public';
+	import { browser } from '$app/environment';
 	import * as api from '$lib/api/client';
 	import { modal } from '$lib/stores/modal';
 	import { formatBytes, formatDate } from '$lib/utils/formatting';
@@ -12,6 +13,12 @@
 	import type { ArchiveEntry, ForgeInstallStatus, ServerSummary } from '$lib/api/types';
 
 	let { data }: { data: PageData } = $props();
+
+	// Get hostname for server addresses
+	const hostname = $derived.by(() => {
+		const envHost = env.PUBLIC_MINECRAFT_HOST as string | undefined;
+		return (envHost && envHost.trim()) || (browser ? window.location.hostname : 'localhost');
+	});
 
 	let actionLoading = $state<Record<string, boolean>>({});
 	let importLoading = $state<Record<string, boolean>>({});
@@ -416,7 +423,7 @@
 						<span class="badge">Profile: {server.profile}</span>
 					{/if}
 					{#if server.port}
-						<span class="badge badge-muted">localhost:{server.port}</span>
+						<span class="badge badge-muted">{hostname}:{server.port}</span>
 					{/if}
 					{#if server.needsRestart}
 						<span class="badge badge-warning">Restart required</span>
