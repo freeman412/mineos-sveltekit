@@ -4,6 +4,7 @@
 - **Main branch**: `master` (NOT main)
 - **Always use closing keywords in commit messages**: `fixes #XX`, `closes #XX`, or `resolves #XX`
   - This auto-closes GitHub issues when merged to master
+  - Do not close issues directly unless directed to do so
 - **Commit message format**:
   ```
   Brief description (fixes #XX)
