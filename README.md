@@ -2,25 +2,37 @@
 
 A simple web interface to create and manage Minecraft servers. Run as many servers as you want, install mods with one click, and manage everything from your browser.
 
-## One-Click Install
+## MineOS Script (Setup + Management)
 
 **What you need:**
 - [Docker Desktop](https://www.docker.com/products/docker-desktop) (Windows/Mac) or Docker + Docker Compose (Linux)
 - That's it!
 
-**Installation:**
+**Run the script:**
 
-**Windows:** Right-click `install.ps1` → Run with PowerShell
+**Windows:** Right-click `MineOS.ps1` -> Run with PowerShell
 
-**Mac/Linux:** Open Terminal, run `./install.sh`
+**Mac/Linux:** Open Terminal, run `./MineOS.sh`
 
-The installer does everything automatically:
-- ✓ Checks that Docker is installed
-- ✓ Creates all necessary files and folders
-- ✓ Starts MineOS in the background
-- ✓ Sets up automatic startup with Docker
+The script can:
+- Check Docker + Docker Compose
+- Create all necessary files and folders
+- Start/stop/restart MineOS
+- Rebuild or update when needed
 
 **Access MineOS:** Open [http://localhost:3000](http://localhost:3000) in your browser
+
+## Script Usage
+
+Once configured, use the MineOS script to manage services:
+
+**Windows (PowerShell):**
+- `MineOS.ps1` (interactive menu)
+- `MineOS.ps1 -Dev` (API only + web dev env setup)
+
+**Mac/Linux:**
+- `./MineOS.sh` (interactive menu)
+- `./MineOS.sh --dev` (API only + web dev env setup)
 
 ## That's It!
 
@@ -46,11 +58,11 @@ Open PowerShell as Administrator and run:
 ```powershell
 Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
 ```
-Then try running `install.ps1` again.
+Then try running `MineOS.ps1` again.
 
 **Script won't run on Mac/Linux?**
 ```bash
-chmod +x install.sh uninstall.sh
+chmod +x MineOS.sh uninstall.sh
 ```
 
 **Need to change ports?**

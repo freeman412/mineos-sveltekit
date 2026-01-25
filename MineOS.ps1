@@ -1,5 +1,5 @@
-# MineOS Install & Management Script for Windows
-# Interactive setup using PowerShell
+# MineOS Setup & Management Script for Windows
+# Interactive setup and management using PowerShell
 
 param(
     [switch]$Dev
@@ -1086,8 +1086,46 @@ function Restart-Services {
 }
 
 function Show-Logs {
-    Write-Info "Showing logs (Ctrl+C to exit)..."
-    & $script:composeExe @script:composeBaseArgs "logs" "-f" "--tail" "100"
+    Write-Info "Showing logs (press Q to return)..."
+    if (-not $script:composeExe) { Set-ComposeCommand }
+
+    $allArgs = @()
+    if ($script:composeBaseArgs) { $allArgs += $script:composeBaseArgs }
+    $allArgs += @("logs", "-f", "--tail", "100")
+    $argString = ($allArgs | ForEach-Object {
+        if ($_ -match '\s') { '"' + ($_ -replace '"', '\"') + '"' } else { $_ }
+    }) -join ' '
+
+    $outFile = New-TemporaryFile
+    $errFile = New-TemporaryFile
+
+    try {
+        $proc = Start-Process -FilePath $script:composeExe `
+            -ArgumentList $argString `
+            -NoNewWindow `
+            -PassThru `
+            -RedirectStandardOutput $outFile `
+            -RedirectStandardError $errFile
+
+        $outOffset = 0L
+        $errOffset = 0L
+        while (-not $proc.HasExited) {
+            Start-Sleep -Milliseconds 200
+            $outOffset = Write-NewFileContent -Path $outFile -Offset $outOffset
+            $errOffset = Write-NewFileContent -Path $errFile -Offset $errOffset
+            if ([Console]::KeyAvailable) {
+                $key = [Console]::ReadKey($true)
+                if ($key.Key -eq [ConsoleKey]::Q -or $key.KeyChar -eq 'q') {
+                    try { $proc.Kill() } catch { }
+                    break
+                }
+            }
+        }
+        $outOffset = Write-NewFileContent -Path $outFile -Offset $outOffset
+        $errOffset = Write-NewFileContent -Path $errFile -Offset $errOffset
+    } finally {
+        Remove-Item $outFile, $errFile -ErrorAction SilentlyContinue
+    }
 }
 
 function Do-FreshInstall {

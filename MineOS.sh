@@ -1,7 +1,7 @@
 #!/bin/bash
 
-# MineOS Install Script
-# Interactive setup for Linux/macOS
+# MineOS Setup & Management Script
+# Interactive setup and management for Linux/macOS
 
 set -e
 
@@ -522,8 +522,21 @@ view_logs() {
         exit 1
     fi
 
-    info "Showing logs (Ctrl+C to exit)..."
-    "${COMPOSE_CMD[@]}" logs -f
+    info "Showing logs (press Q to return)..."
+    "${COMPOSE_CMD[@]}" logs -f &
+    local log_pid=$!
+
+    while kill -0 "$log_pid" 2>/dev/null; do
+        if read -r -n1 -s -t 1 key; then
+            case "$key" in
+                [Qq])
+                    kill "$log_pid" >/dev/null 2>&1 || true
+                    wait "$log_pid" 2>/dev/null || true
+                    break
+                    ;;
+            esac
+        fi
+    done
 }
 
 # Show detailed status
