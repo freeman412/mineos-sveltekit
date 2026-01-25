@@ -30,7 +30,7 @@ services:
       - Discord__WebhookUrl=${Discord__WebhookUrl:-}
       - Logging__LogLevel__Default=${Logging__LogLevel__Default:-Information}
       - Logging__LogLevel__Microsoft.AspNetCore=Warning
-      - Cors__AllowedOrigins__0=${WEB_ORIGIN:-http://localhost:${WEB_PORT:-3000}}
+      - Cors__AllowedOrigins__0=${WEB_ORIGIN_PROD:-http://localhost:${WEB_PORT:-3000}}
       - Cors__AllowedOrigins__1=${WEB_ORIGIN_DEV:-http://localhost:5174}
       - Cors__AllowedOrigins__2=${WEB_ORIGIN_PROD:-}
     volumes:
@@ -73,20 +73,40 @@ services:
       HOST: 0.0.0.0
       PORT: 3000
 
-      # Browser should call the API on dev-server-1 (or your real domain)
-      PUBLIC_API_BASE_URL: ${PUBLIC_API_BASE_URL:-http://dev-server-1:${API_PORT:-5078}}
+      # Browser should call the API on the same origin (proxy)
+      PUBLIC_API_BASE_URL: ${PUBLIC_API_BASE_URL:-http://localhost:${WEB_PORT:-3000}}
       PUBLIC_MINECRAFT_HOST: ${PUBLIC_MINECRAFT_HOST:-}
 
       # SvelteKit CSRF/origin check must match exactly what you type in the browser
-      ORIGIN: ${ORIGIN:-http://dev-server-1:${WEB_PORT:-3000}}
+      ORIGIN: ${ORIGIN:-http://localhost:${WEB_PORT:-3000}}
       # Allow large mod uploads via SvelteKit
       BODY_SIZE_LIMIT: ${BODY_SIZE_LIMIT:-Infinity}
 
-    ports:
-      - "${WEB_PORT:-3000}:3000"
     depends_on:
       - api
+
+  proxy:
+    image: caddy:2
+    container_name: mineos-proxy
+    restart: unless-stopped
+    depends_on:
+      - web
+      - api
+    environment:
+      CADDY_SITE: ${CADDY_SITE:-http://localhost}
+      CADDY_EMAIL: ${CADDY_EMAIL:-}
+    ports:
+      - "${WEB_PORT:-3000}:80"
+      - "${PROXY_HTTPS_PORT:-443}:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
 
 networks:
   default:
     name: mineos-network
+
+volumes:
+  caddy_data:
+  caddy_config:

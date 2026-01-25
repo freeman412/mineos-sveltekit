@@ -484,6 +484,9 @@ function Load-ExistingConfig {
     if ([string]::IsNullOrWhiteSpace($script:apiPort)) { $script:apiPort = "5078" }
     $script:webPort = Get-EnvValue "WEB_PORT"
     if ([string]::IsNullOrWhiteSpace($script:webPort)) { $script:webPort = "3000" }
+    $script:webOrigin = Get-EnvValue "WEB_ORIGIN_PROD"
+    if ([string]::IsNullOrWhiteSpace($script:webOrigin)) { $script:webOrigin = Get-EnvValue "ORIGIN" }
+    if ([string]::IsNullOrWhiteSpace($script:webOrigin)) { $script:webOrigin = "http://localhost:$script:webPort" }
     $script:mcPublicHost = Get-EnvValue "PUBLIC_MINECRAFT_HOST"
     if ([string]::IsNullOrWhiteSpace($script:mcPublicHost)) { $script:mcPublicHost = "localhost" }
     $script:bodySizeLimit = Get-EnvValue "BODY_SIZE_LIMIT"
@@ -495,6 +498,24 @@ function Load-ExistingConfig {
     if ([string]::IsNullOrWhiteSpace($script:baseDir)) { $script:baseDir = ".\\minecraft" }
     $script:dataDir = Get-EnvValue "Data__Directory"
     if ([string]::IsNullOrWhiteSpace($script:dataDir)) { $script:dataDir = ".\\data" }
+}
+
+function Get-CaddySite {
+    param([string]$Origin)
+    if ([string]::IsNullOrWhiteSpace($Origin)) { return "http://localhost" }
+
+    $originValue = $Origin
+    if (-not ($originValue -match '^https?://')) { $originValue = "http://$originValue" }
+
+    try {
+        $uri = [Uri]$originValue
+        $host = $uri.Host
+        if ([string]::IsNullOrWhiteSpace($host)) { return "http://localhost" }
+        if ($uri.Scheme -eq "https") { return $host }
+        return "http://$host"
+    } catch {
+        return "http://localhost"
+    }
 }
 
 function Assert-PortNumber {
@@ -863,7 +884,7 @@ function Show-Status {
 
     Write-Host ""
     Write-Host "URLs (when running):"
-    Write-Host "  Web UI:   http://localhost:$webPort" -ForegroundColor Cyan
+    Write-Host "  Web UI:   $webOrigin" -ForegroundColor Cyan
     Write-Host "  API:      http://localhost:$apiPort" -ForegroundColor Cyan
 }
 
@@ -897,6 +918,10 @@ function Start-ConfigWizard {
     $script:webPort = Read-Host "Web UI port (default: 3000)"
     if ([string]::IsNullOrWhiteSpace($script:webPort)) { $script:webPort = "3000" }
     [void](Assert-PortNumber -Value $script:webPort -Name "Web UI port")
+
+    $script:webOrigin = Read-Host "Web UI origin (default: http://localhost:$script:webPort)"
+    if ([string]::IsNullOrWhiteSpace($script:webOrigin)) { $script:webOrigin = "http://localhost:$script:webPort" }
+    $script:caddySite = Get-CaddySite -Origin $script:webOrigin
 
     $script:mcPublicHost = Read-Host "Public Minecraft host (default: localhost)"
     if ([string]::IsNullOrWhiteSpace($script:mcPublicHost)) { $script:mcPublicHost = "localhost" }
@@ -949,11 +974,17 @@ Host__OwnerGid=1000
 $(if ($curseforgeKey) { "CurseForge__ApiKey=$curseforgeKey" } else { "# CurseForge__ApiKey=" })
 $(if ($discordWebhook) { "Discord__WebhookUrl=$discordWebhook" } else { "# Discord__WebhookUrl=" })
 
-# Ports
-API_PORT=$apiPort
-WEB_PORT=$webPort
-MC_PORT_RANGE=$mcPortRange
-MC_EXTRA_PORTS=$mcExtraPorts
+  # Ports
+  API_PORT=$apiPort
+  WEB_PORT=$webPort
+  MC_PORT_RANGE=$mcPortRange
+  MC_EXTRA_PORTS=$mcExtraPorts
+
+  # Web UI origin (public) and API base
+  WEB_ORIGIN_PROD=$webOrigin
+  PUBLIC_API_BASE_URL=$webOrigin
+  ORIGIN=$webOrigin
+  CADDY_SITE=$caddySite
 
 # Minecraft Server Address
 PUBLIC_MINECRAFT_HOST=$mcPublicHost
@@ -1109,10 +1140,25 @@ function Start-WebDevContainer {
     }
     if ([string]::IsNullOrWhiteSpace($devHost)) { $devHost = "localhost" }
 
-    $publicApiInput = "http://$devHost:$apiPort"
+    $publicApiInput = $devOriginInput
     Set-EnvValue -Key "WEB_ORIGIN_DEV" -Value $devOriginInput
     Set-EnvValue -Key "PUBLIC_API_BASE_URL" -Value $publicApiInput
     Set-EnvValue -Key "VITE_ALLOWED_HOSTS" -Value $devHost
+
+    $gitName = Get-EnvValue "GIT_USER_NAME"
+    $gitEmail = Get-EnvValue "GIT_USER_EMAIL"
+    if ([string]::IsNullOrWhiteSpace($gitName) -and (Get-Command git -ErrorAction SilentlyContinue)) {
+        $gitName = (git config --global user.name 2>$null).Trim()
+    }
+    if ([string]::IsNullOrWhiteSpace($gitEmail) -and (Get-Command git -ErrorAction SilentlyContinue)) {
+        $gitEmail = (git config --global user.email 2>$null).Trim()
+    }
+    if (-not [string]::IsNullOrWhiteSpace($gitName)) {
+        Set-EnvValue -Key "GIT_USER_NAME" -Value $gitName
+    }
+    if (-not [string]::IsNullOrWhiteSpace($gitEmail)) {
+        Set-EnvValue -Key "GIT_USER_EMAIL" -Value $gitEmail
+    }
 
     Write-Info "Stopping web service (if running)..."
     [void](Invoke-Compose -Args @("stop", "web"))
@@ -1143,7 +1189,7 @@ function Start-WebDevContainer {
 
     Write-Success "Web dev container started"
     Write-Host "Web UI (dev): $devOriginInput" -ForegroundColor Cyan
-    Write-Host "API:          $publicApiInput" -ForegroundColor Cyan
+    Write-Host "API (proxy):  $devOriginInput/api" -ForegroundColor Cyan
 }
 
 function Stop-Services {
@@ -1235,7 +1281,7 @@ function Do-FreshInstall {
 
     Write-Header "Installation Complete!"
     Write-Host ""
-    Write-Host "Web UI:    http://localhost:$webPort" -ForegroundColor Green
+    Write-Host "Web UI:    $webOrigin" -ForegroundColor Green
     Write-Host "Username:  $adminUser" -ForegroundColor Cyan
     Write-Host "Password:  $adminPass" -ForegroundColor Cyan
     Write-Host ""
@@ -1261,7 +1307,7 @@ function Do-Rebuild {
     Start-Services -Rebuild
 
     Write-Success "Rebuild complete!"
-    Write-Host "Web UI: http://localhost:$webPort" -ForegroundColor Green
+    Write-Host "Web UI: $webOrigin" -ForegroundColor Green
 }
 
 function Do-Update {
@@ -1284,7 +1330,7 @@ function Do-Update {
     Start-Services -Rebuild
 
     Write-Success "Update complete!"
-    Write-Host "Web UI: http://localhost:$webPort" -ForegroundColor Green
+    Write-Host "Web UI: $webOrigin" -ForegroundColor Green
 }
 
 function Do-Reconfigure {
@@ -1321,6 +1367,10 @@ function Do-Reconfigure {
     if ([string]::IsNullOrWhiteSpace($newWebPort)) { $newWebPort = $webPort }
     [void](Assert-PortNumber -Value $newWebPort -Name "Web UI port")
 
+    $newWebOrigin = Read-Host "Web UI origin (default: $webOrigin)"
+    if ([string]::IsNullOrWhiteSpace($newWebOrigin)) { $newWebOrigin = $webOrigin }
+    $newCaddySite = Get-CaddySite -Origin $newWebOrigin
+
     $newMcPublicHost = Read-Host "Public Minecraft host (default: $mcPublicHost)"
     if ([string]::IsNullOrWhiteSpace($newMcPublicHost)) { $newMcPublicHost = $mcPublicHost }
 
@@ -1343,6 +1393,10 @@ function Do-Reconfigure {
     Set-EnvValue -Key "Data__Directory" -Value $newDataDir
     Set-EnvValue -Key "API_PORT" -Value $newApiPort
     Set-EnvValue -Key "WEB_PORT" -Value $newWebPort
+    Set-EnvValue -Key "WEB_ORIGIN_PROD" -Value $newWebOrigin
+    Set-EnvValue -Key "PUBLIC_API_BASE_URL" -Value $newWebOrigin
+    Set-EnvValue -Key "ORIGIN" -Value $newWebOrigin
+    Set-EnvValue -Key "CADDY_SITE" -Value $newCaddySite
     Set-EnvValue -Key "PUBLIC_MINECRAFT_HOST" -Value $newMcPublicHost
     Set-EnvValue -Key "BODY_SIZE_LIMIT" -Value $newBodySizeLimit
     Set-EnvValue -Key "MC_PORT_RANGE" -Value $newMcPortRange

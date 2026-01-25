@@ -65,6 +65,33 @@ normalize_relative_path() {
     echo "$path"
 }
 
+derive_caddy_site() {
+    local origin="$1"
+    if [ -z "$origin" ]; then
+        echo "http://localhost"
+        return
+    fi
+
+    local trimmed="$origin"
+    local scheme=""
+    if [[ "$trimmed" =~ ^https?:// ]]; then
+        scheme="${trimmed%%://*}"
+        trimmed="${trimmed#*://}"
+    fi
+    trimmed="${trimmed%%/*}"
+    local host="${trimmed%%:*}"
+    if [ -z "$host" ]; then
+        echo "http://localhost"
+        return
+    fi
+
+    if [ "$scheme" = "https" ]; then
+        echo "$host"
+    else
+        echo "http://$host"
+    fi
+}
+
 set_compose_cmd() {
     if command_exists docker && docker compose version >/dev/null 2>&1; then
         COMPOSE_CMD=(docker compose)
@@ -293,6 +320,7 @@ run_config_wizard() {
 
     read -p "Web UI origin (default: http://localhost:${web_port}): " web_origin
     web_origin=${web_origin:-http://localhost:${web_port}}
+    caddy_site=$(derive_caddy_site "$web_origin")
 
     read -p "Public Minecraft host (default: localhost): " mc_public_host
     mc_public_host=${mc_public_host:-localhost}
@@ -360,8 +388,12 @@ WEB_PORT=${web_port}
 # Web Origins
 #CORS Backend
 WEB_ORIGIN_PROD=${web_origin}
+# Browser API base should match the public web origin
+PUBLIC_API_BASE_URL=${web_origin}
 # CSRF / Absolute URLs
 ORIGIN=${web_origin}
+# Reverse proxy site address (host only for HTTPS, http:// for plain)
+CADDY_SITE=${caddy_site}
 
 # Minecraft Server Address
 PUBLIC_MINECRAFT_HOST=${mc_public_host}
@@ -534,11 +566,30 @@ start_web_dev_container() {
     local dev_host
     dev_host=$(echo "$dev_origin_input" | sed -E 's#^https?://##' | cut -d/ -f1 | cut -d: -f1)
     dev_host=${dev_host:-localhost}
-    local public_api_input="http://${dev_host}:${api_port}"
+    local public_api_input="${dev_origin_input}"
 
     set_env_file_value ".env" "WEB_ORIGIN_DEV" "$dev_origin_input"
     set_env_file_value ".env" "PUBLIC_API_BASE_URL" "$public_api_input"
     set_env_file_value ".env" "VITE_ALLOWED_HOSTS" "$dev_host"
+
+    if command_exists git; then
+        local git_name
+        local git_email
+        git_name=$(get_env_value GIT_USER_NAME 2>/dev/null || echo "")
+        git_email=$(get_env_value GIT_USER_EMAIL 2>/dev/null || echo "")
+        if [ -z "$git_name" ]; then
+            git_name=$(git config --global user.name 2>/dev/null || echo "")
+        fi
+        if [ -z "$git_email" ]; then
+            git_email=$(git config --global user.email 2>/dev/null || echo "")
+        fi
+        if [ -n "$git_name" ]; then
+            set_env_file_value ".env" "GIT_USER_NAME" "$git_name"
+        fi
+        if [ -n "$git_email" ]; then
+            set_env_file_value ".env" "GIT_USER_EMAIL" "$git_email"
+        fi
+    fi
 
     info "Stopping web service (if running)..."
     "${COMPOSE_CMD[@]}" stop web >/dev/null 2>&1 || true
@@ -565,7 +616,7 @@ start_web_dev_container() {
 
     success "Web dev container started"
     echo -e "${CYAN}Web UI (dev):${NC} ${dev_origin_input}"
-    echo -e "${CYAN}API:${NC} ${public_api_input}"
+    echo -e "${CYAN}API (proxy):${NC} ${dev_origin_input}/api"
     echo ""
     read -p "Press Enter to continue..."
 }
@@ -633,11 +684,13 @@ show_detailed_status() {
     if is_installed; then
         local api_port
         local web_port
+        local web_origin
         api_port=$(get_env_value API_PORT 2>/dev/null || echo "5078")
         web_port=$(get_env_value WEB_PORT 2>/dev/null || echo "3000")
+        web_origin=$(get_env_value WEB_ORIGIN_PROD 2>/dev/null || echo "http://localhost:${web_port}")
 
         echo -e "${CYAN}Access URLs:${NC}"
-        echo -e "  Web UI:    ${GREEN}http://localhost:${web_port}${NC}"
+        echo -e "  Web UI:    ${GREEN}${web_origin}${NC}"
         echo -e "  API:       ${GREEN}http://localhost:${api_port}${NC}"
         echo -e "  API Docs:  ${GREEN}http://localhost:${api_port}/swagger${NC}"
     fi
@@ -666,11 +719,13 @@ fresh_install() {
 
     local api_port
     local web_port
+    local web_origin
     api_port=$(get_env_value API_PORT 2>/dev/null || echo "5078")
     web_port=$(get_env_value WEB_PORT 2>/dev/null || echo "3000")
+    web_origin=$(get_env_value WEB_ORIGIN_PROD 2>/dev/null || echo "http://localhost:${web_port}")
 
     echo -e "${CYAN}Access URLs:${NC}"
-    echo -e "  Web UI:    ${GREEN}http://localhost:${web_port}${NC}"
+    echo -e "  Web UI:    ${GREEN}${web_origin}${NC}"
     echo -e "  API:       ${GREEN}http://localhost:${api_port}${NC}"
     echo -e "  API Docs:  ${GREEN}http://localhost:${api_port}/swagger${NC}"
     echo ""
@@ -789,6 +844,7 @@ reconfigure() {
 
     read -p "Web UI origin (default: ${web_origin_current}): " web_origin
     web_origin=${web_origin:-$web_origin_current}
+    caddy_site=$(derive_caddy_site "$web_origin")
 
     read -p "Public Minecraft host (default: ${mc_public_host_current}): " mc_public_host
     mc_public_host=${mc_public_host:-$mc_public_host_current}
@@ -815,7 +871,9 @@ reconfigure() {
     set_env_file_value ".env" "API_PORT" "$api_port"
     set_env_file_value ".env" "WEB_PORT" "$web_port"
     set_env_file_value ".env" "WEB_ORIGIN_PROD" "$web_origin"
+    set_env_file_value ".env" "PUBLIC_API_BASE_URL" "$web_origin"
     set_env_file_value ".env" "ORIGIN" "$web_origin"
+    set_env_file_value ".env" "CADDY_SITE" "$caddy_site"
     set_env_file_value ".env" "PUBLIC_MINECRAFT_HOST" "$mc_public_host"
     set_env_file_value ".env" "BODY_SIZE_LIMIT" "$body_size_limit"
     if [ -n "$curseforge_key" ]; then

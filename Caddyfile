@@ -1,0 +1,9 @@
+{
+	email {$CADDY_EMAIL}
+}
+
+{$CADDY_SITE:http://localhost} {
+	encode gzip zstd
+	reverse_proxy /api* api:5078
+	reverse_proxy web:3000
+}

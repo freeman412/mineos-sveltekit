@@ -20,7 +20,7 @@ The script can:
 - Start/stop/restart MineOS
 - Rebuild or update when needed
 
-**Access MineOS:** Open [http://localhost:3000](http://localhost:3000) in your browser
+**Access MineOS:** Open [http://localhost:3000](http://localhost:3000) in your browser (served by the built-in reverse proxy)
 
 ## Script Usage
 
@@ -67,6 +67,20 @@ chmod +x MineOS.sh uninstall.sh
 
 **Need to change ports?**
 Edit `.env` and run `docker compose restart`
+
+## Reverse Proxy (Recommended)
+
+MineOS now includes a Caddy reverse proxy to keep the API private and provide a single public origin for the UI + WebSocket admin shell.
+
+**Common settings in `.env`:**
+- `WEB_ORIGIN_PROD` → the public URL users will visit (e.g. `https://mineos.example.com`)
+- `PUBLIC_API_BASE_URL` → set to the same value as `WEB_ORIGIN_PROD`
+- `CADDY_SITE` → your domain (no scheme) for automatic HTTPS, or `http://host` to disable HTTPS
+- `CADDY_EMAIL` → email for TLS certificates (optional but recommended)
+- `WEB_PORT` → public HTTP port for the proxy (default: 3000)
+- `PROXY_HTTPS_PORT` → public HTTPS port for the proxy (default: 443)
+
+The proxy serves the UI and forwards `/api/*` (including WebSockets) to the API container.
 
 **Copy Address shows localhost in production?**
 Set `PUBLIC_MINECRAFT_HOST` in `.env` and rebuild so the UI uses your public host.
