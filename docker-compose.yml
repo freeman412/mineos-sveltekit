@@ -73,8 +73,8 @@ services:
       HOST: 0.0.0.0
       PORT: 3000
 
-      # Browser should call the API on the same origin (proxy)
-      PUBLIC_API_BASE_URL: ${PUBLIC_API_BASE_URL:-http://localhost:${WEB_PORT:-3000}}
+      # Browser API base - empty uses window.location.origin (recommended)
+      PUBLIC_API_BASE_URL: ${PUBLIC_API_BASE_URL:-}
       PUBLIC_MINECRAFT_HOST: ${PUBLIC_MINECRAFT_HOST:-}
 
       # SvelteKit CSRF/origin check must match exactly what you type in the browser
@@ -93,7 +93,7 @@ services:
       - web
       - api
     environment:
-      CADDY_SITE: ${CADDY_SITE:-http://localhost}
+      CADDY_SITE: ${CADDY_SITE:-:80}
       CADDY_EMAIL: ${CADDY_EMAIL:-}
     ports:
       - "${WEB_PORT:-3000}:80"
