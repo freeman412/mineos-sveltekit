@@ -1,0 +1,13 @@
+services:
+  api:
+    network_mode: host
+    ports: []
+    environment:
+      - ASPNETCORE_URLS=http://+:${API_PORT:-5078}
+
+  web:
+    network_mode: host
+    ports: []
+    environment:
+      PRIVATE_API_BASE_URL: http://127.0.0.1:${API_PORT:-5078}
+      PORT: ${WEB_PORT:-3000}

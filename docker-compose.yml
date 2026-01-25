@@ -1,4 +1,6 @@
 services:
+  # For LAN discovery on Linux, enable host networking via MINEOS_NETWORK_MODE=host
+  # (uses docker-compose.host.yml).
   # MineOS API
   api:
     build:

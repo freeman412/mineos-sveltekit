@@ -177,7 +177,7 @@
 			use:enhance={() => {
 				loading = true;
 				return async ({ update }) => {
-					await update();
+					await update({ reset: false });
 					loading = false;
 				};
 			}}

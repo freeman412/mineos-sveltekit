@@ -383,6 +383,14 @@ function Set-ComposeCommand {
     throw "Docker Compose not found."
 }
 
+function Get-ComposeFileArgs {
+    $mode = Get-EnvValue "MINEOS_NETWORK_MODE"
+    if ([string]::IsNullOrWhiteSpace($mode)) { $mode = "bridge" }
+    $args = @("-f", "docker-compose.yml")
+    if ($mode -eq "host") { $args += @("-f", "docker-compose.host.yml") }
+    return ,$args
+}
+
 function Invoke-Compose {
     param(
         [Parameter(Mandatory = $true)]
@@ -394,6 +402,8 @@ function Invoke-Compose {
 
     $allArgs = @()
     if ($script:composeBaseArgs) { $allArgs += $script:composeBaseArgs }
+    $composeFiles = Get-ComposeFileArgs
+    if ($composeFiles) { $allArgs += $composeFiles }
     if ($Args) { $allArgs += $Args }
 
     $argString = ($allArgs | ForEach-Object {
@@ -498,6 +508,8 @@ function Load-ExistingConfig {
     if ([string]::IsNullOrWhiteSpace($script:baseDir)) { $script:baseDir = ".\\minecraft" }
     $script:dataDir = Get-EnvValue "Data__Directory"
     if ([string]::IsNullOrWhiteSpace($script:dataDir)) { $script:dataDir = ".\\data" }
+    $script:networkMode = Get-EnvValue "MINEOS_NETWORK_MODE"
+    if ([string]::IsNullOrWhiteSpace($script:networkMode)) { $script:networkMode = "bridge" }
 }
 
 function Get-CaddySite {
@@ -933,6 +945,22 @@ function Start-ConfigWizard {
     if ([string]::IsNullOrWhiteSpace($script:mcPortRange)) { $script:mcPortRange = "25565-25570" }
     $script:mcPortRange = Assert-PortRange -Value $script:mcPortRange -Name "Minecraft port range"
 
+    Write-Host ""
+    Write-Info "LAN discovery (Minecraft LAN list) requires host networking on Linux."
+    Write-Info "Host networking removes Docker network isolation and binds ports directly on the host."
+    Write-Info "When enabled, API_PORT/WEB_PORT become the actual listening ports."
+    $hostNetworkChoice = Read-Host "Enable host networking for LAN discovery? (y/N)"
+    if ($hostNetworkChoice -match '^[Yy]') {
+        if (-not $IsLinux) {
+            Write-Warn "Host networking is only supported on Linux. Using bridge mode instead."
+            $script:networkMode = "bridge"
+        } else {
+            $script:networkMode = "host"
+        }
+    } else {
+        $script:networkMode = "bridge"
+    }
+
     $script:mcExtraPorts = ""
     $script:curseforgeKey = Read-Host "CurseForge API key (optional, press Enter to skip)"
     $script:discordWebhook = Read-Host "Discord webhook URL (optional, press Enter to skip)"
@@ -969,6 +997,9 @@ Host__ArchivesPathSegment=archives
 Host__ImportsPathSegment=imports
 Host__OwnerUid=1000
 Host__OwnerGid=1000
+
+# Docker networking (bridge = isolated, host = required for LAN discovery)
+MINEOS_NETWORK_MODE=$networkMode
 
 # Optional Integrations
 $(if ($curseforgeKey) { "CurseForge__ApiKey=$curseforgeKey" } else { "# CurseForge__ApiKey=" })
@@ -1177,7 +1208,6 @@ function Start-WebDevContainer {
 
     Write-Info "Starting web dev container..."
     $dev = Invoke-Compose -Args @(
-        "-f", "docker-compose.yml",
         "-f", "docker-compose.dev.yml",
         "up", "-d", "web-dev"
     )
@@ -1224,6 +1254,8 @@ function Show-Logs {
 
     $allArgs = @()
     if ($script:composeBaseArgs) { $allArgs += $script:composeBaseArgs }
+    $composeFiles = Get-ComposeFileArgs
+    if ($composeFiles) { $allArgs += $composeFiles }
     $allArgs += @("logs", "-f", "--tail", "100")
     $argString = ($allArgs | ForEach-Object {
         if ($_ -match '\s') { '"' + ($_ -replace '"', '\"') + '"' } else { $_ }
@@ -1381,6 +1413,24 @@ function Do-Reconfigure {
     if ([string]::IsNullOrWhiteSpace($newMcPortRange)) { $newMcPortRange = $mcPortRange }
     $newMcPortRange = Assert-PortRange -Value $newMcPortRange -Name "Minecraft port range"
 
+    Write-Host ""
+    Write-Info "LAN discovery (Minecraft LAN list) requires host networking on Linux."
+    Write-Info "Host networking removes Docker network isolation and binds ports directly on the host."
+    Write-Info "When enabled, API_PORT/WEB_PORT become the actual listening ports."
+    $networkModePrompt = Read-Host "Enable host networking for LAN discovery? (current: $networkMode) (y/N)"
+    if ([string]::IsNullOrWhiteSpace($networkModePrompt)) {
+        $newNetworkMode = $networkMode
+    } elseif ($networkModePrompt -match '^[Yy]') {
+        if (-not $IsLinux) {
+            Write-Warn "Host networking is only supported on Linux. Keeping bridge mode."
+            $newNetworkMode = "bridge"
+        } else {
+            $newNetworkMode = "host"
+        }
+    } else {
+        $newNetworkMode = "bridge"
+    }
+
     $newCurseforgeKey = Read-Host "CurseForge API key (leave blank to keep current)"
     if ([string]::IsNullOrWhiteSpace($newCurseforgeKey)) { $newCurseforgeKey = Get-EnvValue "CurseForge__ApiKey" }
 
@@ -1400,6 +1450,7 @@ function Do-Reconfigure {
     Set-EnvValue -Key "PUBLIC_MINECRAFT_HOST" -Value $newMcPublicHost
     Set-EnvValue -Key "BODY_SIZE_LIMIT" -Value $newBodySizeLimit
     Set-EnvValue -Key "MC_PORT_RANGE" -Value $newMcPortRange
+    Set-EnvValue -Key "MINEOS_NETWORK_MODE" -Value $newNetworkMode
     if ($newCurseforgeKey -ne $null) { Set-EnvValue -Key "CurseForge__ApiKey" -Value $newCurseforgeKey }
     if ($newDiscordWebhook -ne $null) { Set-EnvValue -Key "Discord__WebhookUrl" -Value $newDiscordWebhook }
 

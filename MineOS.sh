@@ -23,6 +23,7 @@ NC='\033[0m'
 DEFAULT_HOST_BASE_DIR="./minecraft"
 DEFAULT_DATA_DIR="./data"
 CONTAINER_BASE_DIR="/var/games/minecraft"
+DEFAULT_NETWORK_MODE="bridge"
 
 # Print colored messages
 info() {
@@ -108,6 +109,16 @@ set_compose_cmd() {
     return 1
 }
 
+set_compose_files() {
+    local mode
+    mode=$(get_env_value MINEOS_NETWORK_MODE 2>/dev/null || echo "$DEFAULT_NETWORK_MODE")
+
+    COMPOSE_FILES=(-f docker-compose.yml)
+    if [ "$mode" = "host" ]; then
+        COMPOSE_FILES+=(-f docker-compose.host.yml)
+    fi
+}
+
 # Show banner
 show_banner() {
     clear
@@ -133,8 +144,9 @@ services_running() {
         return 1
     fi
 
+    set_compose_files
     local running
-    running=$("${COMPOSE_CMD[@]}" ps --status running -q 2>/dev/null | wc -l)
+    running=$("${COMPOSE_CMD[@]}" "${COMPOSE_FILES[@]}" ps --status running -q 2>/dev/null | wc -l)
     [ "$running" -gt 0 ]
 }
 
@@ -330,6 +342,23 @@ run_config_wizard() {
 
     echo ""
 
+    info "LAN discovery (Minecraft LAN list) requires host networking on Linux."
+    info "Host networking removes Docker network isolation and binds ports directly on the host."
+    info "When enabled, API_PORT/WEB_PORT become the actual listening ports."
+    read -p "Enable host networking for LAN discovery? (y/N): " host_network_choice
+    if [[ "$host_network_choice" =~ ^[Yy]$ ]]; then
+        if [ "$(uname -s)" != "Linux" ]; then
+            warn "Host networking is only supported on Linux. Using bridge mode instead."
+            network_mode="$DEFAULT_NETWORK_MODE"
+        else
+            network_mode="host"
+        fi
+    else
+        network_mode="$DEFAULT_NETWORK_MODE"
+    fi
+
+    echo ""
+
     # Optional: CurseForge API key
     read -p "CurseForge API key (optional, press Enter to skip): " curseforge_key
 
@@ -374,6 +403,9 @@ Host__ArchivesPathSegment=archives
 Host__ImportsPathSegment=imports
 Host__OwnerUid=1000
 Host__OwnerGid=1000
+
+# Docker networking (bridge = isolated, host = required for LAN discovery)
+MINEOS_NETWORK_MODE=${network_mode:-$DEFAULT_NETWORK_MODE}
 
 # Optional: CurseForge Integration
 $([ -n "$curseforge_key" ] && echo "CurseForge__ApiKey=${curseforge_key}" || echo "# CurseForge__ApiKey=")
@@ -440,14 +472,15 @@ build_services() {
         exit 1
     fi
 
+    set_compose_files
     info "Building Docker images (this may take a few minutes)..."
     PUBLIC_BUILD_ID=$(date +%Y%m%d%H%M%S)
     export PUBLIC_BUILD_ID
     info "Build ID: ${PUBLIC_BUILD_ID}"
     if [ "${COMPOSE_CMD[0]}" = "docker" ]; then
-        "${COMPOSE_CMD[@]}" build --progress plain
+        "${COMPOSE_CMD[@]}" "${COMPOSE_FILES[@]}" build --progress plain
     else
-        "${COMPOSE_CMD[@]}" build
+        "${COMPOSE_CMD[@]}" "${COMPOSE_FILES[@]}" build
     fi
 
     success "Build complete"
@@ -460,8 +493,9 @@ start_services() {
         exit 1
     fi
 
+    set_compose_files
     info "Starting services..."
-    "${COMPOSE_CMD[@]}" up -d
+    "${COMPOSE_CMD[@]}" "${COMPOSE_FILES[@]}" up -d
 
     # Wait for API
     if command_exists curl; then
@@ -505,12 +539,13 @@ start_dev_mode() {
         exit 1
     fi
 
+    set_compose_files
     info "Stopping web service (if running)..."
-    "${COMPOSE_CMD[@]}" stop web >/dev/null 2>&1 || true
+    "${COMPOSE_CMD[@]}" "${COMPOSE_FILES[@]}" stop web >/dev/null 2>&1 || true
 
     info "Starting API service..."
     set +e
-    "${COMPOSE_CMD[@]}" up -d api
+    "${COMPOSE_CMD[@]}" "${COMPOSE_FILES[@]}" up -d api
     local up_code=$?
     set -e
 
@@ -555,6 +590,7 @@ start_web_dev_container() {
         exit 1
     fi
 
+    set_compose_files
     local api_port
     local dev_origin
     api_port=$(get_env_value API_PORT 2>/dev/null || echo "5078")
@@ -592,11 +628,11 @@ start_web_dev_container() {
     fi
 
     info "Stopping web service (if running)..."
-    "${COMPOSE_CMD[@]}" stop web >/dev/null 2>&1 || true
+    "${COMPOSE_CMD[@]}" "${COMPOSE_FILES[@]}" stop web >/dev/null 2>&1 || true
 
     info "Starting API service..."
     set +e
-    "${COMPOSE_CMD[@]}" up -d api
+    "${COMPOSE_CMD[@]}" "${COMPOSE_FILES[@]}" up -d api
     local up_code=$?
     set -e
 
@@ -612,7 +648,7 @@ start_web_dev_container() {
     fi
 
     info "Starting web dev container..."
-    "${COMPOSE_CMD[@]}" -f docker-compose.yml -f docker-compose.dev.yml up -d --force-recreate web-dev
+    "${COMPOSE_CMD[@]}" "${COMPOSE_FILES[@]}" -f docker-compose.dev.yml up -d --force-recreate web-dev
 
     success "Web dev container started"
     echo -e "${CYAN}Web UI (dev):${NC} ${dev_origin_input}"
@@ -628,8 +664,9 @@ stop_services() {
         exit 1
     fi
 
+    set_compose_files
     info "Stopping services..."
-    "${COMPOSE_CMD[@]}" down
+    "${COMPOSE_CMD[@]}" "${COMPOSE_FILES[@]}" down
     success "Services stopped"
 }
 
@@ -640,8 +677,9 @@ restart_services() {
         exit 1
     fi
 
+    set_compose_files
     info "Restarting services..."
-    "${COMPOSE_CMD[@]}" restart
+    "${COMPOSE_CMD[@]}" "${COMPOSE_FILES[@]}" restart
     success "Services restarted"
 }
 
@@ -652,8 +690,9 @@ view_logs() {
         exit 1
     fi
 
+    set_compose_files
     info "Showing logs (press Q to return)..."
-    "${COMPOSE_CMD[@]}" logs -f &
+    "${COMPOSE_CMD[@]}" "${COMPOSE_FILES[@]}" logs -f &
     local log_pid=$!
 
     while kill -0 "$log_pid" 2>/dev/null; do
@@ -676,9 +715,10 @@ show_detailed_status() {
         exit 1
     fi
 
+    set_compose_files
     echo -e "${CYAN}Service Status:${NC}"
     echo ""
-    "${COMPOSE_CMD[@]}" ps
+    "${COMPOSE_CMD[@]}" "${COMPOSE_FILES[@]}" ps
     echo ""
 
     if is_installed; then
@@ -752,9 +792,10 @@ rebuild() {
         exit 1
     fi
 
-    "${COMPOSE_CMD[@]}" down
+    set_compose_files
+    "${COMPOSE_CMD[@]}" "${COMPOSE_FILES[@]}" down
     build_services
-    "${COMPOSE_CMD[@]}" up -d --force-recreate
+    "${COMPOSE_CMD[@]}" "${COMPOSE_FILES[@]}" up -d --force-recreate
 
     success "Rebuild complete"
     echo ""
@@ -800,6 +841,7 @@ reconfigure() {
     local body_size_limit_current
     local curseforge_current
     local discord_current
+    local network_mode_current
 
     admin_user_current=$(get_env_value Auth__SeedUsername 2>/dev/null || echo "admin")
     admin_pass_current=$(get_env_value Auth__SeedPassword 2>/dev/null || echo "")
@@ -812,6 +854,7 @@ reconfigure() {
     body_size_limit_current=$(get_env_value BODY_SIZE_LIMIT 2>/dev/null || echo "Infinity")
     curseforge_current=$(get_env_value CurseForge__ApiKey 2>/dev/null || echo "")
     discord_current=$(get_env_value Discord__WebhookUrl 2>/dev/null || echo "")
+    network_mode_current=$(get_env_value MINEOS_NETWORK_MODE 2>/dev/null || echo "$DEFAULT_NETWORK_MODE")
 
     read -p "Admin username (default: ${admin_user_current}): " admin_user
     admin_user=${admin_user:-$admin_user_current}
@@ -852,6 +895,24 @@ reconfigure() {
     read -p "Web UI upload body size limit (default: ${body_size_limit_current}): " body_size_limit
     body_size_limit=${body_size_limit:-$body_size_limit_current}
 
+    echo ""
+    info "LAN discovery (Minecraft LAN list) requires host networking on Linux."
+    info "Host networking removes Docker network isolation and binds ports directly on the host."
+    info "When enabled, API_PORT/WEB_PORT become the actual listening ports."
+    read -p "Enable host networking for LAN discovery? (current: ${network_mode_current}) (y/N): " host_network_choice
+    if [ -z "$host_network_choice" ]; then
+        network_mode="$network_mode_current"
+    elif [[ "$host_network_choice" =~ ^[Yy]$ ]]; then
+        if [ "$(uname -s)" != "Linux" ]; then
+            warn "Host networking is only supported on Linux. Keeping bridge mode."
+            network_mode="$DEFAULT_NETWORK_MODE"
+        else
+            network_mode="host"
+        fi
+    else
+        network_mode="$DEFAULT_NETWORK_MODE"
+    fi
+
     read -p "CurseForge API key (leave blank to keep current): " curseforge_key
     if [ -z "$curseforge_key" ]; then
         curseforge_key="$curseforge_current"
@@ -876,6 +937,7 @@ reconfigure() {
     set_env_file_value ".env" "CADDY_SITE" "$caddy_site"
     set_env_file_value ".env" "PUBLIC_MINECRAFT_HOST" "$mc_public_host"
     set_env_file_value ".env" "BODY_SIZE_LIMIT" "$body_size_limit"
+    set_env_file_value ".env" "MINEOS_NETWORK_MODE" "${network_mode:-$DEFAULT_NETWORK_MODE}"
     if [ -n "$curseforge_key" ]; then
         set_env_file_value ".env" "CurseForge__ApiKey" "$curseforge_key"
     fi

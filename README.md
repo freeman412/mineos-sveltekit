@@ -68,6 +68,9 @@ chmod +x MineOS.sh uninstall.sh
 **Need to change ports?**
 Edit `.env` and run `docker compose restart`
 
+**Want Minecraft LAN discovery?**
+Re-run the setup script and enable **host networking**. This is Linux-only and disables Docker network isolation (containers bind directly to `API_PORT`/`WEB_PORT` on the host). The setup script automatically adds `docker-compose.host.yml` when needed.
+
 ## Reverse Proxy (Recommended)
 
 MineOS now includes a Caddy reverse proxy to keep the API private and provide a single public origin for the UI + WebSocket admin shell.

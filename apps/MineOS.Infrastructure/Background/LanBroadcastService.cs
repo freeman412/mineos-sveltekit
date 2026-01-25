@@ -19,6 +19,7 @@ public sealed class LanBroadcastService : BackgroundService
     private readonly HostOptions _hostOptions;
     private readonly IProcessManager _processManager;
     private readonly ILogger<LanBroadcastService> _logger;
+    private bool _dockerWarningLogged;
 
     public LanBroadcastService(
         IOptions<HostOptions> hostOptions,
@@ -60,6 +61,8 @@ public sealed class LanBroadcastService : BackgroundService
 
     private async Task BroadcastOnceAsync(CancellationToken cancellationToken)
     {
+        LogDockerMulticastWarningOnce();
+
         var serversPath = Path.Combine(_hostOptions.BaseDirectory, _hostOptions.ServersPathSegment);
         if (!Directory.Exists(serversPath))
         {
@@ -99,6 +102,26 @@ public sealed class LanBroadcastService : BackgroundService
 
             var payload = Encoding.UTF8.GetBytes(message);
             await client.SendAsync(payload, payload.Length, endpoint);
+        }
+    }
+
+    private void LogDockerMulticastWarningOnce()
+    {
+        if (_dockerWarningLogged)
+        {
+            return;
+        }
+
+        var inDocker = File.Exists("/.dockerenv");
+        if (!inDocker && File.Exists("/proc/1/cgroup"))
+        {
+            inDocker = File.ReadAllText("/proc/1/cgroup").Contains("docker", StringComparison.OrdinalIgnoreCase);
+        }
+
+        if (inDocker)
+        {
+            _logger.LogWarning("LAN broadcast is enabled but the service is running in a container. Multicast discovery may not reach your LAN unless you use host networking or multicast-capable networking.");
+            _dockerWarningLogged = true;
         }
     }
 
