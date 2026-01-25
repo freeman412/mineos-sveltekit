@@ -11,7 +11,7 @@
 
   Detailed explanation of changes and why they were made.
 
-  Co-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>
+  Co-Authored-By: AI Agents
   ```
 
 ## Code Standards
@@ -31,6 +31,7 @@
 
 ### Architecture
 - Backend: .NET 8 C# API (Minimal API pattern)
+- Always use clean code architecture, and fix any violations of thise that you see
 - Frontend: SvelteKit with Svelte 5 (using runes: $state, $derived, $effect)
 - API proxy pattern: Frontend `/api/servers/{name}/*` → Backend C# API
 

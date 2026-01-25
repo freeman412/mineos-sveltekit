@@ -506,6 +506,70 @@ start_dev_mode() {
     echo ""
 }
 
+start_web_dev_container() {
+    echo -e "${CYAN}Web Dev Container${NC}"
+    echo ""
+
+    if ! is_installed; then
+        error "No installation found. Run fresh install first."
+        read -p "Press Enter to continue..."
+        return
+    fi
+
+    check_dependencies
+
+    if ! set_compose_cmd; then
+        error "Docker Compose not found"
+        exit 1
+    fi
+
+    local api_port
+    local dev_origin
+    api_port=$(get_env_value API_PORT 2>/dev/null || echo "5078")
+    dev_origin=$(get_env_value WEB_ORIGIN_DEV 2>/dev/null || echo "http://localhost:5174")
+
+    read -p "Dev web origin (default: ${dev_origin}): " dev_origin_input
+    dev_origin_input=${dev_origin_input:-$dev_origin}
+
+    local dev_host
+    dev_host=$(echo "$dev_origin_input" | sed -E 's#^https?://##' | cut -d/ -f1 | cut -d: -f1)
+    dev_host=${dev_host:-localhost}
+    local public_api_input="http://${dev_host}:${api_port}"
+
+    set_env_file_value ".env" "WEB_ORIGIN_DEV" "$dev_origin_input"
+    set_env_file_value ".env" "PUBLIC_API_BASE_URL" "$public_api_input"
+    set_env_file_value ".env" "VITE_ALLOWED_HOSTS" "$dev_host"
+
+    info "Stopping web service (if running)..."
+    "${COMPOSE_CMD[@]}" stop web >/dev/null 2>&1 || true
+
+    info "Starting API service..."
+    set +e
+    "${COMPOSE_CMD[@]}" up -d api
+    local up_code=$?
+    set -e
+
+    if [ "$up_code" -ne 0 ]; then
+        local running
+        running=$("${COMPOSE_CMD[@]}" ps --status running -q api 2>/dev/null | wc -l | tr -d ' ')
+        if [ "$running" -eq 0 ]; then
+            error "Failed to start API service"
+            exit 1
+        else
+            warn "Compose returned a non-zero exit code but the API container is running."
+        fi
+    fi
+
+    info "Starting web dev container..."
+    "${COMPOSE_CMD[@]}" -f docker-compose.yml -f docker-compose.dev.yml up -d web-dev
+
+    success "Web dev container started"
+    echo -e "${CYAN}Web UI (dev):${NC} ${dev_origin_input}"
+    echo -e "${CYAN}API:${NC} ${public_api_input}"
+    echo ""
+    read -p "Press Enter to continue..."
+}
+
 # Stop services
 stop_services() {
     if ! set_compose_cmd; then
@@ -784,6 +848,7 @@ show_menu_installed() {
     echo "  [4] View Logs"
     echo "  [5] Show Status"
     echo "  [R] Reconfigure (update .env)"
+    echo "  [W] Web Dev Container (Vite)"
     echo ""
     echo "  [6] Rebuild (keep config)"
     echo "  [7] Update (git pull + rebuild)"
@@ -816,6 +881,7 @@ main() {
                 4) view_logs ;;
                 5) show_detailed_status ;;
                 [Rr]) reconfigure ;;
+                [Ww]) start_web_dev_container ;;
                 6) rebuild ;;
                 7) update ;;
                 8) fresh_install ;;

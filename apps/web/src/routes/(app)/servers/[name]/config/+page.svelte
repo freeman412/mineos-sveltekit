@@ -4,12 +4,20 @@
 
 	let { data, form }: { data: PageData; form: ActionData } = $props();
 
-	// Initialize from server data - will be reset when {#key} block re-renders
-	let properties = $state<Record<string, string>>({ ...(data.properties.data || {}) });
+	let lastServerName = $state('');
+	let properties = $state<Record<string, string>>({});
 	let loading = $state(false);
 	let showAddModal = $state(false);
 	let newKey = $state('');
 	let newValue = $state('');
+
+	// Initialize properties from data when server changes
+	$effect(() => {
+		if (data.serverName !== lastServerName) {
+			lastServerName = data.serverName;
+			properties = { ...(data.properties.data || {}) };
+		}
+	});
 
 	function addProperty() {
 		if (!newKey.trim()) return;

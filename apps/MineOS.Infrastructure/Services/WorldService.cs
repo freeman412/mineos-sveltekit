@@ -76,7 +76,7 @@ public sealed class WorldService : IWorldService
             Directory.Exists(dimAetherIi) ||
             Directory.Exists(dimAetherIiAlt))
         {
-            return "Overworld (Multi-Dimension)";
+            return "Vanilla Dimensions";
         }
 
         // Default to Overworld
@@ -144,12 +144,12 @@ public sealed class WorldService : IWorldService
                 lastModified));
         }
 
-        // Sort worlds: Overworld first, then Nether, End, Aether, Aether II, then custom
+        // Sort worlds: Overworld/Vanilla Dimensions first, then Nether, End, Aether, Aether II, then custom
         return worlds
             .OrderBy(w => w.Type switch
             {
                 "Overworld" => 0,
-                "Overworld (Multi-Dimension)" => 0,
+                "Vanilla Dimensions" => 0,
                 "Nether" => 1,
                 "The End" => 2,
                 "Aether" => 3,

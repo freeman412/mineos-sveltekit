@@ -1079,6 +1079,73 @@ function Start-DevMode {
     if ($Pause) { Read-Host "Press Enter to continue" }
 }
 
+function Start-WebDevContainer {
+    Write-Header "Web Dev Container"
+
+    if (-not (Test-Path ".env")) {
+        Write-Error-Custom "No installation found. Run fresh install first."
+        return
+    }
+
+    Test-Dependencies
+    Load-ExistingConfig
+
+    $devOrigin = Get-EnvValue "WEB_ORIGIN_DEV"
+    if ([string]::IsNullOrWhiteSpace($devOrigin)) { $devOrigin = "http://localhost:5174" }
+
+    $devOriginInput = Read-Host "Dev web origin (default: $devOrigin)"
+    if ([string]::IsNullOrWhiteSpace($devOriginInput)) { $devOriginInput = $devOrigin }
+
+    $devHost = $null
+    try {
+        $uri = [Uri]$devOriginInput
+        if (-not [string]::IsNullOrWhiteSpace($uri.Host)) { $devHost = $uri.Host }
+    } catch {
+    }
+    if ([string]::IsNullOrWhiteSpace($devHost)) {
+        $trimmed = $devOriginInput -replace '^https?://', ''
+        $devHost = ($trimmed -split '/')[0]
+        if ($devHost -match ':') { $devHost = $devHost.Split(':')[0] }
+    }
+    if ([string]::IsNullOrWhiteSpace($devHost)) { $devHost = "localhost" }
+
+    $publicApiInput = "http://$devHost:$apiPort"
+    Set-EnvValue -Key "WEB_ORIGIN_DEV" -Value $devOriginInput
+    Set-EnvValue -Key "PUBLIC_API_BASE_URL" -Value $publicApiInput
+    Set-EnvValue -Key "VITE_ALLOWED_HOSTS" -Value $devHost
+
+    Write-Info "Stopping web service (if running)..."
+    [void](Invoke-Compose -Args @("stop", "web"))
+
+    Write-Info "Starting API service..."
+    $r = Invoke-Compose -Args @("up", "-d", "api")
+    if ($r.ExitCode -ne 0) {
+        $running = Test-ComposeServicesRunning -ContainerNames @("mineos-api")
+        if (-not $running) {
+            Write-Error-Custom "Failed to start API service"
+            if ($r.Output) { Write-Host $r.Output }
+            exit 1
+        }
+        Write-Warn "Compose returned a non-zero exit code but the API container is running."
+    }
+
+    Write-Info "Starting web dev container..."
+    $dev = Invoke-Compose -Args @(
+        "-f", "docker-compose.yml",
+        "-f", "docker-compose.dev.yml",
+        "up", "-d", "web-dev"
+    )
+    if ($dev.ExitCode -ne 0) {
+        Write-Error-Custom "Failed to start web dev container"
+        if ($dev.Output) { Write-Host $dev.Output }
+        exit 1
+    }
+
+    Write-Success "Web dev container started"
+    Write-Host "Web UI (dev): $devOriginInput" -ForegroundColor Cyan
+    Write-Host "API:          $publicApiInput" -ForegroundColor Cyan
+}
+
 function Stop-Services {
     Write-Info "Stopping services..."
     $r = Invoke-Compose -Args @("down")
@@ -1324,6 +1391,7 @@ function Show-Menu {
         Write-Host " [4] View Logs" -ForegroundColor White
         Write-Host " [5] Show Status" -ForegroundColor White
         Write-Host " [R] Reconfigure (update .env)" -ForegroundColor Yellow
+        Write-Host " [W] Web Dev Container (Vite)" -ForegroundColor Yellow
         Write-Host ""
         Write-Host " [6] Rebuild (keep config)" -ForegroundColor Yellow
         Write-Host " [7] Update (git pull + rebuild)" -ForegroundColor Yellow
@@ -1364,6 +1432,7 @@ function Main {
                 "4" { Show-Logs }
                 "5" { Show-Status; Read-Host "Press Enter to continue" }
                 "R" { Do-Reconfigure; Read-Host "Press Enter to continue" }
+                "W" { Start-WebDevContainer; Read-Host "Press Enter to continue" }
                 "6" { Do-Rebuild; Read-Host "Press Enter to continue" }
                 "7" { Do-Update; Read-Host "Press Enter to continue" }
                 "8" { Do-FreshInstall; Read-Host "Press Enter to continue" }

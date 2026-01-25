@@ -931,13 +931,13 @@
 							<ProgressBar value={modpackInstallProgress} color="blue" size="md" showLabel />
 						{/if}
 						<div class="install-actions">
-							{#if !modpackWatching}
+							{#if !modpackWatching && !modpackInstallCompleted}
 								<button class="btn-secondary" onclick={startModpackWatch}>
 									Stay and watch
 								</button>
 							{/if}
 							<button class="btn-primary" onclick={sendModpackToBackground}>
-								Send to background
+								{modpackInstallCompleted ? 'Complete Install' : 'Send to background'}
 							</button>
 						</div>
 						{#if modpackInstallCompleted}
@@ -978,13 +978,13 @@
 					{/if}
 					{#if forgeInstallId}
 						<div class="install-actions">
-							{#if !forgeWatching}
+							{#if !forgeWatching && !forgeInstallCompleted}
 								<button class="btn-secondary" onclick={startForgeWatch}>
 									Stay and watch
 								</button>
 							{/if}
 							<button class="btn-primary" onclick={sendForgeToBackground}>
-								Send to background
+								{forgeInstallCompleted ? 'Complete Install' : 'Send to background'}
 							</button>
 						</div>
 					{/if}
