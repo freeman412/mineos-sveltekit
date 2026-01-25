@@ -19,7 +19,7 @@ export const load: PageServerLoad = async ({ fetch }) => {
 };
 
 export const actions = {
-	default: async ({ request, fetch, cookies }) => {
+	default: async ({ request, fetch, cookies, url }) => {
 		const data = await request.formData();
 		const username = data.get('username')?.toString().trim();
 		const password = data.get('password')?.toString();
@@ -50,9 +50,10 @@ export const actions = {
 		}
 
 		const updated = await response.json();
+		const secure = url.protocol === 'https:';
 		cookies.set('auth_user', JSON.stringify({ username: updated.username, role: updated.role }), {
 			httpOnly: false,
-			secure: false,
+			secure,
 			sameSite: 'lax',
 			maxAge: 60 * 60 * 24 * 7,
 			path: '/'

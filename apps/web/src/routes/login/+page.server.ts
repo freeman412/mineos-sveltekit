@@ -9,7 +9,7 @@ export const load: PageServerLoad = async ({ cookies }) => {
 };
 
 export const actions = {
-	default: async ({ request, cookies, fetch }) => {
+	default: async ({ request, cookies, fetch, url }) => {
 		const data = await request.formData();
 		const username = data.get('username')?.toString();
 		const password = data.get('password')?.toString();
@@ -36,10 +36,12 @@ export const actions = {
 
 			const result = await response.json();
 
+			const secure = url.protocol === 'https:';
+
 			// Set httpOnly cookie with the JWT token
 			cookies.set('auth_token', result.accessToken, {
 				httpOnly: true,
-				secure: false, // Set to true in production with HTTPS
+				secure,
 				sameSite: 'lax',
 				maxAge: result.expiresInSeconds,
 				path: '/'
@@ -51,7 +53,7 @@ export const actions = {
 				JSON.stringify({ username: result.username, role: result.role }),
 				{
 					httpOnly: false, // Client can read this
-					secure: false,
+					secure,
 					sameSite: 'lax',
 					maxAge: result.expiresInSeconds,
 					path: '/'
