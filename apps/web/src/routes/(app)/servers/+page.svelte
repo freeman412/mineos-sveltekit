@@ -46,6 +46,40 @@
 	>({});
 	const importStreams = new Map<string, EventSource>();
 	let jobsInterval: ReturnType<typeof setInterval> | null = null;
+	const IMPORT_JOBS_STORAGE_KEY = 'mineos-import-jobs';
+
+	// Persist import job mappings to sessionStorage so they survive navigation
+	function saveImportJobsToStorage() {
+		if (!browser) return;
+		const mapping: Record<string, string> = {};
+		for (const [filename, job] of Object.entries(importJobs)) {
+			if (job.status === 'queued' || job.status === 'running') {
+				mapping[filename] = job.jobId;
+			}
+		}
+		if (Object.keys(mapping).length > 0) {
+			sessionStorage.setItem(IMPORT_JOBS_STORAGE_KEY, JSON.stringify(mapping));
+		} else {
+			sessionStorage.removeItem(IMPORT_JOBS_STORAGE_KEY);
+		}
+	}
+
+	// Restore and reconnect to active import jobs from sessionStorage
+	function restoreImportJobsFromStorage() {
+		if (!browser) return;
+		try {
+			const stored = sessionStorage.getItem(IMPORT_JOBS_STORAGE_KEY);
+			if (!stored) return;
+			const mapping = JSON.parse(stored) as Record<string, string>;
+			for (const [filename, jobId] of Object.entries(mapping)) {
+				if (!importStreams.has(jobId)) {
+					startImportJob(filename, jobId);
+				}
+			}
+		} catch {
+			sessionStorage.removeItem(IMPORT_JOBS_STORAGE_KEY);
+		}
+	}
 
 	const maxMemoryPoints = 30;
 	const creatingServers = $derived.by(
@@ -237,6 +271,9 @@
 
 	function startImportJob(filename: string, jobId: string) {
 		if (!jobId) return;
+		// Don't restart if already streaming
+		if (importStreams.has(jobId)) return;
+
 		importJobs[filename] = {
 			jobId,
 			status: 'queued',
@@ -244,6 +281,7 @@
 			message: 'Queued'
 		};
 		importJobs = { ...importJobs };
+		saveImportJobsToStorage();
 
 		const source = new EventSource(`/api/jobs/${encodeURIComponent(jobId)}/stream`);
 		importStreams.set(jobId, source);
@@ -267,6 +305,7 @@
 				if (update.status === 'completed' || update.status === 'failed') {
 					source.close();
 					importStreams.delete(jobId);
+					saveImportJobsToStorage();
 					if (update.status === 'completed') {
 						void modal.success(`Import for "${filename}" finished.`, 'Import complete');
 						void invalidateAll();
@@ -354,6 +393,9 @@
 		updateMemoryHistory(servers);
 		loadActiveTasks();
 		jobsInterval = setInterval(loadActiveTasks, 5000);
+
+		// Restore active import jobs from previous navigation
+		restoreImportJobsFromStorage();
 
 		serversStream = createEventStream<ServerSummary[]>({
 			url: '/api/host/servers/stream',
