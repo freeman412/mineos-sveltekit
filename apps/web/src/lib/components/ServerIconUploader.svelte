@@ -155,20 +155,49 @@
 				<span class="placeholder-text">Upload icon</span>
 			</div>
 		{/if}
-	</div>
-
-	<div class="icon-actions">
-		<button class="btn btn-upload" onclick={triggerUpload} disabled={uploading}>
-			{uploading ? 'Uploading...' : 'Upload Icon'}
-		</button>
-		{#if hasIcon}
-			<button class="btn btn-delete" onclick={handleDeleteIcon} disabled={uploading}>
-				Delete
+		<div class="icon-overlay">
+			<button
+				type="button"
+				class="icon-action upload"
+				onclick={triggerUpload}
+				disabled={uploading}
+				title="Recommended: 64x64 PNG image."
+				aria-label="Upload server icon"
+			>
+				<svg viewBox="0 0 24 24" aria-hidden="true">
+					<path
+						d="M12 16V6m0 0l-4 4m4-4l4 4M5 18h14"
+						fill="none"
+						stroke="currentColor"
+						stroke-width="2"
+						stroke-linecap="round"
+						stroke-linejoin="round"
+					/>
+				</svg>
 			</button>
-		{/if}
+			{#if hasIcon}
+				<button
+					type="button"
+					class="icon-action delete"
+					onclick={handleDeleteIcon}
+					disabled={uploading}
+					title="Delete server icon"
+					aria-label="Delete server icon"
+				>
+					<svg viewBox="0 0 24 24" aria-hidden="true">
+						<path
+							d="M4 7h16m-2 0l-1 12a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2L6 7m4 0V5a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v2"
+							fill="none"
+							stroke="currentColor"
+							stroke-width="2"
+							stroke-linecap="round"
+							stroke-linejoin="round"
+						/>
+					</svg>
+				</button>
+			{/if}
+		</div>
 	</div>
-
-	<p class="help-text">Recommended: 64x64 PNG image</p>
 
 	<input
 		type="file"
@@ -230,6 +259,65 @@
 		letter-spacing: 0.05em;
 	}
 
+	.icon-overlay {
+		position: absolute;
+		inset: 0;
+		background: rgba(11, 14, 22, 0.6);
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		gap: 10px;
+		opacity: 0;
+		pointer-events: none;
+		transition: opacity 0.2s ease;
+	}
+
+	.icon-preview:hover .icon-overlay,
+	.icon-preview:focus-within .icon-overlay {
+		opacity: 1;
+		pointer-events: auto;
+	}
+
+	.icon-action {
+		width: 40px;
+		height: 40px;
+		border-radius: 12px;
+		border: 1px solid rgba(255, 255, 255, 0.15);
+		background: rgba(20, 24, 39, 0.85);
+		color: #e8efff;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		cursor: pointer;
+		transition: transform 0.2s ease, background 0.2s ease, border-color 0.2s ease;
+	}
+
+	.icon-action svg {
+		width: 20px;
+		height: 20px;
+	}
+
+	.icon-action.upload {
+		background: rgba(106, 176, 76, 0.2);
+		border-color: rgba(106, 176, 76, 0.5);
+		color: #c7f7b3;
+	}
+
+	.icon-action.delete {
+		background: rgba(210, 94, 72, 0.2);
+		border-color: rgba(210, 94, 72, 0.5);
+		color: #ffb6a6;
+	}
+
+	.icon-action:hover:not(:disabled) {
+		transform: translateY(-1px);
+	}
+
+	.icon-action:disabled {
+		opacity: 0.5;
+		cursor: not-allowed;
+	}
+
 	.placeholder {
 		width: 100%;
 		height: 100%;
@@ -247,59 +335,4 @@
 		text-transform: uppercase;
 	}
 
-	.icon-actions {
-		display: flex;
-		gap: 8px;
-	}
-
-	.btn {
-		background: var(--mc-panel-light, #2a2f47);
-		color: var(--mc-text, #eef0f8);
-		border: 1px solid var(--border-color, #2a2f47);
-		padding: 8px 16px;
-		border-radius: 8px;
-		cursor: pointer;
-		font-size: 13px;
-		font-weight: 600;
-		transition: all 0.2s;
-		font-family: inherit;
-	}
-
-	.btn:hover:not(:disabled) {
-		background: var(--mc-panel-lighter, #3a3f5a);
-		border-color: var(--mc-panel-lighter, #3a3f5a);
-		transform: translateY(-1px);
-	}
-
-	.btn:disabled {
-		opacity: 0.5;
-		cursor: not-allowed;
-	}
-
-	.btn-upload {
-		background: var(--mc-grass, #6ab04c);
-		border-color: var(--mc-grass, #6ab04c);
-		color: white;
-	}
-
-	.btn-upload:hover:not(:disabled) {
-		background: var(--mc-grass-dark, #4a8b34);
-		border-color: var(--mc-grass-dark, #4a8b34);
-	}
-
-	.btn-delete {
-		background: rgba(210, 94, 72, 0.2);
-		color: #ffb6a6;
-		border-color: rgba(210, 94, 72, 0.4);
-	}
-
-	.btn-delete:hover:not(:disabled) {
-		background: rgba(210, 94, 72, 0.3);
-	}
-
-	.help-text {
-		margin: 0;
-		font-size: 11px;
-		color: var(--mc-text-dim, #7c87b2);
-	}
 </style>

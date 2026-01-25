@@ -8,6 +8,11 @@
 
 	let { data, children }: { data: LayoutData; children: any } = $props();
 	let server = $state(data.server);
+	let playerInfo = $state<{ online: number | null; max: number | null; version: string | null }>({
+		online: null,
+		max: null,
+		version: null
+	});
 
 	const tabs = $derived.by(() => [
 		{ href: `/servers/${server?.name}`, label: 'Dashboard', exact: true },
@@ -43,6 +48,7 @@
 
 	$effect(() => {
 		server = data.server;
+		playerInfo = { online: null, max: null, version: null };
 	});
 
 	let statusSource: EventSource | null = null;
@@ -80,39 +86,63 @@
 						screenPid: heartbeat.screenPid
 					};
 				}
+				playerInfo = {
+					online: heartbeat?.ping?.playersOnline ?? null,
+					max: heartbeat?.ping?.playersMax ?? null,
+					version: heartbeat?.ping?.serverVersion ?? null
+				};
 			} catch (err) {
 				console.error('Failed to parse heartbeat:', err);
 			}
 		};
-		statusSource.onerror = () => {
-			statusSource?.close();
-			statusSource = null;
-			setTimeout(connectStatusStream, 2000);
-		};
-	}
+	statusSource.onerror = () => {
+		statusSource?.close();
+		statusSource = null;
+		setTimeout(connectStatusStream, 2000);
+	};
+}
 </script>
 
 <div class="server-container">
 	<div class="server-header">
 		<div class="server-info">
 			<a href="/servers" class="breadcrumb">&lt; Back to Servers</a>
-			<h1>{server?.name}</h1>
-			<div class="server-meta">
+			<div class="title-row">
+				<h1>{server?.name}</h1>
 				<StatusBadge variant={statusMeta.running ? 'success' : 'warning'} size="lg">
 					{statusMeta.label}
 				</StatusBadge>
+			</div>
+			<div class="server-meta">
+				<div class="meta-chip players">
+					<span class="chip-label">Players</span>
+					<span class="chip-value">{playerInfo.online ?? '--'}</span>
+					<span class="chip-sep">/</span>
+					<span class="chip-value muted">{playerInfo.max ?? '--'}</span>
+				</div>
+				{#if playerInfo.version}
+					<div class="meta-chip">
+						<span class="chip-label">Version</span>
+						<span class="chip-value">{playerInfo.version}</span>
+					</div>
+				{/if}
 				{#if server?.javaPid}
-					<span class="meta-item">PID: {server.javaPid}</span>
+					<div class="meta-chip">
+						<span class="chip-label">PID</span>
+						<span class="chip-value">{server.javaPid}</span>
+					</div>
 				{/if}
 			</div>
 		</div>
-		<div class="server-icon">
-			{#if server?.name}
-				<ServerIconUploader serverName={server.name} />
-			{/if}
-		</div>
-		<div class="server-actions">
-			<ServerQuickActions server={server} on:refresh={scheduleBurstRefresh} />
+		<div class="server-side">
+			<div class="server-icon">
+				{#if server?.name}
+					<ServerIconUploader serverName={server.name} />
+				{/if}
+			</div>
+			<div class="server-actions">
+				<ServerQuickActions server={server} on:refresh={scheduleBurstRefresh} />
+			</div>
 		</div>
 	</div>
 
@@ -137,15 +167,26 @@
 	}
 
 	.server-header {
+		position: relative;
 		display: flex;
 		justify-content: space-between;
-		align-items: flex-start;
+		align-items: center;
 		gap: 24px;
-		flex-wrap: wrap;
+		padding: 24px 28px;
+		background: linear-gradient(135deg, rgba(22, 27, 46, 0.95), rgba(10, 14, 24, 0.95));
+		border: 1px solid rgba(42, 47, 71, 0.8);
+		border-radius: 18px;
+		box-shadow: 0 24px 40px rgba(0, 0, 0, 0.35);
+		overflow: hidden;
 	}
 
 	.server-info {
 		min-width: 240px;
+		display: flex;
+		flex-direction: column;
+		gap: 12px;
+		position: relative;
+		z-index: 1;
 	}
 
 	.server-icon {
@@ -153,8 +194,13 @@
 		align-items: center;
 	}
 
-	.server-actions {
+	.server-side {
+		display: flex;
+		align-items: center;
+		gap: 18px;
 		margin-left: auto;
+		position: relative;
+		z-index: 1;
 	}
 
 	.breadcrumb {
@@ -171,20 +217,81 @@
 	}
 
 	h1 {
-		margin: 0 0 12px;
-		font-size: 32px;
-		font-weight: 600;
+		margin: 0;
+		font-size: 34px;
+		font-weight: 700;
+		letter-spacing: -0.02em;
+	}
+
+	.title-row {
+		display: flex;
+		align-items: center;
+		gap: 14px;
+		flex-wrap: wrap;
 	}
 
 	.server-meta {
 		display: flex;
 		align-items: center;
-		gap: 16px;
+		gap: 12px;
+		flex-wrap: wrap;
 	}
 
-	.meta-item {
+	.meta-chip {
+		display: inline-flex;
+		align-items: center;
+		gap: 8px;
+		padding: 6px 12px;
+		border-radius: 999px;
+		background: rgba(19, 24, 40, 0.8);
+		border: 1px solid rgba(62, 69, 100, 0.6);
+		font-size: 12px;
+		font-weight: 600;
+		color: #cdd3ee;
+	}
+
+	.meta-chip.players {
+		background: rgba(106, 176, 76, 0.18);
+		border-color: rgba(106, 176, 76, 0.45);
+		color: #d1f4c3;
+	}
+
+	.chip-label {
+		color: #9aa6d1;
+		text-transform: uppercase;
+		letter-spacing: 0.06em;
+		font-size: 10px;
+	}
+
+	.chip-value {
+		color: #eef0f8;
 		font-size: 14px;
-		color: #9aa2c5;
+	}
+
+	.chip-value.muted {
+		color: #c0c6e4;
+	}
+
+	.chip-sep {
+		color: rgba(238, 240, 248, 0.6);
+	}
+
+	.server-header::before {
+		content: '';
+		position: absolute;
+		inset: -20% 40% 30% -20%;
+		background: radial-gradient(circle at top left, rgba(106, 176, 76, 0.18), transparent 70%);
+		opacity: 0.9;
+		z-index: 0;
+	}
+
+	.server-header::after {
+		content: '';
+		position: absolute;
+		inset: 20% -10% -30% 50%;
+		background: radial-gradient(circle at top right, rgba(96, 141, 255, 0.18), transparent 70%);
+		opacity: 0.8;
+		z-index: 0;
 	}
 
 	.tabs {
@@ -221,6 +328,7 @@
 	@media (max-width: 640px) {
 		.server-header {
 			flex-direction: column;
+			align-items: flex-start;
 		}
 
 		.server-icon {
@@ -228,8 +336,9 @@
 			justify-content: center;
 		}
 
-		.server-actions {
+		.server-side {
 			width: 100%;
+			justify-content: space-between;
 			margin-left: 0;
 		}
 
