@@ -109,8 +109,8 @@
 					<span class="tech-desc">Modern reactive frontend framework</span>
 				</li>
 				<li>
-					<span class="tech-name">.NET 9</span>
-					<span class="tech-desc">High-performance backend API</span>
+					<span class="tech-name">.NET 8</span>
+					<span class="tech-desc">High-performance .NET minimal API backend</span>
 				</li>
 				<li>
 					<span class="tech-name">SQLite</span>
