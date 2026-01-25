@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { page } from '$app/stores';
-	import { goto, invalidateAll } from '$app/navigation';
+	import { goto } from '$app/navigation';
 	import type { LayoutData } from './$types';
 	import TopBar from '$lib/components/TopBar.svelte';
 	import FeedbackButton from '$lib/components/FeedbackButton.svelte';
@@ -10,17 +10,7 @@
 	let { data, children }: { data: LayoutData; children: any } = $props();
 
 	async function handleLogout() {
-		// Call logout endpoint to clear cookies
-		try {
-			const res = await fetch('/api/auth/logout', { method: 'POST' });
-			if (!res.ok) {
-				await fetch('/api/auth/logout');
-			}
-		} catch {
-			await fetch('/api/auth/logout');
-		}
-		await invalidateAll();
-		goto('/login');
+		window.location.href = '/logout';
 	}
 
 	const navItems = [
