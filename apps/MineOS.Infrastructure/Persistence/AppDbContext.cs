@@ -68,6 +68,9 @@ public sealed class AppDbContext : DbContext
     // Linked Accounts (mineos.net)
     public DbSet<LinkedAccount> LinkedAccounts => Set<LinkedAccount>();
 
+    // Import Tracking
+    public DbSet<ImportRecord> ImportRecords => Set<ImportRecord>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.Entity<ApiKey>(entity =>
