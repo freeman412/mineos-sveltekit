@@ -177,9 +177,6 @@
 		statsPlayer = player;
 		try {
 			const result = await api.getPlayerStats(fetch, data.server.name, player.uuid);
-			console.log('Player stats result:', result);
-			console.log('result.data:', result.data);
-			console.log('result.data?.rawJson:', result.data?.rawJson);
 			if (result.error) {
 				statsError = result.error;
 			} else if (result.data?.rawJson) {
