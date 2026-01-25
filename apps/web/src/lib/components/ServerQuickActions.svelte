@@ -1,6 +1,8 @@
 <script lang="ts">
 	import { createEventDispatcher } from 'svelte';
+	import { browser } from '$app/environment';
 	import { invalidateAll } from '$app/navigation';
+	import { onMount } from 'svelte';
 	import * as api from '$lib/api/client';
 	import { modal } from '$lib/stores/modal';
 	import type { ServerDetail } from '$lib/api/types';
@@ -10,8 +12,37 @@
 
 	let actionLoading = $state(false);
 	let copied = $state(false);
+	let serverPort = $state<number>(25565);
 	let status = $derived((server?.status ?? '').toLowerCase());
 	let isRunning = $derived(status === 'up' || status === 'running');
+
+	// Load server port from server.properties
+	onMount(async () => {
+		if (!server) return;
+		try {
+			const result = await api.getServerProperties(fetch, server.name);
+			if (result.data) {
+				const port = result.data['server-port'];
+				if (port) {
+					const parsed = parseInt(port, 10);
+					if (!isNaN(parsed)) {
+						serverPort = parsed;
+					}
+				}
+			}
+		} catch (err) {
+			// Use default port if loading fails
+			console.error('Failed to load server port:', err);
+		}
+	});
+
+	// Calculate the server address to display
+	const serverAddress = $derived.by(() => {
+		if (!server) return '';
+		const envHost = import.meta.env.PUBLIC_MINECRAFT_HOST as string | undefined;
+		const host = (envHost && envHost.trim()) || (browser ? window.location.hostname : 'localhost');
+		return host.includes(':') ? host : `${host}:${serverPort}`;
+	});
 
 	async function handleAction(action: 'start' | 'stop' | 'restart' | 'kill') {
 		if (!server) return;
@@ -65,18 +96,37 @@
 	}
 
 	async function copyServerAddress() {
-		if (!server) return;
-		const port = server.config?.minecraft?.serverPort || 25565;
-		const address = `localhost:${port}`;
+		if (!serverAddress) return;
 
 		try {
-			await navigator.clipboard.writeText(address);
+			await navigator.clipboard.writeText(serverAddress);
 			copied = true;
 			setTimeout(() => {
 				copied = false;
 			}, 2000);
 		} catch (err) {
-			await modal.error('Failed to copy to clipboard');
+			// Fallback: create a temporary textarea and use execCommand
+			try {
+				const textarea = document.createElement('textarea');
+				textarea.value = serverAddress;
+				textarea.style.position = 'fixed';
+				textarea.style.opacity = '0';
+				document.body.appendChild(textarea);
+				textarea.select();
+				const success = document.execCommand('copy');
+				document.body.removeChild(textarea);
+
+				if (success) {
+					copied = true;
+					setTimeout(() => {
+						copied = false;
+					}, 2000);
+				} else {
+					await modal.error('Failed to copy to clipboard');
+				}
+			} catch (fallbackErr) {
+				await modal.error('Failed to copy to clipboard');
+			}
 		}
 	}
 
@@ -88,12 +138,13 @@
 		<div class="address-section">
 			<div class="address-display">
 				<code class="server-address">
-					localhost:{server.config?.minecraft?.serverPort || 25565}
+					{serverAddress}
 				</code>
 				<button
 					class="btn-copy"
 					onclick={copyServerAddress}
 					title="Copy server address"
+					disabled={!serverAddress}
 				>
 					{#if copied}
 						<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">

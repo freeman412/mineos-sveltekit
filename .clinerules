@@ -1,0 +1,48 @@
+# MineOS SvelteKit Project Rules
+
+## Git & Commit Standards
+- **Main branch**: `master` (NOT main)
+- **Always use closing keywords in commit messages**: `fixes #XX`, `closes #XX`, or `resolves #XX`
+  - This auto-closes GitHub issues when merged to master
+  - Do not close issues directly unless directed to do so
+- **Commit message format**:
+  ```
+  Brief description (fixes #XX)
+
+  Detailed explanation of changes and why they were made.
+
+  Co-Authored-By: AI Agents
+  ```
+
+## Code Standards
+- Prefer editing existing files over creating new ones
+- Don't add comments/docstrings to code you didn't change
+- Keep solutions simple, avoid over-engineering
+- No unnecessary error handling for scenarios that can't happen
+- Don't create helpers/utilities for one-time operations
+- Avoid backwards-compatibility hacks - if something is unused, delete it completely
+
+## Project-Specific Technical Notes
+
+### Minecraft Server Requirements
+- Server icons MUST be exactly 64x64 PNG (Minecraft crashes otherwise)
+- Use SixLabors.ImageSharp for image processing
+- server-icon.png saved in server root directory
+
+### Architecture
+- Backend: .NET 8 C# API (Minimal API pattern)
+- Always use clean code architecture, and fix any violations of thise that you see
+- Frontend: SvelteKit with Svelte 5 (using runes: $state, $derived, $effect)
+- API proxy pattern: Frontend `/api/servers/{name}/*` → Backend C# API
+
+### Common Patterns
+- Use `IProcessManager.SendCommandAsync()` to send commands to running Minecraft servers
+- Version parsing supports standard versions (1.20.1) and snapshots (23w31a)
+- Use `$effect()` carefully - always track references to prevent infinite loops
+- File operations go through `IFileService` with path traversal protection
+
+## Development Workflow
+- Fix bugs tagged in GitHub issues first before new features
+- Use TodoWrite tool for multi-step tasks
+- Run builds to verify changes before committing
+- Check for resolved issues in backlog before starting new work

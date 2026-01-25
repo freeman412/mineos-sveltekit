@@ -1,7 +1,7 @@
 #!/bin/bash
 
-# MineOS Install Script
-# Interactive setup for Linux/macOS
+# MineOS Setup & Management Script
+# Interactive setup and management for Linux/macOS
 
 set -e
 
@@ -63,6 +63,33 @@ normalize_relative_path() {
     fi
 
     echo "$path"
+}
+
+derive_caddy_site() {
+    local origin="$1"
+    if [ -z "$origin" ]; then
+        echo "http://localhost"
+        return
+    fi
+
+    local trimmed="$origin"
+    local scheme=""
+    if [[ "$trimmed" =~ ^https?:// ]]; then
+        scheme="${trimmed%%://*}"
+        trimmed="${trimmed#*://}"
+    fi
+    trimmed="${trimmed%%/*}"
+    local host="${trimmed%%:*}"
+    if [ -z "$host" ]; then
+        echo "http://localhost"
+        return
+    fi
+
+    if [ "$scheme" = "https" ]; then
+        echo "$host"
+    else
+        echo "http://$host"
+    fi
 }
 
 set_compose_cmd() {
@@ -217,8 +244,10 @@ set_env_file_value() {
 write_web_dev_env() {
     local api_port
     local api_key
+    local mc_host
     api_port=$(get_env_value API_PORT 2>/dev/null || echo "5078")
     api_key=$(get_env_value ApiKey__SeedKey 2>/dev/null || echo "")
+    mc_host=$(get_env_value PUBLIC_MINECRAFT_HOST 2>/dev/null || echo "localhost")
 
     mkdir -p apps/web
     local env_path="apps/web/.env.local"
@@ -227,6 +256,7 @@ write_web_dev_env() {
     if [ -n "$api_key" ]; then
         set_env_file_value "$env_path" "PRIVATE_API_KEY" "$api_key"
     fi
+    set_env_file_value "$env_path" "PUBLIC_MINECRAFT_HOST" "$mc_host"
     set_env_file_value "$env_path" "ORIGIN" "http://localhost:5174"
 
     success "Updated apps/web/.env.local for dev"
@@ -290,6 +320,13 @@ run_config_wizard() {
 
     read -p "Web UI origin (default: http://localhost:${web_port}): " web_origin
     web_origin=${web_origin:-http://localhost:${web_port}}
+    caddy_site=$(derive_caddy_site "$web_origin")
+
+    read -p "Public Minecraft host (default: localhost): " mc_public_host
+    mc_public_host=${mc_public_host:-localhost}
+
+    read -p "Web UI upload body size limit (default: Infinity): " body_size_limit
+    body_size_limit=${body_size_limit:-Infinity}
 
     echo ""
 
@@ -351,8 +388,18 @@ WEB_PORT=${web_port}
 # Web Origins
 #CORS Backend
 WEB_ORIGIN_PROD=${web_origin}
+# Browser API base should match the public web origin
+PUBLIC_API_BASE_URL=${web_origin}
 # CSRF / Absolute URLs
 ORIGIN=${web_origin}
+# Reverse proxy site address (host only for HTTPS, http:// for plain)
+CADDY_SITE=${caddy_site}
+
+# Minecraft Server Address
+PUBLIC_MINECRAFT_HOST=${mc_public_host}
+
+# Web UI Upload Limits
+BODY_SIZE_LIMIT=${body_size_limit}
 
 # Logging
 Logging__LogLevel__Default=Information
@@ -398,9 +445,9 @@ build_services() {
     export PUBLIC_BUILD_ID
     info "Build ID: ${PUBLIC_BUILD_ID}"
     if [ "${COMPOSE_CMD[0]}" = "docker" ]; then
-        "${COMPOSE_CMD[@]}" build --no-cache --progress plain
+        "${COMPOSE_CMD[@]}" build --progress plain
     else
-        "${COMPOSE_CMD[@]}" build --no-cache
+        "${COMPOSE_CMD[@]}" build
     fi
 
     success "Build complete"
@@ -491,6 +538,89 @@ start_dev_mode() {
     echo ""
 }
 
+start_web_dev_container() {
+    echo -e "${CYAN}Web Dev Container${NC}"
+    echo ""
+
+    if ! is_installed; then
+        error "No installation found. Run fresh install first."
+        read -p "Press Enter to continue..."
+        return
+    fi
+
+    check_dependencies
+
+    if ! set_compose_cmd; then
+        error "Docker Compose not found"
+        exit 1
+    fi
+
+    local api_port
+    local dev_origin
+    api_port=$(get_env_value API_PORT 2>/dev/null || echo "5078")
+    dev_origin=$(get_env_value WEB_ORIGIN_DEV 2>/dev/null || echo "http://localhost:5174")
+
+    read -p "Dev web origin (default: ${dev_origin}): " dev_origin_input
+    dev_origin_input=${dev_origin_input:-$dev_origin}
+
+    local dev_host
+    dev_host=$(echo "$dev_origin_input" | sed -E 's#^https?://##' | cut -d/ -f1 | cut -d: -f1)
+    dev_host=${dev_host:-localhost}
+    local public_api_input="${dev_origin_input}"
+
+    set_env_file_value ".env" "WEB_ORIGIN_DEV" "$dev_origin_input"
+    set_env_file_value ".env" "PUBLIC_API_BASE_URL" "$public_api_input"
+    set_env_file_value ".env" "VITE_ALLOWED_HOSTS" "$dev_host"
+
+    if command_exists git; then
+        local git_name
+        local git_email
+        git_name=$(get_env_value GIT_USER_NAME 2>/dev/null || echo "")
+        git_email=$(get_env_value GIT_USER_EMAIL 2>/dev/null || echo "")
+        if [ -z "$git_name" ]; then
+            git_name=$(git config --global user.name 2>/dev/null || echo "")
+        fi
+        if [ -z "$git_email" ]; then
+            git_email=$(git config --global user.email 2>/dev/null || echo "")
+        fi
+        if [ -n "$git_name" ]; then
+            set_env_file_value ".env" "GIT_USER_NAME" "$git_name"
+        fi
+        if [ -n "$git_email" ]; then
+            set_env_file_value ".env" "GIT_USER_EMAIL" "$git_email"
+        fi
+    fi
+
+    info "Stopping web service (if running)..."
+    "${COMPOSE_CMD[@]}" stop web >/dev/null 2>&1 || true
+
+    info "Starting API service..."
+    set +e
+    "${COMPOSE_CMD[@]}" up -d api
+    local up_code=$?
+    set -e
+
+    if [ "$up_code" -ne 0 ]; then
+        local running
+        running=$("${COMPOSE_CMD[@]}" ps --status running -q api 2>/dev/null | wc -l | tr -d ' ')
+        if [ "$running" -eq 0 ]; then
+            error "Failed to start API service"
+            exit 1
+        else
+            warn "Compose returned a non-zero exit code but the API container is running."
+        fi
+    fi
+
+    info "Starting web dev container..."
+    "${COMPOSE_CMD[@]}" -f docker-compose.yml -f docker-compose.dev.yml up -d --force-recreate web-dev
+
+    success "Web dev container started"
+    echo -e "${CYAN}Web UI (dev):${NC} ${dev_origin_input}"
+    echo -e "${CYAN}API (proxy):${NC} ${dev_origin_input}/api"
+    echo ""
+    read -p "Press Enter to continue..."
+}
+
 # Stop services
 stop_services() {
     if ! set_compose_cmd; then
@@ -522,8 +652,21 @@ view_logs() {
         exit 1
     fi
 
-    info "Showing logs (Ctrl+C to exit)..."
-    "${COMPOSE_CMD[@]}" logs -f
+    info "Showing logs (press Q to return)..."
+    "${COMPOSE_CMD[@]}" logs -f &
+    local log_pid=$!
+
+    while kill -0 "$log_pid" 2>/dev/null; do
+        if read -r -n1 -s -t 1 key; then
+            case "$key" in
+                [Qq])
+                    kill "$log_pid" >/dev/null 2>&1 || true
+                    wait "$log_pid" 2>/dev/null || true
+                    break
+                    ;;
+            esac
+        fi
+    done
 }
 
 # Show detailed status
@@ -541,11 +684,13 @@ show_detailed_status() {
     if is_installed; then
         local api_port
         local web_port
+        local web_origin
         api_port=$(get_env_value API_PORT 2>/dev/null || echo "5078")
         web_port=$(get_env_value WEB_PORT 2>/dev/null || echo "3000")
+        web_origin=$(get_env_value WEB_ORIGIN_PROD 2>/dev/null || echo "http://localhost:${web_port}")
 
         echo -e "${CYAN}Access URLs:${NC}"
-        echo -e "  Web UI:    ${GREEN}http://localhost:${web_port}${NC}"
+        echo -e "  Web UI:    ${GREEN}${web_origin}${NC}"
         echo -e "  API:       ${GREEN}http://localhost:${api_port}${NC}"
         echo -e "  API Docs:  ${GREEN}http://localhost:${api_port}/swagger${NC}"
     fi
@@ -574,11 +719,13 @@ fresh_install() {
 
     local api_port
     local web_port
+    local web_origin
     api_port=$(get_env_value API_PORT 2>/dev/null || echo "5078")
     web_port=$(get_env_value WEB_PORT 2>/dev/null || echo "3000")
+    web_origin=$(get_env_value WEB_ORIGIN_PROD 2>/dev/null || echo "http://localhost:${web_port}")
 
     echo -e "${CYAN}Access URLs:${NC}"
-    echo -e "  Web UI:    ${GREEN}http://localhost:${web_port}${NC}"
+    echo -e "  Web UI:    ${GREEN}${web_origin}${NC}"
     echo -e "  API:       ${GREEN}http://localhost:${api_port}${NC}"
     echo -e "  API Docs:  ${GREEN}http://localhost:${api_port}/swagger${NC}"
     echo ""
@@ -632,6 +779,116 @@ update() {
     rebuild
 }
 
+reconfigure() {
+    echo -e "${CYAN}Reconfigure${NC}"
+    echo ""
+
+    if ! is_installed; then
+        error "No installation found. Run fresh install first."
+        read -p "Press Enter to continue..."
+        return
+    fi
+
+    local admin_user_current
+    local admin_pass_current
+    local host_base_dir_current
+    local data_dir_current
+    local api_port_current
+    local web_port_current
+    local web_origin_current
+    local mc_public_host_current
+    local body_size_limit_current
+    local curseforge_current
+    local discord_current
+
+    admin_user_current=$(get_env_value Auth__SeedUsername 2>/dev/null || echo "admin")
+    admin_pass_current=$(get_env_value Auth__SeedPassword 2>/dev/null || echo "")
+    host_base_dir_current=$(get_env_value HOST_BASE_DIRECTORY 2>/dev/null || echo "$DEFAULT_HOST_BASE_DIR")
+    data_dir_current=$(get_env_value Data__Directory 2>/dev/null || echo "$DEFAULT_DATA_DIR")
+    api_port_current=$(get_env_value API_PORT 2>/dev/null || echo "5078")
+    web_port_current=$(get_env_value WEB_PORT 2>/dev/null || echo "3000")
+    web_origin_current=$(get_env_value WEB_ORIGIN_PROD 2>/dev/null || echo "http://localhost:${web_port_current}")
+    mc_public_host_current=$(get_env_value PUBLIC_MINECRAFT_HOST 2>/dev/null || echo "localhost")
+    body_size_limit_current=$(get_env_value BODY_SIZE_LIMIT 2>/dev/null || echo "Infinity")
+    curseforge_current=$(get_env_value CurseForge__ApiKey 2>/dev/null || echo "")
+    discord_current=$(get_env_value Discord__WebhookUrl 2>/dev/null || echo "")
+
+    read -p "Admin username (default: ${admin_user_current}): " admin_user
+    admin_user=${admin_user:-$admin_user_current}
+
+    read -sp "Admin password (leave blank to keep current): " admin_pass
+    echo ""
+    if [ -z "$admin_pass" ]; then
+        admin_pass="$admin_pass_current"
+    fi
+
+    read -p "Local storage directory (default: ${host_base_dir_current}): " host_base_dir_input
+    host_base_dir_input=${host_base_dir_input:-$host_base_dir_current}
+    host_base_dir=$(normalize_relative_path "$host_base_dir_input")
+    if [ -z "$host_base_dir" ]; then
+        host_base_dir="$host_base_dir_current"
+    fi
+
+    read -p "Database directory (default: ${data_dir_current}): " data_dir_input
+    data_dir_input=${data_dir_input:-$data_dir_current}
+    data_dir=$(normalize_relative_path "$data_dir_input")
+    if [ -z "$data_dir" ]; then
+        data_dir="$data_dir_current"
+    fi
+
+    read -p "API port (default: ${api_port_current}): " api_port
+    api_port=${api_port:-$api_port_current}
+
+    read -p "Web UI port (default: ${web_port_current}): " web_port
+    web_port=${web_port:-$web_port_current}
+
+    read -p "Web UI origin (default: ${web_origin_current}): " web_origin
+    web_origin=${web_origin:-$web_origin_current}
+    caddy_site=$(derive_caddy_site "$web_origin")
+
+    read -p "Public Minecraft host (default: ${mc_public_host_current}): " mc_public_host
+    mc_public_host=${mc_public_host:-$mc_public_host_current}
+
+    read -p "Web UI upload body size limit (default: ${body_size_limit_current}): " body_size_limit
+    body_size_limit=${body_size_limit:-$body_size_limit_current}
+
+    read -p "CurseForge API key (leave blank to keep current): " curseforge_key
+    if [ -z "$curseforge_key" ]; then
+        curseforge_key="$curseforge_current"
+    fi
+
+    read -p "Discord webhook URL (leave blank to keep current): " discord_webhook
+    if [ -z "$discord_webhook" ]; then
+        discord_webhook="$discord_current"
+    fi
+
+    set_env_file_value ".env" "Auth__SeedUsername" "$admin_user"
+    if [ -n "$admin_pass" ]; then
+        set_env_file_value ".env" "Auth__SeedPassword" "$admin_pass"
+    fi
+    set_env_file_value ".env" "HOST_BASE_DIRECTORY" "$host_base_dir"
+    set_env_file_value ".env" "Data__Directory" "$data_dir"
+    set_env_file_value ".env" "API_PORT" "$api_port"
+    set_env_file_value ".env" "WEB_PORT" "$web_port"
+    set_env_file_value ".env" "WEB_ORIGIN_PROD" "$web_origin"
+    set_env_file_value ".env" "PUBLIC_API_BASE_URL" "$web_origin"
+    set_env_file_value ".env" "ORIGIN" "$web_origin"
+    set_env_file_value ".env" "CADDY_SITE" "$caddy_site"
+    set_env_file_value ".env" "PUBLIC_MINECRAFT_HOST" "$mc_public_host"
+    set_env_file_value ".env" "BODY_SIZE_LIMIT" "$body_size_limit"
+    if [ -n "$curseforge_key" ]; then
+        set_env_file_value ".env" "CurseForge__ApiKey" "$curseforge_key"
+    fi
+    if [ -n "$discord_webhook" ]; then
+        set_env_file_value ".env" "Discord__WebhookUrl" "$discord_webhook"
+    fi
+
+    write_web_dev_env
+    success "Configuration updated."
+    info "Restart services to apply changes."
+    read -p "Press Enter to continue..."
+}
+
 # Show menu for not installed state
 show_menu_not_installed() {
     echo -e "${CYAN}Options:${NC}"
@@ -648,6 +905,8 @@ show_menu_installed() {
     echo "  [3] Restart Services"
     echo "  [4] View Logs"
     echo "  [5] Show Status"
+    echo "  [R] Reconfigure (update .env)"
+    echo "  [W] Web Dev Container (Vite)"
     echo ""
     echo "  [6] Rebuild (keep config)"
     echo "  [7] Update (git pull + rebuild)"
@@ -679,6 +938,8 @@ main() {
                 3) restart_services; read -p "Press Enter to continue..." ;;
                 4) view_logs ;;
                 5) show_detailed_status ;;
+                [Rr]) reconfigure ;;
+                [Ww]) start_web_dev_container ;;
                 6) rebuild ;;
                 7) update ;;
                 8) fresh_install ;;

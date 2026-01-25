@@ -1,16 +1,44 @@
 <script lang="ts">
+	import { browser } from '$app/environment';
 	import { modal } from '$lib/stores/modal';
 
 	let { serverName }: { serverName: string } = $props();
 
 	let fileInput: HTMLInputElement;
 	let uploading = $state(false);
-	let iconUrl = $state(`/api/servers/${encodeURIComponent(serverName)}/icon?t=${Date.now()}`);
-	let hasIcon = $state(true);
+	let iconUrl = $state('');
+	let hasIcon = $state(false);
 	let previewUrl = $state<string | null>(null);
+	let lastServerName = '';
+
+	const baseIconUrl = $derived(`/api/servers/${encodeURIComponent(serverName)}/icon`);
+
+	async function refreshIconPresence(currentServerName: string) {
+		if (!browser || !currentServerName) return;
+		try {
+			const res = await fetch(baseIconUrl, { method: 'HEAD' });
+			if (res.ok) {
+				hasIcon = true;
+				iconUrl = `${baseIconUrl}?t=${Date.now()}`;
+			} else {
+				hasIcon = false;
+				iconUrl = '';
+			}
+		} catch {
+			hasIcon = false;
+			iconUrl = '';
+		}
+	}
+
+	$effect(() => {
+		if (!serverName || serverName === lastServerName) return;
+		lastServerName = serverName;
+		void refreshIconPresence(serverName);
+	});
 
 	function handleImageError() {
 		hasIcon = false;
+		iconUrl = '';
 	}
 
 	function handleImageLoad() {
@@ -59,7 +87,7 @@
 
 			if (res.ok) {
 				// Refresh the icon with a cache-busting timestamp
-				iconUrl = `/api/servers/${encodeURIComponent(serverName)}/icon?t=${Date.now()}`;
+				iconUrl = `${baseIconUrl}?t=${Date.now()}`;
 				hasIcon = true;
 				previewUrl = null;
 				await modal.success('Server icon uploaded successfully!');
@@ -86,6 +114,7 @@
 
 			if (res.ok) {
 				hasIcon = false;
+				iconUrl = '';
 				previewUrl = null;
 				await modal.success('Server icon deleted successfully!');
 			} else {
@@ -110,19 +139,20 @@
 			<img src={iconUrl} alt="Server icon" onload={handleImageLoad} onerror={handleImageError} />
 		{:else}
 			<div class="placeholder">
-				<svg viewBox="0 0 64 64" width="64" height="64">
-					<rect width="64" height="64" fill="#1a1e2f" />
-					<text
-						x="32"
-						y="38"
-						text-anchor="middle"
-						fill="#6ab04c"
-						font-family="monospace"
-						font-size="12"
-					>
-						64x64
-					</text>
+				<svg viewBox="0 0 64 64" width="64" height="64" aria-hidden="true">
+					<rect width="64" height="64" fill="#141827" />
+					<rect x="14" y="18" width="36" height="28" rx="6" fill="#1f2a4a" />
+					<path
+						d="M32 22v16m0-16l-6 6m6-6l6 6"
+						fill="none"
+						stroke="#6ab04c"
+						stroke-width="3"
+						stroke-linecap="round"
+						stroke-linejoin="round"
+					/>
+					<rect x="20" y="40" width="24" height="6" rx="3" fill="#6ab04c" />
 				</svg>
+				<span class="placeholder-text">Upload icon</span>
 			</div>
 		{/if}
 	</div>
@@ -206,6 +236,15 @@
 		display: flex;
 		align-items: center;
 		justify-content: center;
+		flex-direction: column;
+		gap: 8px;
+	}
+
+	.placeholder-text {
+		font-size: 11px;
+		color: var(--mc-text-dim, #7c87b2);
+		letter-spacing: 0.03em;
+		text-transform: uppercase;
 	}
 
 	.icon-actions {

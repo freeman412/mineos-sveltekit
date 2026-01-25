@@ -2,6 +2,7 @@
 	import { onMount } from 'svelte';
 	import { goto, invalidateAll } from '$app/navigation';
 	import { env } from '$env/dynamic/public';
+	import { browser } from '$app/environment';
 	import * as api from '$lib/api/client';
 	import { modal } from '$lib/stores/modal';
 	import { formatBytes, formatDate } from '$lib/utils/formatting';
@@ -12,6 +13,12 @@
 	import type { ArchiveEntry, ForgeInstallStatus, ServerSummary } from '$lib/api/types';
 
 	let { data }: { data: PageData } = $props();
+
+	// Get hostname for server addresses
+	const hostname = $derived.by(() => {
+		const envHost = env.PUBLIC_MINECRAFT_HOST as string | undefined;
+		return (envHost && envHost.trim()) || (browser ? window.location.hostname : 'localhost');
+	});
 
 	let actionLoading = $state<Record<string, boolean>>({});
 	let importLoading = $state<Record<string, boolean>>({});
@@ -399,6 +406,14 @@
 				onkeydown={(event) => handleCardKeydown(event, server.name)}
 			>
 				<div class="card-header">
+					<div class="server-icon-wrapper">
+						<img
+							src="/api/servers/{server.name}/icon"
+							alt="{server.name} icon"
+							class="server-icon"
+							onerror={(e) => (e.currentTarget.style.display = 'none')}
+						/>
+					</div>
 					<div class="server-title">
 						<StatusBadge variant={isCreating ? 'warning' : server.up ? 'success' : 'error'} dot size="lg" />
 						<h2>{server.name}</h2>
@@ -416,7 +431,7 @@
 						<span class="badge">Profile: {server.profile}</span>
 					{/if}
 					{#if server.port}
-						<span class="badge badge-muted">localhost:{server.port}</span>
+						<span class="badge badge-muted">{hostname}:{server.port}</span>
 					{/if}
 					{#if server.needsRestart}
 						<span class="badge badge-warning">Restart required</span>
@@ -744,10 +759,25 @@
 		font-weight: 600;
 	}
 
+	.server-icon-wrapper {
+		flex-shrink: 0;
+	}
+
+	.server-icon {
+		width: 48px;
+		height: 48px;
+		border-radius: 8px;
+		border: 2px solid rgba(106, 176, 76, 0.3);
+		image-rendering: pixelated;
+		background: rgba(0, 0, 0, 0.3);
+		box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+	}
+
 	.server-title {
 		display: flex;
 		align-items: center;
 		gap: 10px;
+		flex: 1;
 	}
 
 	.server-title h2 {

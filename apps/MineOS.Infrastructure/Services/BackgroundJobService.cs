@@ -8,6 +8,7 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using MineOS.Application.Dtos;
 using MineOS.Application.Interfaces;
+using MineOS.Application.Services;
 using MineOS.Domain.Entities;
 using MineOS.Infrastructure.Persistence;
 

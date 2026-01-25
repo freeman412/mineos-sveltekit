@@ -1,7 +1,7 @@
 using MineOS.Application.Dtos;
 using MineOS.Application.Interfaces;
 
-namespace MineOS.Infrastructure.Services;
+namespace MineOS.Application.Services;
 
 public sealed class ModpackInstallState : IModpackInstallState
 {

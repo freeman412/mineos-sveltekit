@@ -275,6 +275,7 @@ public sealed class AppDbContext : DbContext
             entity.Property(x => x.Type).HasMaxLength(32);
             entity.Property(x => x.Title).HasMaxLength(256);
             entity.Property(x => x.ServerName).HasMaxLength(256);
+            entity.Property(x => x.RecipientUserId);
 
             // Convert DateTimeOffset to Unix timestamp for SQLite compatibility
             var timestampConverter = new ValueConverter<DateTimeOffset, long>(
@@ -289,6 +290,7 @@ public sealed class AppDbContext : DbContext
 
             entity.HasIndex(x => x.CreatedAt);
             entity.HasIndex(x => new { x.ServerName, x.CreatedAt });
+            entity.HasIndex(x => x.RecipientUserId);
         });
 
         // Settings

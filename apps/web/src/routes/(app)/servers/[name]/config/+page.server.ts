@@ -5,7 +5,8 @@ import { fail } from '@sveltejs/kit';
 export const load: PageServerLoad = async ({ params, fetch }) => {
 	const properties = await getServerProperties(fetch, params.name);
 	return {
-		properties
+		properties,
+		serverName: params.name
 	};
 };
 

@@ -1,0 +1,32 @@
+services:
+  web-dev:
+    image: node:20-bookworm
+    container_name: mineos-web-dev
+    working_dir: /workspace
+    environment:
+      NODE_ENV: development
+      HOST: 0.0.0.0
+      PORT: 5174
+      CHOKIDAR_USEPOLLING: "1"
+      VITE_ALLOWED_HOSTS: ${VITE_ALLOWED_HOSTS:-}
+      DEV_INSTALL_GIT: ${DEV_INSTALL_GIT:-true}
+      GIT_USER_NAME: ${GIT_USER_NAME:-}
+      GIT_USER_EMAIL: ${GIT_USER_EMAIL:-}
+      GIT_DEFAULT_BRANCH: ${GIT_DEFAULT_BRANCH:-}
+      GIT_SAFE_DIRECTORY: /workspace
+      PUBLIC_API_BASE_URL: ${PUBLIC_API_BASE_URL:-${WEB_ORIGIN_DEV:-http://localhost:5174}}
+      PRIVATE_API_BASE_URL: http://api:5078
+      PRIVATE_API_KEY: ${ApiKey__SeedKey}
+      PUBLIC_MINECRAFT_HOST: ${PUBLIC_MINECRAFT_HOST:-}
+      ORIGIN: ${WEB_ORIGIN_DEV:-http://localhost:5174}
+    volumes:
+      - ./:/workspace
+      - web_node_modules:/workspace/apps/web/node_modules
+    command: bash -lc "/workspace/scripts/dev-container-init.sh && cd /workspace/apps/web && npm install && npm run dev -- --host 0.0.0.0 --port 5174"
+    ports:
+      - "5174:5174"
+    depends_on:
+      - api
+
+volumes:
+  web_node_modules:

@@ -313,7 +313,14 @@ export async function getPlayerStats(
 	serverName: string,
 	uuid: string
 ): Promise<ApiResult<import('./types').PlayerStats>> {
-	return apiFetch(fetcher, `/api/servers/${serverName}/players/${uuid}/stats`);
+	const result = await apiFetch<{ data: import('./types').PlayerStats }>(
+		fetcher,
+		`/api/servers/${serverName}/players/${uuid}/stats`
+	);
+	if (result.error) {
+		return { data: null, error: result.error };
+	}
+	return { data: result.data?.data ?? null, error: null };
 }
 
 export async function deopPlayer(

@@ -9,9 +9,37 @@
 	let loading = $state(false);
 	let actionLoading = $state<Record<string, boolean>>({});
 	let archives = $state<any[]>([]);
+	let refreshInterval: ReturnType<typeof setInterval> | null = null;
+
+	// Check if there are any archives being created
+	const hasCreatingArchives = $derived(
+		archives.some((a) => {
+			const now = new Date().getTime();
+			const archiveTime = new Date(a.time).getTime();
+			const ageInSeconds = (now - archiveTime) / 1000;
+			return (a.size === 0 || a.size < 1024) && ageInSeconds < 120;
+		})
+	);
 
 	$effect(() => {
 		loadArchives();
+
+		// Set up auto-refresh when there are creating archives
+		return () => {
+			if (refreshInterval) {
+				clearInterval(refreshInterval);
+			}
+		};
+	});
+
+	// Auto-refresh archives list when there are creating archives
+	$effect(() => {
+		if (hasCreatingArchives && !refreshInterval) {
+			refreshInterval = setInterval(loadArchives, 3000);
+		} else if (!hasCreatingArchives && refreshInterval) {
+			clearInterval(refreshInterval);
+			refreshInterval = null;
+		}
 	});
 
 	async function loadArchives() {
@@ -74,6 +102,20 @@
 		window.location.href = `/api/servers/${data.server.name}/archives/${filename}/download`;
 	}
 
+	function getArchiveStatus(archive: any) {
+		// Check if archive was created very recently (within last 30 seconds)
+		const now = new Date().getTime();
+		const archiveTime = new Date(archive.time).getTime();
+		const ageInSeconds = (now - archiveTime) / 1000;
+
+		// If size is 0 or very small and it's recent, it's likely still being created
+		if ((archive.size === 0 || archive.size < 1024) && ageInSeconds < 30) {
+			return 'Creating...';
+		}
+
+		return formatBytes(archive.size);
+	}
+
 </script>
 
 <div class="page">
@@ -110,7 +152,7 @@
 						<tr>
 							<td>{archive.filename}</td>
 							<td>{formatDate(archive.time)}</td>
-							<td>{formatBytes(archive.size)}</td>
+							<td>{getArchiveStatus(archive)}</td>
 							<td>
 								<div class="action-buttons">
 									<button

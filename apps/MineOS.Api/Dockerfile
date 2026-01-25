@@ -26,7 +26,7 @@ RUN dotnet publish "MineOS.Api.csproj" -c Release -o /app/publish /p:UseAppHost=
 FROM mcr.microsoft.com/dotnet/aspnet:8.0 AS final
 
 # Install required packages
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN apt-get update -o Acquire::Check-Valid-Until=false && apt-get install -y --no-install-recommends \
     ca-certificates \
     curl \
     git \
@@ -44,7 +44,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
        | gpg --dearmor -o /etc/apt/keyrings/adoptium.gpg \
     && echo "deb [signed-by=/etc/apt/keyrings/adoptium.gpg] https://packages.adoptium.net/artifactory/deb $(. /etc/os-release && echo $VERSION_CODENAME) main" \
        > /etc/apt/sources.list.d/adoptium.list \
-    && apt-get update \
+    && apt-get update -o Acquire::Check-Valid-Until=false \
     && apt-get install -y --no-install-recommends temurin-21-jdk temurin-8-jre \
     && rm -rf /var/lib/apt/lists/*
 

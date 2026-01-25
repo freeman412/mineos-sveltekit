@@ -1,5 +1,5 @@
-# MineOS Install & Management Script for Windows
-# Interactive setup using PowerShell
+# MineOS Setup & Management Script for Windows
+# Interactive setup and management using PowerShell
 
 param(
     [switch]$Dev
@@ -484,6 +484,13 @@ function Load-ExistingConfig {
     if ([string]::IsNullOrWhiteSpace($script:apiPort)) { $script:apiPort = "5078" }
     $script:webPort = Get-EnvValue "WEB_PORT"
     if ([string]::IsNullOrWhiteSpace($script:webPort)) { $script:webPort = "3000" }
+    $script:webOrigin = Get-EnvValue "WEB_ORIGIN_PROD"
+    if ([string]::IsNullOrWhiteSpace($script:webOrigin)) { $script:webOrigin = Get-EnvValue "ORIGIN" }
+    if ([string]::IsNullOrWhiteSpace($script:webOrigin)) { $script:webOrigin = "http://localhost:$script:webPort" }
+    $script:mcPublicHost = Get-EnvValue "PUBLIC_MINECRAFT_HOST"
+    if ([string]::IsNullOrWhiteSpace($script:mcPublicHost)) { $script:mcPublicHost = "localhost" }
+    $script:bodySizeLimit = Get-EnvValue "BODY_SIZE_LIMIT"
+    if ([string]::IsNullOrWhiteSpace($script:bodySizeLimit)) { $script:bodySizeLimit = "Infinity" }
     $script:mcPortRange = Get-EnvValue "MC_PORT_RANGE"
     if ([string]::IsNullOrWhiteSpace($script:mcPortRange)) { $script:mcPortRange = "25565-25570" }
     $script:baseDir = Get-EnvValue "HOST_BASE_DIRECTORY"
@@ -491,6 +498,24 @@ function Load-ExistingConfig {
     if ([string]::IsNullOrWhiteSpace($script:baseDir)) { $script:baseDir = ".\\minecraft" }
     $script:dataDir = Get-EnvValue "Data__Directory"
     if ([string]::IsNullOrWhiteSpace($script:dataDir)) { $script:dataDir = ".\\data" }
+}
+
+function Get-CaddySite {
+    param([string]$Origin)
+    if ([string]::IsNullOrWhiteSpace($Origin)) { return "http://localhost" }
+
+    $originValue = $Origin
+    if (-not ($originValue -match '^https?://')) { $originValue = "http://$originValue" }
+
+    try {
+        $uri = [Uri]$originValue
+        $host = $uri.Host
+        if ([string]::IsNullOrWhiteSpace($host)) { return "http://localhost" }
+        if ($uri.Scheme -eq "https") { return $host }
+        return "http://$host"
+    } catch {
+        return "http://localhost"
+    }
 }
 
 function Assert-PortNumber {
@@ -562,11 +587,15 @@ function Write-WebDevEnv {
     if ([string]::IsNullOrWhiteSpace($apiPortValue)) { $apiPortValue = "5078" }
     $apiKeyValue = $script:apiKey
     if ([string]::IsNullOrWhiteSpace($apiKeyValue)) { $apiKeyValue = Get-EnvValue "ApiKey__SeedKey" }
+    $mcHostValue = $script:mcPublicHost
+    if ([string]::IsNullOrWhiteSpace($mcHostValue)) { $mcHostValue = Get-EnvValue "PUBLIC_MINECRAFT_HOST" }
+    if ([string]::IsNullOrWhiteSpace($mcHostValue)) { $mcHostValue = "localhost" }
 
     Set-EnvFileValue -Path $webEnvPath -Key "PUBLIC_API_BASE_URL" -Value "http://localhost:$apiPortValue"
     Set-EnvFileValue -Path $webEnvPath -Key "PRIVATE_API_BASE_URL" -Value "http://localhost:$apiPortValue"
     if ($apiKeyValue) { Set-EnvFileValue -Path $webEnvPath -Key "PRIVATE_API_KEY" -Value $apiKeyValue }
     Set-EnvFileValue -Path $webEnvPath -Key "ORIGIN" -Value "http://localhost:5174"
+    Set-EnvFileValue -Path $webEnvPath -Key "PUBLIC_MINECRAFT_HOST" -Value $mcHostValue
 
     Write-Success "Updated apps\\web\\.env.local for dev"
 }
@@ -855,7 +884,7 @@ function Show-Status {
 
     Write-Host ""
     Write-Host "URLs (when running):"
-    Write-Host "  Web UI:   http://localhost:$webPort" -ForegroundColor Cyan
+    Write-Host "  Web UI:   $webOrigin" -ForegroundColor Cyan
     Write-Host "  API:      http://localhost:$apiPort" -ForegroundColor Cyan
 }
 
@@ -889,6 +918,16 @@ function Start-ConfigWizard {
     $script:webPort = Read-Host "Web UI port (default: 3000)"
     if ([string]::IsNullOrWhiteSpace($script:webPort)) { $script:webPort = "3000" }
     [void](Assert-PortNumber -Value $script:webPort -Name "Web UI port")
+
+    $script:webOrigin = Read-Host "Web UI origin (default: http://localhost:$script:webPort)"
+    if ([string]::IsNullOrWhiteSpace($script:webOrigin)) { $script:webOrigin = "http://localhost:$script:webPort" }
+    $script:caddySite = Get-CaddySite -Origin $script:webOrigin
+
+    $script:mcPublicHost = Read-Host "Public Minecraft host (default: localhost)"
+    if ([string]::IsNullOrWhiteSpace($script:mcPublicHost)) { $script:mcPublicHost = "localhost" }
+
+    $script:bodySizeLimit = Read-Host "Web UI upload body size limit (default: Infinity)"
+    if ([string]::IsNullOrWhiteSpace($script:bodySizeLimit)) { $script:bodySizeLimit = "Infinity" }
 
     $script:mcPortRange = Read-Host "Minecraft server port range (default: 25565-25570)"
     if ([string]::IsNullOrWhiteSpace($script:mcPortRange)) { $script:mcPortRange = "25565-25570" }
@@ -935,11 +974,23 @@ Host__OwnerGid=1000
 $(if ($curseforgeKey) { "CurseForge__ApiKey=$curseforgeKey" } else { "# CurseForge__ApiKey=" })
 $(if ($discordWebhook) { "Discord__WebhookUrl=$discordWebhook" } else { "# Discord__WebhookUrl=" })
 
-# Ports
-API_PORT=$apiPort
-WEB_PORT=$webPort
-MC_PORT_RANGE=$mcPortRange
-MC_EXTRA_PORTS=$mcExtraPorts
+  # Ports
+  API_PORT=$apiPort
+  WEB_PORT=$webPort
+  MC_PORT_RANGE=$mcPortRange
+  MC_EXTRA_PORTS=$mcExtraPorts
+
+  # Web UI origin (public) and API base
+  WEB_ORIGIN_PROD=$webOrigin
+  PUBLIC_API_BASE_URL=$webOrigin
+  ORIGIN=$webOrigin
+  CADDY_SITE=$caddySite
+
+# Minecraft Server Address
+PUBLIC_MINECRAFT_HOST=$mcPublicHost
+
+# Web UI Upload Limits
+BODY_SIZE_LIMIT=$bodySizeLimit
 
 # Logging
 Logging__LogLevel__Default=Information
@@ -975,12 +1026,12 @@ function Start-Services {
         $env:PUBLIC_BUILD_ID = (Get-Date -Format "yyyyMMddHHmmss")
         Write-Info "Build ID: $env:PUBLIC_BUILD_ID"
         if (-not $script:composeExe) { Set-ComposeCommand }
-        $buildArgs = @("build", "--no-cache")
-        if ($script:composeExe -eq "docker") { $buildArgs = @("build", "--no-cache", "--progress", "plain") }
+        $buildArgs = @("build")
+        if ($script:composeExe -eq "docker") { $buildArgs = @("build", "--progress", "plain") }
         $build = Invoke-Compose -Args $buildArgs -StreamOutput
         if ($build.ExitCode -ne 0 -and $script:composeExe -eq "docker") {
             Write-Warn "Build failed with --progress; retrying without it..."
-            $build = Invoke-Compose -Args @("build", "--no-cache") -StreamOutput
+            $build = Invoke-Compose -Args @("build") -StreamOutput
         }
         if ($build.ExitCode -ne 0 -and (Test-ComposeBuildSuccessFromOutput -Output $build.Output)) {
             Write-Warn "Build returned a non-zero exit code but output looks successful; continuing..."
@@ -1059,6 +1110,88 @@ function Start-DevMode {
     if ($Pause) { Read-Host "Press Enter to continue" }
 }
 
+function Start-WebDevContainer {
+    Write-Header "Web Dev Container"
+
+    if (-not (Test-Path ".env")) {
+        Write-Error-Custom "No installation found. Run fresh install first."
+        return
+    }
+
+    Test-Dependencies
+    Load-ExistingConfig
+
+    $devOrigin = Get-EnvValue "WEB_ORIGIN_DEV"
+    if ([string]::IsNullOrWhiteSpace($devOrigin)) { $devOrigin = "http://localhost:5174" }
+
+    $devOriginInput = Read-Host "Dev web origin (default: $devOrigin)"
+    if ([string]::IsNullOrWhiteSpace($devOriginInput)) { $devOriginInput = $devOrigin }
+
+    $devHost = $null
+    try {
+        $uri = [Uri]$devOriginInput
+        if (-not [string]::IsNullOrWhiteSpace($uri.Host)) { $devHost = $uri.Host }
+    } catch {
+    }
+    if ([string]::IsNullOrWhiteSpace($devHost)) {
+        $trimmed = $devOriginInput -replace '^https?://', ''
+        $devHost = ($trimmed -split '/')[0]
+        if ($devHost -match ':') { $devHost = $devHost.Split(':')[0] }
+    }
+    if ([string]::IsNullOrWhiteSpace($devHost)) { $devHost = "localhost" }
+
+    $publicApiInput = $devOriginInput
+    Set-EnvValue -Key "WEB_ORIGIN_DEV" -Value $devOriginInput
+    Set-EnvValue -Key "PUBLIC_API_BASE_URL" -Value $publicApiInput
+    Set-EnvValue -Key "VITE_ALLOWED_HOSTS" -Value $devHost
+
+    $gitName = Get-EnvValue "GIT_USER_NAME"
+    $gitEmail = Get-EnvValue "GIT_USER_EMAIL"
+    if ([string]::IsNullOrWhiteSpace($gitName) -and (Get-Command git -ErrorAction SilentlyContinue)) {
+        $gitName = (git config --global user.name 2>$null).Trim()
+    }
+    if ([string]::IsNullOrWhiteSpace($gitEmail) -and (Get-Command git -ErrorAction SilentlyContinue)) {
+        $gitEmail = (git config --global user.email 2>$null).Trim()
+    }
+    if (-not [string]::IsNullOrWhiteSpace($gitName)) {
+        Set-EnvValue -Key "GIT_USER_NAME" -Value $gitName
+    }
+    if (-not [string]::IsNullOrWhiteSpace($gitEmail)) {
+        Set-EnvValue -Key "GIT_USER_EMAIL" -Value $gitEmail
+    }
+
+    Write-Info "Stopping web service (if running)..."
+    [void](Invoke-Compose -Args @("stop", "web"))
+
+    Write-Info "Starting API service..."
+    $r = Invoke-Compose -Args @("up", "-d", "api")
+    if ($r.ExitCode -ne 0) {
+        $running = Test-ComposeServicesRunning -ContainerNames @("mineos-api")
+        if (-not $running) {
+            Write-Error-Custom "Failed to start API service"
+            if ($r.Output) { Write-Host $r.Output }
+            exit 1
+        }
+        Write-Warn "Compose returned a non-zero exit code but the API container is running."
+    }
+
+    Write-Info "Starting web dev container..."
+    $dev = Invoke-Compose -Args @(
+        "-f", "docker-compose.yml",
+        "-f", "docker-compose.dev.yml",
+        "up", "-d", "web-dev"
+    )
+    if ($dev.ExitCode -ne 0) {
+        Write-Error-Custom "Failed to start web dev container"
+        if ($dev.Output) { Write-Host $dev.Output }
+        exit 1
+    }
+
+    Write-Success "Web dev container started"
+    Write-Host "Web UI (dev): $devOriginInput" -ForegroundColor Cyan
+    Write-Host "API (proxy):  $devOriginInput/api" -ForegroundColor Cyan
+}
+
 function Stop-Services {
     Write-Info "Stopping services..."
     $r = Invoke-Compose -Args @("down")
@@ -1086,8 +1219,46 @@ function Restart-Services {
 }
 
 function Show-Logs {
-    Write-Info "Showing logs (Ctrl+C to exit)..."
-    & $script:composeExe @script:composeBaseArgs "logs" "-f" "--tail" "100"
+    Write-Info "Showing logs (press Q to return)..."
+    if (-not $script:composeExe) { Set-ComposeCommand }
+
+    $allArgs = @()
+    if ($script:composeBaseArgs) { $allArgs += $script:composeBaseArgs }
+    $allArgs += @("logs", "-f", "--tail", "100")
+    $argString = ($allArgs | ForEach-Object {
+        if ($_ -match '\s') { '"' + ($_ -replace '"', '\"') + '"' } else { $_ }
+    }) -join ' '
+
+    $outFile = New-TemporaryFile
+    $errFile = New-TemporaryFile
+
+    try {
+        $proc = Start-Process -FilePath $script:composeExe `
+            -ArgumentList $argString `
+            -NoNewWindow `
+            -PassThru `
+            -RedirectStandardOutput $outFile `
+            -RedirectStandardError $errFile
+
+        $outOffset = 0L
+        $errOffset = 0L
+        while (-not $proc.HasExited) {
+            Start-Sleep -Milliseconds 200
+            $outOffset = Write-NewFileContent -Path $outFile -Offset $outOffset
+            $errOffset = Write-NewFileContent -Path $errFile -Offset $errOffset
+            if ([Console]::KeyAvailable) {
+                $key = [Console]::ReadKey($true)
+                if ($key.Key -eq [ConsoleKey]::Q -or $key.KeyChar -eq 'q') {
+                    try { $proc.Kill() } catch { }
+                    break
+                }
+            }
+        }
+        $outOffset = Write-NewFileContent -Path $outFile -Offset $outOffset
+        $errOffset = Write-NewFileContent -Path $errFile -Offset $errOffset
+    } finally {
+        Remove-Item $outFile, $errFile -ErrorAction SilentlyContinue
+    }
 }
 
 function Do-FreshInstall {
@@ -1110,7 +1281,7 @@ function Do-FreshInstall {
 
     Write-Header "Installation Complete!"
     Write-Host ""
-    Write-Host "Web UI:    http://localhost:$webPort" -ForegroundColor Green
+    Write-Host "Web UI:    $webOrigin" -ForegroundColor Green
     Write-Host "Username:  $adminUser" -ForegroundColor Cyan
     Write-Host "Password:  $adminPass" -ForegroundColor Cyan
     Write-Host ""
@@ -1136,7 +1307,7 @@ function Do-Rebuild {
     Start-Services -Rebuild
 
     Write-Success "Rebuild complete!"
-    Write-Host "Web UI: http://localhost:$webPort" -ForegroundColor Green
+    Write-Host "Web UI: $webOrigin" -ForegroundColor Green
 }
 
 function Do-Update {
@@ -1159,7 +1330,82 @@ function Do-Update {
     Start-Services -Rebuild
 
     Write-Success "Update complete!"
-    Write-Host "Web UI: http://localhost:$webPort" -ForegroundColor Green
+    Write-Host "Web UI: $webOrigin" -ForegroundColor Green
+}
+
+function Do-Reconfigure {
+    Write-Header "Reconfigure"
+
+    if (-not (Test-Path ".env")) {
+        Write-Error-Custom "No installation found. Run fresh install first."
+        return
+    }
+
+    Load-ExistingConfig
+
+    $newAdminUser = Read-Host "Admin username (default: $adminUser)"
+    if ([string]::IsNullOrWhiteSpace($newAdminUser)) { $newAdminUser = $adminUser }
+
+    $newAdminPass = $null
+    $adminPassSecure = Read-Host "Admin password (leave blank to keep current)" -AsSecureString
+    $adminPassCandidate = [Runtime.InteropServices.Marshal]::PtrToStringAuto(
+        [Runtime.InteropServices.Marshal]::SecureStringToBSTR($adminPassSecure)
+    )
+    if (-not [string]::IsNullOrWhiteSpace($adminPassCandidate)) { $newAdminPass = $adminPassCandidate }
+
+    $newBaseDir = Read-Host "Local storage directory (default: $baseDir)"
+    if ([string]::IsNullOrWhiteSpace($newBaseDir)) { $newBaseDir = $baseDir }
+
+    $newDataDir = Read-Host "Database directory (default: $dataDir)"
+    if ([string]::IsNullOrWhiteSpace($newDataDir)) { $newDataDir = $dataDir }
+
+    $newApiPort = Read-Host "API port (default: $apiPort)"
+    if ([string]::IsNullOrWhiteSpace($newApiPort)) { $newApiPort = $apiPort }
+    [void](Assert-PortNumber -Value $newApiPort -Name "API port")
+
+    $newWebPort = Read-Host "Web UI port (default: $webPort)"
+    if ([string]::IsNullOrWhiteSpace($newWebPort)) { $newWebPort = $webPort }
+    [void](Assert-PortNumber -Value $newWebPort -Name "Web UI port")
+
+    $newWebOrigin = Read-Host "Web UI origin (default: $webOrigin)"
+    if ([string]::IsNullOrWhiteSpace($newWebOrigin)) { $newWebOrigin = $webOrigin }
+    $newCaddySite = Get-CaddySite -Origin $newWebOrigin
+
+    $newMcPublicHost = Read-Host "Public Minecraft host (default: $mcPublicHost)"
+    if ([string]::IsNullOrWhiteSpace($newMcPublicHost)) { $newMcPublicHost = $mcPublicHost }
+
+    $newBodySizeLimit = Read-Host "Web UI upload body size limit (default: $bodySizeLimit)"
+    if ([string]::IsNullOrWhiteSpace($newBodySizeLimit)) { $newBodySizeLimit = $bodySizeLimit }
+
+    $newMcPortRange = Read-Host "Minecraft server port range (default: $mcPortRange)"
+    if ([string]::IsNullOrWhiteSpace($newMcPortRange)) { $newMcPortRange = $mcPortRange }
+    $newMcPortRange = Assert-PortRange -Value $newMcPortRange -Name "Minecraft port range"
+
+    $newCurseforgeKey = Read-Host "CurseForge API key (leave blank to keep current)"
+    if ([string]::IsNullOrWhiteSpace($newCurseforgeKey)) { $newCurseforgeKey = Get-EnvValue "CurseForge__ApiKey" }
+
+    $newDiscordWebhook = Read-Host "Discord webhook URL (leave blank to keep current)"
+    if ([string]::IsNullOrWhiteSpace($newDiscordWebhook)) { $newDiscordWebhook = Get-EnvValue "Discord__WebhookUrl" }
+
+    Set-EnvValue -Key "Auth__SeedUsername" -Value $newAdminUser
+    if ($newAdminPass) { Set-EnvValue -Key "Auth__SeedPassword" -Value $newAdminPass }
+    Set-EnvValue -Key "HOST_BASE_DIRECTORY" -Value $newBaseDir
+    Set-EnvValue -Key "Data__Directory" -Value $newDataDir
+    Set-EnvValue -Key "API_PORT" -Value $newApiPort
+    Set-EnvValue -Key "WEB_PORT" -Value $newWebPort
+    Set-EnvValue -Key "WEB_ORIGIN_PROD" -Value $newWebOrigin
+    Set-EnvValue -Key "PUBLIC_API_BASE_URL" -Value $newWebOrigin
+    Set-EnvValue -Key "ORIGIN" -Value $newWebOrigin
+    Set-EnvValue -Key "CADDY_SITE" -Value $newCaddySite
+    Set-EnvValue -Key "PUBLIC_MINECRAFT_HOST" -Value $newMcPublicHost
+    Set-EnvValue -Key "BODY_SIZE_LIMIT" -Value $newBodySizeLimit
+    Set-EnvValue -Key "MC_PORT_RANGE" -Value $newMcPortRange
+    if ($newCurseforgeKey -ne $null) { Set-EnvValue -Key "CurseForge__ApiKey" -Value $newCurseforgeKey }
+    if ($newDiscordWebhook -ne $null) { Set-EnvValue -Key "Discord__WebhookUrl" -Value $newDiscordWebhook }
+
+    Write-WebDevEnv
+    Write-Success "Configuration updated."
+    Write-Info "Restart services to apply changes."
 }
 
 function Show-Menu {
@@ -1198,6 +1444,8 @@ function Show-Menu {
         Write-Host " [3] Restart Services" -ForegroundColor White
         Write-Host " [4] View Logs" -ForegroundColor White
         Write-Host " [5] Show Status" -ForegroundColor White
+        Write-Host " [R] Reconfigure (update .env)" -ForegroundColor Yellow
+        Write-Host " [W] Web Dev Container (Vite)" -ForegroundColor Yellow
         Write-Host ""
         Write-Host " [6] Rebuild (keep config)" -ForegroundColor Yellow
         Write-Host " [7] Update (git pull + rebuild)" -ForegroundColor Yellow
@@ -1237,6 +1485,8 @@ function Main {
                 "3" { Restart-Services; Read-Host "Press Enter to continue" }
                 "4" { Show-Logs }
                 "5" { Show-Status; Read-Host "Press Enter to continue" }
+                "R" { Do-Reconfigure; Read-Host "Press Enter to continue" }
+                "W" { Start-WebDevContainer; Read-Host "Press Enter to continue" }
                 "6" { Do-Rebuild; Read-Host "Press Enter to continue" }
                 "7" { Do-Update; Read-Host "Press Enter to continue" }
                 "8" { Do-FreshInstall; Read-Host "Press Enter to continue" }

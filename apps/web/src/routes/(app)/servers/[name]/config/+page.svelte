@@ -4,19 +4,18 @@
 
 	let { data, form }: { data: PageData; form: ActionData } = $props();
 
-	let properties = $state<Record<string, string>>(data.properties.data || {});
+	let lastServerName = $state('');
+	let properties = $state<Record<string, string>>({});
 	let loading = $state(false);
 	let showAddModal = $state(false);
 	let newKey = $state('');
 	let newValue = $state('');
-	let lastDataProps = $state(data.properties.data);
 
-	// Only update properties when server data actually changes (not on every reactive update)
+	// Initialize properties from data when server changes
 	$effect(() => {
-		const currentData = data.properties.data;
-		if (currentData !== lastDataProps) {
-			properties = currentData || {};
-			lastDataProps = currentData;
+		if (data.serverName !== lastServerName) {
+			lastServerName = data.serverName;
+			properties = { ...(data.properties.data || {}) };
 		}
 	});
 
@@ -35,30 +34,33 @@
 	}
 </script>
 
-<div class="page">
-	<div class="page-header">
-		<div>
-			<h2>Server Properties</h2>
-			<p class="subtitle">Edit server.properties configuration</p>
+{#key data.serverName}
+	<div class="page">
+		<div class="page-header">
+			<div>
+				<h2>Server Properties</h2>
+				<p class="subtitle">Edit server.properties configuration</p>
+			</div>
+			<button class="btn-primary" onclick={() => (showAddModal = true)}>+ Add Property</button>
 		</div>
-		<button class="btn-primary" onclick={() => (showAddModal = true)}>+ Add Property</button>
-	</div>
 
-	{#if data.properties.error}
-		<div class="error-box">
-			<p>Failed to load properties: {data.properties.error}</p>
-		</div>
-	{:else}
-		<form
-			method="POST"
-			use:enhance={() => {
-				loading = true;
-				return async ({ update }) => {
-					await update();
-					loading = false;
-				};
-			}}
-		>
+		{#if data.properties.error}
+			<div class="error-box">
+				<p>Failed to load properties: {data.properties.error}</p>
+			</div>
+		{:else}
+			<form
+				method="POST"
+				use:enhance={() => {
+					loading = true;
+					return async ({ update }) => {
+						await update();
+						// Sync properties from server data after successful save
+						properties = { ...(data.properties.data || {}) };
+						loading = false;
+					};
+				}}
+			>
 			<input type="hidden" name="properties" value={JSON.stringify(properties)} />
 
 			<div class="properties-editor">
@@ -107,9 +109,10 @@
 					{loading ? 'Saving...' : 'Save Changes'}
 				</button>
 			</div>
-		</form>
-	{/if}
-</div>
+			</form>
+		{/if}
+	</div>
+{/key}
 
 {#if showAddModal}
 	<!-- svelte-ignore a11y_no_static_element_interactions, a11y_click_events_have_key_events -->

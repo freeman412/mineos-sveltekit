@@ -45,8 +45,32 @@
 		brightWhite: '#f0f6fc'
 	};
 
+	const getPublicApiBase = () => {
+		const baseUrl = env.PUBLIC_API_BASE_URL;
+		if (!baseUrl) return window.location.origin;
+		try {
+			const parsed = new URL(baseUrl);
+			const internalHosts = new Set([
+				'localhost',
+				'127.0.0.1',
+				'0.0.0.0',
+				'::1',
+				'api',
+				'mineos-api'
+			]);
+			const browserHost = window.location.hostname;
+			if (internalHosts.has(parsed.hostname.toLowerCase()) && browserHost) {
+				const port = parsed.port ? `:${parsed.port}` : '';
+				return `${window.location.protocol}//${browserHost}${port}`;
+			}
+			return baseUrl;
+		} catch {
+			return window.location.origin;
+		}
+	};
+
 	const getWebSocketUrl = () => {
-		const baseUrl = env.PUBLIC_API_BASE_URL || window.location.origin;
+		const baseUrl = getPublicApiBase();
 		const wsBase = baseUrl.replace(/^http/, 'ws');
 		return `${wsBase}/api/v1/admin/shell/ws`;
 	};

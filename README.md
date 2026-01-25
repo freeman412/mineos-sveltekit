@@ -2,25 +2,37 @@
 
 A simple web interface to create and manage Minecraft servers. Run as many servers as you want, install mods with one click, and manage everything from your browser.
 
-## One-Click Install
+## MineOS Script (Setup + Management)
 
 **What you need:**
 - [Docker Desktop](https://www.docker.com/products/docker-desktop) (Windows/Mac) or Docker + Docker Compose (Linux)
 - That's it!
 
-**Installation:**
+**Run the script:**
 
-**Windows:** Right-click `install.ps1` → Run with PowerShell
+**Windows:** Right-click `MineOS.ps1` -> Run with PowerShell
 
-**Mac/Linux:** Open Terminal, run `./install.sh`
+**Mac/Linux:** Open Terminal, run `./MineOS.sh`
 
-The installer does everything automatically:
-- ✓ Checks that Docker is installed
-- ✓ Creates all necessary files and folders
-- ✓ Starts MineOS in the background
-- ✓ Sets up automatic startup with Docker
+The script can:
+- Check Docker + Docker Compose
+- Create all necessary files and folders
+- Start/stop/restart MineOS
+- Rebuild or update when needed
 
-**Access MineOS:** Open [http://localhost:3000](http://localhost:3000) in your browser
+**Access MineOS:** Open [http://localhost:3000](http://localhost:3000) in your browser (served by the built-in reverse proxy)
+
+## Script Usage
+
+Once configured, use the MineOS script to manage services:
+
+**Windows (PowerShell):**
+- `MineOS.ps1` (interactive menu)
+- `MineOS.ps1 -Dev` (API only + web dev env setup)
+
+**Mac/Linux:**
+- `./MineOS.sh` (interactive menu)
+- `./MineOS.sh --dev` (API only + web dev env setup)
 
 ## That's It!
 
@@ -46,15 +58,32 @@ Open PowerShell as Administrator and run:
 ```powershell
 Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
 ```
-Then try running `install.ps1` again.
+Then try running `MineOS.ps1` again.
 
 **Script won't run on Mac/Linux?**
 ```bash
-chmod +x install.sh uninstall.sh
+chmod +x MineOS.sh uninstall.sh
 ```
 
 **Need to change ports?**
 Edit `.env` and run `docker compose restart`
+
+## Reverse Proxy (Recommended)
+
+MineOS now includes a Caddy reverse proxy to keep the API private and provide a single public origin for the UI + WebSocket admin shell.
+
+**Common settings in `.env`:**
+- `WEB_ORIGIN_PROD` → the public URL users will visit (e.g. `https://mineos.example.com`)
+- `PUBLIC_API_BASE_URL` → set to the same value as `WEB_ORIGIN_PROD`
+- `CADDY_SITE` → your domain (no scheme) for automatic HTTPS, or `http://host` to disable HTTPS
+- `CADDY_EMAIL` → email for TLS certificates (optional but recommended)
+- `WEB_PORT` → public HTTP port for the proxy (default: 3000)
+- `PROXY_HTTPS_PORT` → public HTTPS port for the proxy (default: 443)
+
+The proxy serves the UI and forwards `/api/*` (including WebSockets) to the API container.
+
+**Copy Address shows localhost in production?**
+Set `PUBLIC_MINECRAFT_HOST` in `.env` and rebuild so the UI uses your public host.
 
 ## Screenshots
 
