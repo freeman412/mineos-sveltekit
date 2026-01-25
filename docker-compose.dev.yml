@@ -1,0 +1,26 @@
+services:
+  web-dev:
+    image: node:20-bookworm
+    container_name: mineos-web-dev
+    working_dir: /app
+    environment:
+      NODE_ENV: development
+      HOST: 0.0.0.0
+      PORT: 5174
+      CHOKIDAR_USEPOLLING: "1"
+      PUBLIC_API_BASE_URL: ${PUBLIC_API_BASE_URL:-http://localhost:${API_PORT:-5078}}
+      PRIVATE_API_BASE_URL: http://api:5078
+      PRIVATE_API_KEY: ${ApiKey__SeedKey}
+      PUBLIC_MINECRAFT_HOST: ${PUBLIC_MINECRAFT_HOST:-}
+      ORIGIN: ${WEB_ORIGIN_DEV:-http://localhost:5174}
+    volumes:
+      - ./apps/web:/app
+      - web_node_modules:/app/node_modules
+    command: bash -lc "npm install && npm run dev -- --host 0.0.0.0 --port 5174"
+    ports:
+      - "5174:5174"
+    depends_on:
+      - api
+
+volumes:
+  web_node_modules:
