@@ -11,7 +11,14 @@
 
 	async function handleLogout() {
 		// Call logout endpoint to clear cookies
-		await fetch('/api/auth/logout', { method: 'POST' });
+		try {
+			const res = await fetch('/api/auth/logout', { method: 'POST' });
+			if (!res.ok) {
+				await fetch('/api/auth/logout');
+			}
+		} catch {
+			await fetch('/api/auth/logout');
+		}
 		await invalidateAll();
 		goto('/login');
 	}
