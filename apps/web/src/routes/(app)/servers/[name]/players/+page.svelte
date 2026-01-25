@@ -179,8 +179,10 @@
 			const result = await api.getPlayerStats(fetch, data.server.name, player.uuid);
 			if (result.error) {
 				statsError = result.error;
-			} else if (result.data) {
+			} else if (result.data?.rawJson) {
 				statsJson = JSON.stringify(JSON.parse(result.data.rawJson), null, 2);
+			} else {
+				statsError = 'No stats data available for this player';
 			}
 		} catch (err) {
 			statsError = err instanceof Error ? err.message : 'Failed to load stats';
