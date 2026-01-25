@@ -69,10 +69,11 @@ public sealed class ArchiveService : IArchiveService
         var archiveFullPath = Path.Combine(archivePath, archiveFilename);
 
         // Use tar to create compressed archive
+        // Exclude the archives directory to prevent "file changed as we read it" errors
         var psi = new ProcessStartInfo
         {
             FileName = "tar",
-            Arguments = $"-czf \"{archiveFullPath}\" -C \"{Path.GetDirectoryName(serverPath)}\" \"{Path.GetFileName(serverPath)}\"",
+            Arguments = $"-czf \"{archiveFullPath}\" --exclude=\"archives\" -C \"{Path.GetDirectoryName(serverPath)}\" \"{Path.GetFileName(serverPath)}\"",
             RedirectStandardOutput = true,
             RedirectStandardError = true,
             UseShellExecute = false,
