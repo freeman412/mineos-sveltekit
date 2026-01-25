@@ -1,6 +1,8 @@
 {$CADDY_SITE::80} {
-	# Everything goes to SvelteKit - it handles /api/* proxy routes internally
-	reverse_proxy web:3000 {
-		header_up Host {http.request.host}
-	}
+	# WebSocket path to API for admin shell
+	@adminws path /api/v1/admin/shell/ws
+	reverse_proxy @adminws api:5078
+
+	# Everything else to SvelteKit
+	reverse_proxy web:3000
 }
