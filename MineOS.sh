@@ -445,9 +445,9 @@ build_services() {
     export PUBLIC_BUILD_ID
     info "Build ID: ${PUBLIC_BUILD_ID}"
     if [ "${COMPOSE_CMD[0]}" = "docker" ]; then
-        "${COMPOSE_CMD[@]}" build --no-cache --progress plain
+        "${COMPOSE_CMD[@]}" build --progress plain
     else
-        "${COMPOSE_CMD[@]}" build --no-cache
+        "${COMPOSE_CMD[@]}" build
     fi
 
     success "Build complete"

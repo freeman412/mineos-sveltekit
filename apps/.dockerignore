@@ -1,0 +1,24 @@
+# Build artifacts
+**/bin
+**/obj
+**/node_modules
+**/.svelte-kit
+**/build
+**/.vite
+**/.cache
+**/TestResults
+
+# Logs
+**/*.log
+
+# Tooling
+**/.vs
+**/.idea
+**/.DS_Store
+
+# VCS
+.git
+.github
+
+# Web app is not needed for API builds
+web/

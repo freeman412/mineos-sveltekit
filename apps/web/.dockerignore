@@ -1,0 +1,13 @@
+node_modules
+.svelte-kit
+build
+.vite
+coverage
+dist
+*.log
+.git
+.github
+.vscode
+.env
+.env.local
+.env.*.local

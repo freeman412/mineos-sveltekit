@@ -1026,12 +1026,12 @@ function Start-Services {
         $env:PUBLIC_BUILD_ID = (Get-Date -Format "yyyyMMddHHmmss")
         Write-Info "Build ID: $env:PUBLIC_BUILD_ID"
         if (-not $script:composeExe) { Set-ComposeCommand }
-        $buildArgs = @("build", "--no-cache")
-        if ($script:composeExe -eq "docker") { $buildArgs = @("build", "--no-cache", "--progress", "plain") }
+        $buildArgs = @("build")
+        if ($script:composeExe -eq "docker") { $buildArgs = @("build", "--progress", "plain") }
         $build = Invoke-Compose -Args $buildArgs -StreamOutput
         if ($build.ExitCode -ne 0 -and $script:composeExe -eq "docker") {
             Write-Warn "Build failed with --progress; retrying without it..."
-            $build = Invoke-Compose -Args @("build", "--no-cache") -StreamOutput
+            $build = Invoke-Compose -Args @("build") -StreamOutput
         }
         if ($build.ExitCode -ne 0 -and (Test-ComposeBuildSuccessFromOutput -Output $build.Output)) {
             Write-Warn "Build returned a non-zero exit code but output looks successful; continuing..."
