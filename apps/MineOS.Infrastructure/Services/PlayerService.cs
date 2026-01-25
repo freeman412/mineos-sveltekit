@@ -463,8 +463,16 @@ public sealed class PlayerService : IPlayerService
 
     private static bool IsWorldFolder(string path)
     {
-        return File.Exists(Path.Combine(path, "level.dat")) ||
-               File.Exists(Path.Combine(path, "session.lock"));
+        // Check for level.dat or session.lock (traditional markers)
+        if (File.Exists(Path.Combine(path, "level.dat")) ||
+            File.Exists(Path.Combine(path, "session.lock")))
+        {
+            return true;
+        }
+
+        // Also accept if stats or playerdata directories exist (fallback for worlds without level.dat)
+        return Directory.Exists(Path.Combine(path, "stats")) ||
+               Directory.Exists(Path.Combine(path, "playerdata"));
     }
 
     private static PlayerAggregate EnsurePlayer(
