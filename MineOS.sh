@@ -612,7 +612,7 @@ start_web_dev_container() {
     fi
 
     info "Starting web dev container..."
-    "${COMPOSE_CMD[@]}" -f docker-compose.yml -f docker-compose.dev.yml up -d web-dev
+    "${COMPOSE_CMD[@]}" -f docker-compose.yml -f docker-compose.dev.yml up -d --force-recreate web-dev
 
     success "Web dev container started"
     echo -e "${CYAN}Web UI (dev):${NC} ${dev_origin_input}"
