@@ -172,25 +172,36 @@ public sealed class PlayerService : IPlayerService
         CancellationToken cancellationToken)
     {
         var serverPath = GetServerPath(serverName);
+        _logger.LogInformation("GetPlayerStatsAsync called for server '{ServerName}', player '{Uuid}'. Server path: '{ServerPath}'",
+            serverName, uuid, serverPath);
+
         if (!Directory.Exists(serverPath))
         {
+            _logger.LogWarning("Server directory not found: '{ServerPath}'", serverPath);
             throw new DirectoryNotFoundException($"Server '{serverName}' not found");
         }
 
         var worldPath = FindWorldPath(serverPath);
+        _logger.LogInformation("FindWorldPath returned: '{WorldPath}'", worldPath ?? "NULL");
+
         if (worldPath == null)
         {
+            _logger.LogWarning("No world folder found for server '{ServerName}' at path '{ServerPath}'", serverName, serverPath);
             throw new FileNotFoundException("No world folder found for server.");
         }
 
         var statsPath = Path.Combine(worldPath, "stats", $"{uuid}.json");
+        _logger.LogInformation("Checking for stats file at: '{StatsPath}'", statsPath);
+
         if (!File.Exists(statsPath))
         {
+            _logger.LogWarning("Stats file does not exist at path: '{StatsPath}'", statsPath);
             throw new FileNotFoundException($"Stats file not found for player {uuid}.");
         }
 
         var rawJson = await File.ReadAllTextAsync(statsPath, cancellationToken);
         var lastModified = File.GetLastWriteTimeUtc(statsPath);
+        _logger.LogInformation("Successfully loaded stats for player '{Uuid}' from '{StatsPath}'", uuid, statsPath);
         return new PlayerStatsDto(uuid, rawJson, lastModified);
     }
 
@@ -442,37 +453,79 @@ public sealed class PlayerService : IPlayerService
         }
     }
 
-    private static string? FindWorldPath(string serverPath)
+    private string? FindWorldPath(string serverPath)
     {
+        _logger.LogDebug("FindWorldPath: Searching for world folder in '{ServerPath}'", serverPath);
+
         var preferred = Path.Combine(serverPath, "world");
-        if (Directory.Exists(preferred) && IsWorldFolder(preferred))
+        _logger.LogDebug("FindWorldPath: Checking preferred world path '{PreferredPath}'", preferred);
+
+        if (Directory.Exists(preferred))
         {
-            return preferred;
+            _logger.LogDebug("FindWorldPath: Preferred path exists, checking if it's a valid world folder");
+            if (IsWorldFolder(preferred))
+            {
+                _logger.LogDebug("FindWorldPath: Preferred path is a valid world folder");
+                return preferred;
+            }
+            _logger.LogDebug("FindWorldPath: Preferred path exists but is not a valid world folder");
+        }
+        else
+        {
+            _logger.LogDebug("FindWorldPath: Preferred path does not exist");
         }
 
-        foreach (var dir in Directory.EnumerateDirectories(serverPath))
+        _logger.LogDebug("FindWorldPath: Scanning all subdirectories for world folder");
+        var directories = Directory.EnumerateDirectories(serverPath).ToList();
+        _logger.LogDebug("FindWorldPath: Found {Count} subdirectories: {Directories}",
+            directories.Count, string.Join(", ", directories.Select(Path.GetFileName)));
+
+        foreach (var dir in directories)
         {
+            _logger.LogDebug("FindWorldPath: Checking directory '{Dir}'", dir);
             if (IsWorldFolder(dir))
             {
+                _logger.LogInformation("FindWorldPath: Found valid world folder at '{Dir}'", dir);
                 return dir;
             }
         }
 
+        _logger.LogWarning("FindWorldPath: No valid world folder found in '{ServerPath}'", serverPath);
         return null;
     }
 
-    private static bool IsWorldFolder(string path)
+    private bool IsWorldFolder(string path)
     {
+        var levelDat = Path.Combine(path, "level.dat");
+        var sessionLock = Path.Combine(path, "session.lock");
+        var statsDir = Path.Combine(path, "stats");
+        var playerDataDir = Path.Combine(path, "playerdata");
+
+        var hasLevelDat = File.Exists(levelDat);
+        var hasSessionLock = File.Exists(sessionLock);
+        var hasStatsDir = Directory.Exists(statsDir);
+        var hasPlayerDataDir = Directory.Exists(playerDataDir);
+
+        _logger.LogDebug(
+            "IsWorldFolder: Checking '{Path}' - level.dat: {HasLevelDat}, session.lock: {HasSessionLock}, stats/: {HasStatsDir}, playerdata/: {HasPlayerDataDir}",
+            path, hasLevelDat, hasSessionLock, hasStatsDir, hasPlayerDataDir);
+
         // Check for level.dat or session.lock (traditional markers)
-        if (File.Exists(Path.Combine(path, "level.dat")) ||
-            File.Exists(Path.Combine(path, "session.lock")))
+        if (hasLevelDat || hasSessionLock)
         {
+            _logger.LogDebug("IsWorldFolder: '{Path}' is a world folder (has level.dat or session.lock)", path);
             return true;
         }
 
         // Also accept if stats or playerdata directories exist (fallback for worlds without level.dat)
-        return Directory.Exists(Path.Combine(path, "stats")) ||
-               Directory.Exists(Path.Combine(path, "playerdata"));
+        if (hasStatsDir || hasPlayerDataDir)
+        {
+            _logger.LogDebug("IsWorldFolder: '{Path}' is a world folder (has stats/ or playerdata/)", path);
+            return true;
+        }
+
+        _logger.LogDebug("IsWorldFolder: '{Path}' is NOT a world folder", path);
+        return false;
     }
 
     private static PlayerAggregate EnsurePlayer(
