@@ -1092,17 +1092,27 @@ function Start-WebDevContainer {
 
     $devOrigin = Get-EnvValue "WEB_ORIGIN_DEV"
     if ([string]::IsNullOrWhiteSpace($devOrigin)) { $devOrigin = "http://localhost:5174" }
-    $publicApi = Get-EnvValue "PUBLIC_API_BASE_URL"
-    if ([string]::IsNullOrWhiteSpace($publicApi)) { $publicApi = "http://localhost:$apiPort" }
 
     $devOriginInput = Read-Host "Dev web origin (default: $devOrigin)"
     if ([string]::IsNullOrWhiteSpace($devOriginInput)) { $devOriginInput = $devOrigin }
 
-    $publicApiInput = Read-Host "Public API base URL (default: $publicApi)"
-    if ([string]::IsNullOrWhiteSpace($publicApiInput)) { $publicApiInput = $publicApi }
+    $devHost = $null
+    try {
+        $uri = [Uri]$devOriginInput
+        if (-not [string]::IsNullOrWhiteSpace($uri.Host)) { $devHost = $uri.Host }
+    } catch {
+    }
+    if ([string]::IsNullOrWhiteSpace($devHost)) {
+        $trimmed = $devOriginInput -replace '^https?://', ''
+        $devHost = ($trimmed -split '/')[0]
+        if ($devHost -match ':') { $devHost = $devHost.Split(':')[0] }
+    }
+    if ([string]::IsNullOrWhiteSpace($devHost)) { $devHost = "localhost" }
 
+    $publicApiInput = "http://$devHost:$apiPort"
     Set-EnvValue -Key "WEB_ORIGIN_DEV" -Value $devOriginInput
     Set-EnvValue -Key "PUBLIC_API_BASE_URL" -Value $publicApiInput
+    Set-EnvValue -Key "VITE_ALLOWED_HOSTS" -Value $devHost
 
     Write-Info "Stopping web service (if running)..."
     [void](Invoke-Compose -Args @("stop", "web"))
@@ -1133,7 +1143,7 @@ function Start-WebDevContainer {
 
     Write-Success "Web dev container started"
     Write-Host "Web UI (dev): $devOriginInput" -ForegroundColor Cyan
-    Write-Host "API:          http://localhost:$apiPort" -ForegroundColor Cyan
+    Write-Host "API:          $publicApiInput" -ForegroundColor Cyan
 }
 
 function Stop-Services {

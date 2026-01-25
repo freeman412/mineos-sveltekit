@@ -525,19 +525,20 @@ start_web_dev_container() {
 
     local api_port
     local dev_origin
-    local public_api
     api_port=$(get_env_value API_PORT 2>/dev/null || echo "5078")
     dev_origin=$(get_env_value WEB_ORIGIN_DEV 2>/dev/null || echo "http://localhost:5174")
-    public_api=$(get_env_value PUBLIC_API_BASE_URL 2>/dev/null || echo "http://localhost:${api_port}")
 
     read -p "Dev web origin (default: ${dev_origin}): " dev_origin_input
     dev_origin_input=${dev_origin_input:-$dev_origin}
 
-    read -p "Public API base URL (default: ${public_api}): " public_api_input
-    public_api_input=${public_api_input:-$public_api}
+    local dev_host
+    dev_host=$(echo "$dev_origin_input" | sed -E 's#^https?://##' | cut -d/ -f1 | cut -d: -f1)
+    dev_host=${dev_host:-localhost}
+    local public_api_input="http://${dev_host}:${api_port}"
 
     set_env_file_value ".env" "WEB_ORIGIN_DEV" "$dev_origin_input"
     set_env_file_value ".env" "PUBLIC_API_BASE_URL" "$public_api_input"
+    set_env_file_value ".env" "VITE_ALLOWED_HOSTS" "$dev_host"
 
     info "Stopping web service (if running)..."
     "${COMPOSE_CMD[@]}" stop web >/dev/null 2>&1 || true
@@ -564,7 +565,7 @@ start_web_dev_container() {
 
     success "Web dev container started"
     echo -e "${CYAN}Web UI (dev):${NC} ${dev_origin_input}"
-    echo -e "${CYAN}API:${NC} http://localhost:${api_port}"
+    echo -e "${CYAN}API:${NC} ${public_api_input}"
     echo ""
     read -p "Press Enter to continue..."
 }

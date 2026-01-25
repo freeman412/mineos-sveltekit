@@ -8,6 +8,7 @@ services:
       HOST: 0.0.0.0
       PORT: 5174
       CHOKIDAR_USEPOLLING: "1"
+      VITE_ALLOWED_HOSTS: ${VITE_ALLOWED_HOSTS:-}
       PUBLIC_API_BASE_URL: ${PUBLIC_API_BASE_URL:-http://localhost:${API_PORT:-5078}}
       PRIVATE_API_BASE_URL: http://api:5078
       PRIVATE_API_KEY: ${ApiKey__SeedKey}
