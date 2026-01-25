@@ -215,8 +215,11 @@ public sealed class WorldService : IWorldService
 
         _logger.LogInformation("Creating ZIP archive for world {WorldName} on server {ServerName}", worldName, serverName);
 
-        // Create a temporary file for the ZIP
+        // Create a temporary file path for the ZIP
         var tempFile = Path.GetTempFileName();
+
+        // Delete the empty file created by GetTempFileName() since ZipFile.CreateFromDirectory expects the file to not exist
+        File.Delete(tempFile);
 
         try
         {
