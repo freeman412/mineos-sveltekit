@@ -9,5 +9,6 @@ public sealed class SystemNotification
     public DateTimeOffset CreatedAt { get; set; }
     public DateTimeOffset? DismissedAt { get; set; }
     public bool IsRead { get; set; }
+    public int? RecipientUserId { get; set; } // Null means broadcast/global
     public string? ServerName { get; set; } // Null means global notification
 }

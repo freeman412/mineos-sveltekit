@@ -428,6 +428,7 @@ export type SystemNotification = {
 	createdAt: string;
 	dismissedAt: string | null;
 	isRead: boolean;
+	recipientUserId?: number | null;
 	serverName: string | null;
 };
 

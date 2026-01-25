@@ -685,6 +685,9 @@ namespace MineOS.Infrastructure.Migrations
                         .IsRequired()
                         .HasColumnType("TEXT");
 
+                    b.Property<int?>("RecipientUserId")
+                        .HasColumnType("INTEGER");
+
                     b.Property<string>("ServerName")
                         .HasMaxLength(256)
                         .HasColumnType("TEXT");
@@ -702,6 +705,8 @@ namespace MineOS.Infrastructure.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("CreatedAt");
+
+                    b.HasIndex("RecipientUserId");
 
                     b.HasIndex("ServerName", "CreatedAt");
 
