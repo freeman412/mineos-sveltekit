@@ -406,6 +406,14 @@
 				onkeydown={(event) => handleCardKeydown(event, server.name)}
 			>
 				<div class="card-header">
+					<div class="server-icon-wrapper">
+						<img
+							src="/api/servers/{server.name}/icon"
+							alt="{server.name} icon"
+							class="server-icon"
+							onerror="this.style.display='none'"
+						/>
+					</div>
 					<div class="server-title">
 						<StatusBadge variant={isCreating ? 'warning' : server.up ? 'success' : 'error'} dot size="lg" />
 						<h2>{server.name}</h2>
@@ -751,10 +759,25 @@
 		font-weight: 600;
 	}
 
+	.server-icon-wrapper {
+		flex-shrink: 0;
+	}
+
+	.server-icon {
+		width: 48px;
+		height: 48px;
+		border-radius: 8px;
+		border: 2px solid rgba(106, 176, 76, 0.3);
+		image-rendering: pixelated;
+		background: rgba(0, 0, 0, 0.3);
+		box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+	}
+
 	.server-title {
 		display: flex;
 		align-items: center;
 		gap: 10px;
+		flex: 1;
 	}
 
 	.server-title h2 {
