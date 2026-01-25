@@ -45,6 +45,7 @@ export const load: PageServerLoad = async ({ params, fetch }) => {
 	return {
 		config,
 		profiles,
+		serverName: params.name,
 		jarFiles: {
 			data: jarFiles,
 			error: jarFilesError

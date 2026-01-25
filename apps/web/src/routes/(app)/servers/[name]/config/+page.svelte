@@ -1,22 +1,22 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
+	import { untrack } from 'svelte';
 	import type { PageData, ActionData } from './$types';
 
 	let { data, form }: { data: PageData; form: ActionData } = $props();
 
-	let properties = $state<Record<string, string>>(data.properties.data || {});
+	let properties = $state<Record<string, string>>({ ...(data.properties.data || {}) });
 	let loading = $state(false);
 	let showAddModal = $state(false);
 	let newKey = $state('');
 	let newValue = $state('');
-	let lastDataProps = $state(data.properties.data);
+	let lastServerName = data.serverName;
 
-	// Only update properties when server data actually changes (not on every reactive update)
 	$effect(() => {
-		const currentData = data.properties.data;
-		if (currentData !== lastDataProps) {
-			properties = currentData || {};
-			lastDataProps = currentData;
+		const previousName = untrack(() => lastServerName);
+		if (data.serverName !== previousName) {
+			properties = { ...(data.properties.data || {}) };
+			lastServerName = data.serverName;
 		}
 	});
 

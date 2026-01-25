@@ -1,68 +1,47 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
+	import { untrack } from 'svelte';
 	import type { PageData, ActionData } from './$types';
 	import type { ServerConfig, Profile } from '$lib/api/types';
 
 	let { data, form }: { data: PageData; form: ActionData } = $props();
 
-	let config = $state<ServerConfig>({
-			java: {
-				javaBinary: '',
-				javaXmx: 4096,
-				javaXms: 4096,
-				javaTweaks: null,
-				jarFile: null,
-				jarArgs: null
-			},
-			minecraft: {
-				profile: null,
-				unconventional: false
-			},
-			onReboot: {
-				start: false
-			},
-			autoRestart: {
-				enabled: false,
-				maxAttempts: 3,
-				cooldownSeconds: 300,
-				attemptResetMinutes: 30,
-				notifyOnCrash: true,
-				notifyOnRestart: true
-			}
+	const defaultConfig: ServerConfig = {
+		java: {
+			javaBinary: '',
+			javaXmx: 4096,
+			javaXms: 4096,
+			javaTweaks: null,
+			jarFile: null,
+			jarArgs: null
+		},
+		minecraft: {
+			profile: null,
+			unconventional: false
+		},
+		onReboot: {
+			start: false
+		},
+		autoRestart: {
+			enabled: false,
+			maxAttempts: 3,
+			cooldownSeconds: 300,
+			attemptResetMinutes: 30,
+			notifyOnCrash: true,
+			notifyOnRestart: true
 		}
-	);
+	};
+
+	function cloneConfig(source?: ServerConfig | null) {
+		const safeSource = source ?? defaultConfig;
+		return JSON.parse(JSON.stringify(safeSource)) as ServerConfig;
+	}
+
+	let config = $state<ServerConfig>(cloneConfig(data.config.data));
 
 	let loading = $state(false);
 	let selectedProfile = $state(config.minecraft.profile ?? '');
-
-	$effect(() => {
-		config = data.config.data || {
-			java: {
-				javaBinary: '',
-				javaXmx: 4096,
-				javaXms: 4096,
-				javaTweaks: null,
-				jarFile: null,
-				jarArgs: null
-			},
-			minecraft: {
-				profile: null,
-				unconventional: false
-			},
-			onReboot: {
-				start: false
-			},
-			autoRestart: {
-				enabled: false,
-				maxAttempts: 3,
-				cooldownSeconds: 60,
-				attemptResetMinutes: 30,
-				notifyOnCrash: true,
-				notifyOnRestart: true
-			}
-		};
-		selectedProfile = config.minecraft.profile ?? '';
-	});
+	let lastServerName = data.serverName;
 
 	const javaTweaksPresets = [
 		{
@@ -151,9 +130,10 @@
 		}
 	}
 
-	$effect(() => {
-		config.minecraft.profile = selectedProfile.trim() ? selectedProfile : null;
-	});
+	function handleProfileChange(value: string) {
+		selectedProfile = value;
+		config.minecraft.profile = value.trim() ? value : null;
+	}
 
 	function applyJavaTweaksPreset(presetId: string) {
 		selectedJavaTweaksPreset = presetId;
@@ -166,6 +146,16 @@
 	function markTweaksCustom() {
 		selectedJavaTweaksPreset = 'custom';
 	}
+
+	$effect(() => {
+		const previousName = untrack(() => lastServerName);
+		if (data.serverName !== previousName) {
+			config = cloneConfig(data.config.data);
+			selectedProfile = config.minecraft.profile ?? '';
+			selectedJavaTweaksPreset = presetByValue.get(config.java.javaTweaks ?? '') ?? 'custom';
+			lastServerName = data.serverName;
+		}
+	});
 </script>
 
 <div class="page">
@@ -307,7 +297,12 @@
 					<div class="form-grid">
 					<div class="form-field">
 						<label for="profile">Profile (optional)</label>
-						<select id="profile" bind:value={selectedProfile}>
+						<select
+							id="profile"
+							bind:value={selectedProfile}
+							onchange={(event) =>
+								handleProfileChange((event.target as HTMLSelectElement).value)}
+						>
 							<option value="">None</option>
 							{#if selectedProfileMissing}
 								<option value={selectedProfile}>{selectedProfile} (custom)</option>
