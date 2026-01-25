@@ -84,29 +84,9 @@ services:
 
     depends_on:
       - api
-
-  proxy:
-    image: caddy:2
-    container_name: mineos-proxy
-    restart: unless-stopped
-    depends_on:
-      - web
-      - api
-    environment:
-      CADDY_SITE: ${CADDY_SITE:-:80}
-      CADDY_EMAIL: ${CADDY_EMAIL:-}
     ports:
-      - "${WEB_PORT:-3000}:80"
-      - "${PROXY_HTTPS_PORT:-443}:443"
-    volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile:ro
-      - caddy_data:/data
-      - caddy_config:/config
+      - "${WEB_PORT:-3000}:3000"
 
 networks:
   default:
     name: mineos-network
-
-volumes:
-  caddy_data:
-  caddy_config:

@@ -33,8 +33,9 @@ ENV HOST=0.0.0.0
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/package.json ./package.json
 COPY --from=build /app/build ./build
+COPY --from=build /app/server.js ./server.js
 
 EXPOSE 3000
 
-# Fail loud if the entrypoint isn't there
-CMD ["bash", "-lc", "set -euxo pipefail; ls -la; ls -la build; node build/index.js"]
+# Use custom server that handles WebSocket proxying
+CMD ["node", "server.js"]

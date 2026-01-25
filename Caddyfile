@@ -1,8 +1,0 @@
-{$CADDY_SITE::80} {
-	# WebSocket path to API for admin shell
-	@adminws path /api/v1/admin/shell/ws
-	reverse_proxy @adminws api:5078
-
-	# Everything else to SvelteKit
-	reverse_proxy web:3000
-}
