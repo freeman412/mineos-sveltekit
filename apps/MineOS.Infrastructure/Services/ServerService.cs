@@ -127,7 +127,9 @@ public class ServerService : IServerService
             ["generate-structures"] = "true",
             ["generator-settings"] = "",
             ["server-ip"] = "0.0.0.0",
-            ["enable-query"] = "false"
+            ["enable-query"] = "false",
+            ["white-list"] = "true",
+            ["enforce-whitelist"] = "true"
         };
 
         await File.WriteAllTextAsync(propertiesPath, IniParser.WriteSimple(defaultProperties), cancellationToken);
