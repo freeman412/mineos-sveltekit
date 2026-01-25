@@ -484,6 +484,8 @@ function Load-ExistingConfig {
     if ([string]::IsNullOrWhiteSpace($script:apiPort)) { $script:apiPort = "5078" }
     $script:webPort = Get-EnvValue "WEB_PORT"
     if ([string]::IsNullOrWhiteSpace($script:webPort)) { $script:webPort = "3000" }
+    $script:mcPublicHost = Get-EnvValue "PUBLIC_MINECRAFT_HOST"
+    if ([string]::IsNullOrWhiteSpace($script:mcPublicHost)) { $script:mcPublicHost = "localhost" }
     $script:mcPortRange = Get-EnvValue "MC_PORT_RANGE"
     if ([string]::IsNullOrWhiteSpace($script:mcPortRange)) { $script:mcPortRange = "25565-25570" }
     $script:baseDir = Get-EnvValue "HOST_BASE_DIRECTORY"
@@ -562,11 +564,15 @@ function Write-WebDevEnv {
     if ([string]::IsNullOrWhiteSpace($apiPortValue)) { $apiPortValue = "5078" }
     $apiKeyValue = $script:apiKey
     if ([string]::IsNullOrWhiteSpace($apiKeyValue)) { $apiKeyValue = Get-EnvValue "ApiKey__SeedKey" }
+    $mcHostValue = $script:mcPublicHost
+    if ([string]::IsNullOrWhiteSpace($mcHostValue)) { $mcHostValue = Get-EnvValue "PUBLIC_MINECRAFT_HOST" }
+    if ([string]::IsNullOrWhiteSpace($mcHostValue)) { $mcHostValue = "localhost" }
 
     Set-EnvFileValue -Path $webEnvPath -Key "PUBLIC_API_BASE_URL" -Value "http://localhost:$apiPortValue"
     Set-EnvFileValue -Path $webEnvPath -Key "PRIVATE_API_BASE_URL" -Value "http://localhost:$apiPortValue"
     if ($apiKeyValue) { Set-EnvFileValue -Path $webEnvPath -Key "PRIVATE_API_KEY" -Value $apiKeyValue }
     Set-EnvFileValue -Path $webEnvPath -Key "ORIGIN" -Value "http://localhost:5174"
+    Set-EnvFileValue -Path $webEnvPath -Key "PUBLIC_MINECRAFT_HOST" -Value $mcHostValue
 
     Write-Success "Updated apps\\web\\.env.local for dev"
 }
@@ -890,6 +896,9 @@ function Start-ConfigWizard {
     if ([string]::IsNullOrWhiteSpace($script:webPort)) { $script:webPort = "3000" }
     [void](Assert-PortNumber -Value $script:webPort -Name "Web UI port")
 
+    $script:mcPublicHost = Read-Host "Public Minecraft host (default: localhost)"
+    if ([string]::IsNullOrWhiteSpace($script:mcPublicHost)) { $script:mcPublicHost = "localhost" }
+
     $script:mcPortRange = Read-Host "Minecraft server port range (default: 25565-25570)"
     if ([string]::IsNullOrWhiteSpace($script:mcPortRange)) { $script:mcPortRange = "25565-25570" }
     $script:mcPortRange = Assert-PortRange -Value $script:mcPortRange -Name "Minecraft port range"
@@ -940,6 +949,9 @@ API_PORT=$apiPort
 WEB_PORT=$webPort
 MC_PORT_RANGE=$mcPortRange
 MC_EXTRA_PORTS=$mcExtraPorts
+
+# Minecraft Server Address
+PUBLIC_MINECRAFT_HOST=$mcPublicHost
 
 # Logging
 Logging__LogLevel__Default=Information

@@ -68,6 +68,9 @@ chmod +x MineOS.sh uninstall.sh
 **Need to change ports?**
 Edit `.env` and run `docker compose restart`
 
+**Copy Address shows localhost in production?**
+Set `PUBLIC_MINECRAFT_HOST` in `.env` and rebuild so the UI uses your public host.
+
 ## Screenshots
 
 ![Server List](docs/screenshots/servers.png)

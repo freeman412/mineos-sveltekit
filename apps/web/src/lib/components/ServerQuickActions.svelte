@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { createEventDispatcher } from 'svelte';
+	import { browser } from '$app/environment';
 	import { invalidateAll } from '$app/navigation';
 	import * as api from '$lib/api/client';
 	import { modal } from '$lib/stores/modal';
@@ -67,7 +68,11 @@
 	async function copyServerAddress() {
 		if (!server) return;
 		const port = server.config?.minecraft?.serverPort || 25565;
-		const address = `localhost:${port}`;
+		const envHost = import.meta.env.PUBLIC_MINECRAFT_HOST as string | undefined;
+		const host =
+			(envHost && envHost.trim()) ||
+			(browser ? window.location.hostname : 'localhost');
+		const address = host.includes(':') ? host : `${host}:${port}`;
 
 		try {
 			await navigator.clipboard.writeText(address);

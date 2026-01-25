@@ -217,8 +217,10 @@ set_env_file_value() {
 write_web_dev_env() {
     local api_port
     local api_key
+    local mc_host
     api_port=$(get_env_value API_PORT 2>/dev/null || echo "5078")
     api_key=$(get_env_value ApiKey__SeedKey 2>/dev/null || echo "")
+    mc_host=$(get_env_value PUBLIC_MINECRAFT_HOST 2>/dev/null || echo "localhost")
 
     mkdir -p apps/web
     local env_path="apps/web/.env.local"
@@ -227,6 +229,7 @@ write_web_dev_env() {
     if [ -n "$api_key" ]; then
         set_env_file_value "$env_path" "PRIVATE_API_KEY" "$api_key"
     fi
+    set_env_file_value "$env_path" "PUBLIC_MINECRAFT_HOST" "$mc_host"
     set_env_file_value "$env_path" "ORIGIN" "http://localhost:5174"
 
     success "Updated apps/web/.env.local for dev"
@@ -291,6 +294,9 @@ run_config_wizard() {
     read -p "Web UI origin (default: http://localhost:${web_port}): " web_origin
     web_origin=${web_origin:-http://localhost:${web_port}}
 
+    read -p "Public Minecraft host (default: localhost): " mc_public_host
+    mc_public_host=${mc_public_host:-localhost}
+
     echo ""
 
     # Optional: CurseForge API key
@@ -353,6 +359,9 @@ WEB_PORT=${web_port}
 WEB_ORIGIN_PROD=${web_origin}
 # CSRF / Absolute URLs
 ORIGIN=${web_origin}
+
+# Minecraft Server Address
+PUBLIC_MINECRAFT_HOST=${mc_public_host}
 
 # Logging
 Logging__LogLevel__Default=Information
