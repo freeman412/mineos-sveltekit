@@ -1,20 +1,7 @@
 {$CADDY_SITE::80} {
-	encode gzip zstd
-
 	# API routes
-	reverse_proxy /api/* api:5078 {
-		header_up X-Forwarded-Proto {scheme}
-	}
+	reverse_proxy /api/* api:5078
 
 	# SvelteKit SSR app
-	reverse_proxy * web:3000 {
-		header_up Host {host}
-		header_up X-Real-IP {remote_host}
-		header_up X-Forwarded-For {remote_host}
-		header_up X-Forwarded-Proto {scheme}
-		header_up X-Forwarded-Host {host}
-
-		# Flush for SSE/streaming
-		flush_interval -1
-	}
+	reverse_proxy * web:3000
 }
