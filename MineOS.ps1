@@ -486,6 +486,8 @@ function Load-ExistingConfig {
     if ([string]::IsNullOrWhiteSpace($script:webPort)) { $script:webPort = "3000" }
     $script:mcPublicHost = Get-EnvValue "PUBLIC_MINECRAFT_HOST"
     if ([string]::IsNullOrWhiteSpace($script:mcPublicHost)) { $script:mcPublicHost = "localhost" }
+    $script:bodySizeLimit = Get-EnvValue "BODY_SIZE_LIMIT"
+    if ([string]::IsNullOrWhiteSpace($script:bodySizeLimit)) { $script:bodySizeLimit = "Infinity" }
     $script:mcPortRange = Get-EnvValue "MC_PORT_RANGE"
     if ([string]::IsNullOrWhiteSpace($script:mcPortRange)) { $script:mcPortRange = "25565-25570" }
     $script:baseDir = Get-EnvValue "HOST_BASE_DIRECTORY"
@@ -899,6 +901,9 @@ function Start-ConfigWizard {
     $script:mcPublicHost = Read-Host "Public Minecraft host (default: localhost)"
     if ([string]::IsNullOrWhiteSpace($script:mcPublicHost)) { $script:mcPublicHost = "localhost" }
 
+    $script:bodySizeLimit = Read-Host "Web UI upload body size limit (default: Infinity)"
+    if ([string]::IsNullOrWhiteSpace($script:bodySizeLimit)) { $script:bodySizeLimit = "Infinity" }
+
     $script:mcPortRange = Read-Host "Minecraft server port range (default: 25565-25570)"
     if ([string]::IsNullOrWhiteSpace($script:mcPortRange)) { $script:mcPortRange = "25565-25570" }
     $script:mcPortRange = Assert-PortRange -Value $script:mcPortRange -Name "Minecraft port range"
@@ -952,6 +957,9 @@ MC_EXTRA_PORTS=$mcExtraPorts
 
 # Minecraft Server Address
 PUBLIC_MINECRAFT_HOST=$mcPublicHost
+
+# Web UI Upload Limits
+BODY_SIZE_LIMIT=$bodySizeLimit
 
 # Logging
 Logging__LogLevel__Default=Information
@@ -1212,6 +1220,73 @@ function Do-Update {
     Write-Host "Web UI: http://localhost:$webPort" -ForegroundColor Green
 }
 
+function Do-Reconfigure {
+    Write-Header "Reconfigure"
+
+    if (-not (Test-Path ".env")) {
+        Write-Error-Custom "No installation found. Run fresh install first."
+        return
+    }
+
+    Load-ExistingConfig
+
+    $newAdminUser = Read-Host "Admin username (default: $adminUser)"
+    if ([string]::IsNullOrWhiteSpace($newAdminUser)) { $newAdminUser = $adminUser }
+
+    $newAdminPass = $null
+    $adminPassSecure = Read-Host "Admin password (leave blank to keep current)" -AsSecureString
+    $adminPassCandidate = [Runtime.InteropServices.Marshal]::PtrToStringAuto(
+        [Runtime.InteropServices.Marshal]::SecureStringToBSTR($adminPassSecure)
+    )
+    if (-not [string]::IsNullOrWhiteSpace($adminPassCandidate)) { $newAdminPass = $adminPassCandidate }
+
+    $newBaseDir = Read-Host "Local storage directory (default: $baseDir)"
+    if ([string]::IsNullOrWhiteSpace($newBaseDir)) { $newBaseDir = $baseDir }
+
+    $newDataDir = Read-Host "Database directory (default: $dataDir)"
+    if ([string]::IsNullOrWhiteSpace($newDataDir)) { $newDataDir = $dataDir }
+
+    $newApiPort = Read-Host "API port (default: $apiPort)"
+    if ([string]::IsNullOrWhiteSpace($newApiPort)) { $newApiPort = $apiPort }
+    [void](Assert-PortNumber -Value $newApiPort -Name "API port")
+
+    $newWebPort = Read-Host "Web UI port (default: $webPort)"
+    if ([string]::IsNullOrWhiteSpace($newWebPort)) { $newWebPort = $webPort }
+    [void](Assert-PortNumber -Value $newWebPort -Name "Web UI port")
+
+    $newMcPublicHost = Read-Host "Public Minecraft host (default: $mcPublicHost)"
+    if ([string]::IsNullOrWhiteSpace($newMcPublicHost)) { $newMcPublicHost = $mcPublicHost }
+
+    $newBodySizeLimit = Read-Host "Web UI upload body size limit (default: $bodySizeLimit)"
+    if ([string]::IsNullOrWhiteSpace($newBodySizeLimit)) { $newBodySizeLimit = $bodySizeLimit }
+
+    $newMcPortRange = Read-Host "Minecraft server port range (default: $mcPortRange)"
+    if ([string]::IsNullOrWhiteSpace($newMcPortRange)) { $newMcPortRange = $mcPortRange }
+    $newMcPortRange = Assert-PortRange -Value $newMcPortRange -Name "Minecraft port range"
+
+    $newCurseforgeKey = Read-Host "CurseForge API key (leave blank to keep current)"
+    if ([string]::IsNullOrWhiteSpace($newCurseforgeKey)) { $newCurseforgeKey = Get-EnvValue "CurseForge__ApiKey" }
+
+    $newDiscordWebhook = Read-Host "Discord webhook URL (leave blank to keep current)"
+    if ([string]::IsNullOrWhiteSpace($newDiscordWebhook)) { $newDiscordWebhook = Get-EnvValue "Discord__WebhookUrl" }
+
+    Set-EnvValue -Key "Auth__SeedUsername" -Value $newAdminUser
+    if ($newAdminPass) { Set-EnvValue -Key "Auth__SeedPassword" -Value $newAdminPass }
+    Set-EnvValue -Key "HOST_BASE_DIRECTORY" -Value $newBaseDir
+    Set-EnvValue -Key "Data__Directory" -Value $newDataDir
+    Set-EnvValue -Key "API_PORT" -Value $newApiPort
+    Set-EnvValue -Key "WEB_PORT" -Value $newWebPort
+    Set-EnvValue -Key "PUBLIC_MINECRAFT_HOST" -Value $newMcPublicHost
+    Set-EnvValue -Key "BODY_SIZE_LIMIT" -Value $newBodySizeLimit
+    Set-EnvValue -Key "MC_PORT_RANGE" -Value $newMcPortRange
+    if ($newCurseforgeKey -ne $null) { Set-EnvValue -Key "CurseForge__ApiKey" -Value $newCurseforgeKey }
+    if ($newDiscordWebhook -ne $null) { Set-EnvValue -Key "Discord__WebhookUrl" -Value $newDiscordWebhook }
+
+    Write-WebDevEnv
+    Write-Success "Configuration updated."
+    Write-Info "Restart services to apply changes."
+}
+
 function Show-Menu {
     Clear-Host
     Write-Host ""
@@ -1248,6 +1323,7 @@ function Show-Menu {
         Write-Host " [3] Restart Services" -ForegroundColor White
         Write-Host " [4] View Logs" -ForegroundColor White
         Write-Host " [5] Show Status" -ForegroundColor White
+        Write-Host " [R] Reconfigure (update .env)" -ForegroundColor Yellow
         Write-Host ""
         Write-Host " [6] Rebuild (keep config)" -ForegroundColor Yellow
         Write-Host " [7] Update (git pull + rebuild)" -ForegroundColor Yellow
@@ -1287,6 +1363,7 @@ function Main {
                 "3" { Restart-Services; Read-Host "Press Enter to continue" }
                 "4" { Show-Logs }
                 "5" { Show-Status; Read-Host "Press Enter to continue" }
+                "R" { Do-Reconfigure; Read-Host "Press Enter to continue" }
                 "6" { Do-Rebuild; Read-Host "Press Enter to continue" }
                 "7" { Do-Update; Read-Host "Press Enter to continue" }
                 "8" { Do-FreshInstall; Read-Host "Press Enter to continue" }

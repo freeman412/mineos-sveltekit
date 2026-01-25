@@ -297,6 +297,9 @@ run_config_wizard() {
     read -p "Public Minecraft host (default: localhost): " mc_public_host
     mc_public_host=${mc_public_host:-localhost}
 
+    read -p "Web UI upload body size limit (default: Infinity): " body_size_limit
+    body_size_limit=${body_size_limit:-Infinity}
+
     echo ""
 
     # Optional: CurseForge API key
@@ -362,6 +365,9 @@ ORIGIN=${web_origin}
 
 # Minecraft Server Address
 PUBLIC_MINECRAFT_HOST=${mc_public_host}
+
+# Web UI Upload Limits
+BODY_SIZE_LIMIT=${body_size_limit}
 
 # Logging
 Logging__LogLevel__Default=Information
@@ -654,6 +660,113 @@ update() {
     rebuild
 }
 
+reconfigure() {
+    echo -e "${CYAN}Reconfigure${NC}"
+    echo ""
+
+    if ! is_installed; then
+        error "No installation found. Run fresh install first."
+        read -p "Press Enter to continue..."
+        return
+    fi
+
+    local admin_user_current
+    local admin_pass_current
+    local host_base_dir_current
+    local data_dir_current
+    local api_port_current
+    local web_port_current
+    local web_origin_current
+    local mc_public_host_current
+    local body_size_limit_current
+    local curseforge_current
+    local discord_current
+
+    admin_user_current=$(get_env_value Auth__SeedUsername 2>/dev/null || echo "admin")
+    admin_pass_current=$(get_env_value Auth__SeedPassword 2>/dev/null || echo "")
+    host_base_dir_current=$(get_env_value HOST_BASE_DIRECTORY 2>/dev/null || echo "$DEFAULT_HOST_BASE_DIR")
+    data_dir_current=$(get_env_value Data__Directory 2>/dev/null || echo "$DEFAULT_DATA_DIR")
+    api_port_current=$(get_env_value API_PORT 2>/dev/null || echo "5078")
+    web_port_current=$(get_env_value WEB_PORT 2>/dev/null || echo "3000")
+    web_origin_current=$(get_env_value WEB_ORIGIN_PROD 2>/dev/null || echo "http://localhost:${web_port_current}")
+    mc_public_host_current=$(get_env_value PUBLIC_MINECRAFT_HOST 2>/dev/null || echo "localhost")
+    body_size_limit_current=$(get_env_value BODY_SIZE_LIMIT 2>/dev/null || echo "Infinity")
+    curseforge_current=$(get_env_value CurseForge__ApiKey 2>/dev/null || echo "")
+    discord_current=$(get_env_value Discord__WebhookUrl 2>/dev/null || echo "")
+
+    read -p "Admin username (default: ${admin_user_current}): " admin_user
+    admin_user=${admin_user:-$admin_user_current}
+
+    read -sp "Admin password (leave blank to keep current): " admin_pass
+    echo ""
+    if [ -z "$admin_pass" ]; then
+        admin_pass="$admin_pass_current"
+    fi
+
+    read -p "Local storage directory (default: ${host_base_dir_current}): " host_base_dir_input
+    host_base_dir_input=${host_base_dir_input:-$host_base_dir_current}
+    host_base_dir=$(normalize_relative_path "$host_base_dir_input")
+    if [ -z "$host_base_dir" ]; then
+        host_base_dir="$host_base_dir_current"
+    fi
+
+    read -p "Database directory (default: ${data_dir_current}): " data_dir_input
+    data_dir_input=${data_dir_input:-$data_dir_current}
+    data_dir=$(normalize_relative_path "$data_dir_input")
+    if [ -z "$data_dir" ]; then
+        data_dir="$data_dir_current"
+    fi
+
+    read -p "API port (default: ${api_port_current}): " api_port
+    api_port=${api_port:-$api_port_current}
+
+    read -p "Web UI port (default: ${web_port_current}): " web_port
+    web_port=${web_port:-$web_port_current}
+
+    read -p "Web UI origin (default: ${web_origin_current}): " web_origin
+    web_origin=${web_origin:-$web_origin_current}
+
+    read -p "Public Minecraft host (default: ${mc_public_host_current}): " mc_public_host
+    mc_public_host=${mc_public_host:-$mc_public_host_current}
+
+    read -p "Web UI upload body size limit (default: ${body_size_limit_current}): " body_size_limit
+    body_size_limit=${body_size_limit:-$body_size_limit_current}
+
+    read -p "CurseForge API key (leave blank to keep current): " curseforge_key
+    if [ -z "$curseforge_key" ]; then
+        curseforge_key="$curseforge_current"
+    fi
+
+    read -p "Discord webhook URL (leave blank to keep current): " discord_webhook
+    if [ -z "$discord_webhook" ]; then
+        discord_webhook="$discord_current"
+    fi
+
+    set_env_file_value ".env" "Auth__SeedUsername" "$admin_user"
+    if [ -n "$admin_pass" ]; then
+        set_env_file_value ".env" "Auth__SeedPassword" "$admin_pass"
+    fi
+    set_env_file_value ".env" "HOST_BASE_DIRECTORY" "$host_base_dir"
+    set_env_file_value ".env" "Data__Directory" "$data_dir"
+    set_env_file_value ".env" "API_PORT" "$api_port"
+    set_env_file_value ".env" "WEB_PORT" "$web_port"
+    set_env_file_value ".env" "WEB_ORIGIN_PROD" "$web_origin"
+    set_env_file_value ".env" "ORIGIN" "$web_origin"
+    set_env_file_value ".env" "PUBLIC_MINECRAFT_HOST" "$mc_public_host"
+    set_env_file_value ".env" "BODY_SIZE_LIMIT" "$body_size_limit"
+    if [ -n "$curseforge_key" ]; then
+        set_env_file_value ".env" "CurseForge__ApiKey" "$curseforge_key"
+    fi
+    if [ -n "$discord_webhook" ]; then
+        set_env_file_value ".env" "Discord__WebhookUrl" "$discord_webhook"
+    fi
+
+    write_web_dev_env
+    success "Configuration updated."
+    info "Restart services to apply changes."
+    read -p "Press Enter to continue..."
+}
+
 # Show menu for not installed state
 show_menu_not_installed() {
     echo -e "${CYAN}Options:${NC}"
@@ -670,6 +783,7 @@ show_menu_installed() {
     echo "  [3] Restart Services"
     echo "  [4] View Logs"
     echo "  [5] Show Status"
+    echo "  [R] Reconfigure (update .env)"
     echo ""
     echo "  [6] Rebuild (keep config)"
     echo "  [7] Update (git pull + rebuild)"
@@ -701,6 +815,7 @@ main() {
                 3) restart_services; read -p "Press Enter to continue..." ;;
                 4) view_logs ;;
                 5) show_detailed_status ;;
+                [Rr]) reconfigure ;;
                 6) rebuild ;;
                 7) update ;;
                 8) fresh_install ;;
