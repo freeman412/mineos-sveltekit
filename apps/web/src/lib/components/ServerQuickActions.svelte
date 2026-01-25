@@ -14,6 +14,15 @@
 	let status = $derived((server?.status ?? '').toLowerCase());
 	let isRunning = $derived(status === 'up' || status === 'running');
 
+	// Calculate the server address to display
+	const serverAddress = $derived.by(() => {
+		if (!server) return '';
+		const port = server.config?.minecraft?.serverPort || 25565;
+		const envHost = import.meta.env.PUBLIC_MINECRAFT_HOST as string | undefined;
+		const host = (envHost && envHost.trim()) || (browser ? window.location.hostname : 'localhost');
+		return host.includes(':') ? host : `${host}:${port}`;
+	});
+
 	async function handleAction(action: 'start' | 'stop' | 'restart' | 'kill') {
 		if (!server) return;
 
@@ -66,22 +75,16 @@
 	}
 
 	async function copyServerAddress() {
-		if (!server) return;
-		const port = server.config?.minecraft?.serverPort || 25565;
-		const envHost = import.meta.env.PUBLIC_MINECRAFT_HOST as string | undefined;
-		const host =
-			(envHost && envHost.trim()) ||
-			(browser ? window.location.hostname : 'localhost');
-		const address = host.includes(':') ? host : `${host}:${port}`;
+		if (!serverAddress) return;
 
 		try {
-			await navigator.clipboard.writeText(address);
+			await navigator.clipboard.writeText(serverAddress);
 			copied = true;
 			setTimeout(() => {
 				copied = false;
 			}, 2000);
 		} catch (err) {
-			await modal.error('Failed to copy to clipboard');
+			await modal.error('Failed to copy to clipboard. Make sure your browser allows clipboard access.');
 		}
 	}
 
@@ -93,12 +96,13 @@
 		<div class="address-section">
 			<div class="address-display">
 				<code class="server-address">
-					localhost:{server.config?.minecraft?.serverPort || 25565}
+					{serverAddress}
 				</code>
 				<button
 					class="btn-copy"
 					onclick={copyServerAddress}
 					title="Copy server address"
+					disabled={!serverAddress}
 				>
 					{#if copied}
 						<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
