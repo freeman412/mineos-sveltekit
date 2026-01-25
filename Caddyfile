@@ -1,5 +1,7 @@
 {
-	email {$CADDY_EMAIL}
+	# email is only needed for HTTPS/ACME certificates
+	# Set CADDY_EMAIL env var if using automatic HTTPS
+	email {$CADDY_EMAIL:admin@localhost}
 }
 
 {$CADDY_SITE:http://localhost} {
