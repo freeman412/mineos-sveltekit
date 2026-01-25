@@ -1,10 +1,17 @@
 {$CADDY_SITE::80} {
-	# API routes - /api* matches /api, /api/, /api/anything
-	@api path /api*
-	reverse_proxy @api api:5078
+	# API routes - match any path starting with /api
+	@api {
+		path /api
+		path /api/*
+	}
+	handle @api {
+		reverse_proxy api:5078
+	}
 
 	# SvelteKit SSR app - preserve original Host header
-	reverse_proxy web:3000 {
-		header_up Host {http.request.host}
+	handle {
+		reverse_proxy web:3000 {
+			header_up Host {http.request.host}
+		}
 	}
 }
