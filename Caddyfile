@@ -1,4 +1,4 @@
-{$CADDY_SITE:http://localhost} {
+{$CADDY_SITE::80} {
 	encode gzip zstd
 	reverse_proxy /api* api:5078
 	reverse_proxy web:3000
