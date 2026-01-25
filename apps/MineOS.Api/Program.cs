@@ -169,6 +169,7 @@ builder.Services.AddSingleton<BackgroundJobService>();
 builder.Services.AddSingleton<IBackgroundJobService>(sp => sp.GetRequiredService<BackgroundJobService>());
 builder.Services.AddHostedService(sp => sp.GetRequiredService<BackgroundJobService>());
 builder.Services.AddHostedService<PerformanceCollectorService>();
+builder.Services.AddHostedService<LanBroadcastService>();
 builder.Services.AddSingleton<WatchdogService>();
 builder.Services.AddSingleton<IWatchdogService>(sp => sp.GetRequiredService<WatchdogService>());
 builder.Services.AddHostedService(sp => sp.GetRequiredService<WatchdogService>());

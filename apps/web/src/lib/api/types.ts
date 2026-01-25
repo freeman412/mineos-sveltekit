@@ -86,6 +86,7 @@ export type JavaConfig = {
 export type MinecraftConfig = {
 	profile: string | null;
 	unconventional: boolean;
+	lanBroadcast: boolean;
 };
 
 export type OnRebootConfig = {

@@ -17,7 +17,8 @@
 		},
 		minecraft: {
 			profile: null,
-			unconventional: false
+			unconventional: false,
+			lanBroadcast: false
 		},
 		onReboot: {
 			start: false
@@ -295,32 +296,32 @@
 				<div class="section">
 					<h3>Minecraft Settings</h3>
 					<div class="form-grid">
-					<div class="form-field">
-						<label for="profile">Profile (optional)</label>
-						<select
-							id="profile"
-							bind:value={selectedProfile}
-							onchange={(event) =>
-								handleProfileChange((event.target as HTMLSelectElement).value)}
-						>
-							<option value="">None</option>
-							{#if selectedProfileMissing}
-								<option value={selectedProfile}>{selectedProfile} (custom)</option>
+						<div class="form-field">
+							<label for="profile">Profile (optional)</label>
+							<select
+								id="profile"
+								bind:value={selectedProfile}
+								onchange={(event) =>
+									handleProfileChange((event.target as HTMLSelectElement).value)}
+							>
+								<option value="">None</option>
+								{#if selectedProfileMissing}
+									<option value={selectedProfile}>{selectedProfile} (custom)</option>
+								{/if}
+								{#each Object.entries(profileGroups) as [groupName, items]}
+									<optgroup label={formatGroupLabel(groupName)}>
+										{#each items as profile}
+											<option value={profile.id}>
+												{profile.version} ({profile.type}{profile.downloaded ? '' : ' - will download'})
+											</option>
+										{/each}
+									</optgroup>
+								{/each}
+							</select>
+							{#if data.profiles?.error}
+								<p class="error-text">Failed to load profiles: {data.profiles.error}</p>
 							{/if}
-							{#each Object.entries(profileGroups) as [groupName, items]}
-								<optgroup label={formatGroupLabel(groupName)}>
-									{#each items as profile}
-										<option value={profile.id}>
-											{profile.version} ({profile.type}{profile.downloaded ? '' : ' - will download'})
-										</option>
-									{/each}
-								</optgroup>
-							{/each}
-						</select>
-						{#if data.profiles?.error}
-							<p class="error-text">Failed to load profiles: {data.profiles.error}</p>
-						{/if}
-					</div>
+						</div>
 
 						<div class="form-field">
 							<label class="checkbox-label">
@@ -328,6 +329,17 @@
 								<span>Unconventional Server</span>
 							</label>
 							<p class="field-hint">Enable for modded servers or custom setups</p>
+						</div>
+
+						<div class="form-field">
+							<label class="checkbox-label">
+								<input type="checkbox" bind:checked={config.minecraft.lanBroadcast} />
+								<span>Broadcast on LAN</span>
+							</label>
+							<p class="field-hint">
+								Advertises the server on the local network so Minecraft clients can discover it without
+								adding an IP. Requires multicast to be allowed on your LAN.
+							</p>
 						</div>
 					</div>
 				</div>

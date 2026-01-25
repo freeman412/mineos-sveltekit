@@ -143,6 +143,12 @@ public class ServerService : IServerService
                 ["java_xmx"] = "4096",
                 ["java_xms"] = "4096"
             },
+            ["minecraft"] = new()
+            {
+                ["profile"] = "",
+                ["unconventional"] = "false",
+                ["lan_broadcast"] = "false"
+            },
             ["onreboot"] = new()
             {
                 ["start"] = "false"
@@ -509,6 +515,11 @@ public class ServerService : IServerService
 
     public async Task UpdateServerPropertiesAsync(string name, Dictionary<string, string> properties, CancellationToken cancellationToken)
     {
+        var existingProperties = await GetServerPropertiesAsync(name, cancellationToken);
+        var existingWorld = GetActiveWorldName(existingProperties);
+        var updatedWorld = GetActiveWorldName(properties);
+        var worldChanged = !string.Equals(existingWorld, updatedWorld, StringComparison.OrdinalIgnoreCase);
+
         if (properties.TryGetValue("server-port", out var portValue))
         {
             if (!int.TryParse(portValue, out var port) || port < 1 || port > 65535)
@@ -528,6 +539,11 @@ public class ServerService : IServerService
         await File.WriteAllTextAsync(propertiesPath, content, cancellationToken);
         await OwnershipHelper.ChangeOwnershipAsync(propertiesPath, _options.RunAsUid, _options.RunAsGid, _logger, cancellationToken);
 
+        if (worldChanged)
+        {
+            MarkRestartRequired(name);
+        }
+
         _logger.LogInformation("Updated server.properties for {ServerName}", name);
     }
 
@@ -539,7 +555,7 @@ public class ServerService : IServerService
             // Return defaults
             return new ServerConfigDto(
                 new JavaConfigDto("", 4096, 4096, null, null, null),
-                new MinecraftConfigDto(null, false),
+                new MinecraftConfigDto(null, false, false),
                 new OnRebootConfigDto(false),
                 new AutoRestartConfigDto(false, 3, 300, 30, true, true)
             );
@@ -572,7 +588,8 @@ public class ServerService : IServerService
 
         var minecraft = new MinecraftConfigDto(
             GetOptionalValue(minecraftSection, "profile"),
-            bool.TryParse(minecraftSection.GetValueOrDefault("unconventional", "false"), out var unconventional) && unconventional
+            bool.TryParse(minecraftSection.GetValueOrDefault("unconventional", "false"), out var unconventional) && unconventional,
+            bool.TryParse(minecraftSection.GetValueOrDefault("lan_broadcast", "false"), out var lanBroadcast) && lanBroadcast
         );
 
         var onreboot = new OnRebootConfigDto(
@@ -608,7 +625,8 @@ public class ServerService : IServerService
             ["minecraft"] = new()
             {
                 ["profile"] = config.Minecraft.Profile ?? "",
-                ["unconventional"] = config.Minecraft.Unconventional.ToString().ToLower()
+                ["unconventional"] = config.Minecraft.Unconventional.ToString().ToLower(),
+                ["lan_broadcast"] = config.Minecraft.LanBroadcast.ToString().ToLower()
             },
             ["onreboot"] = new()
             {
@@ -962,6 +980,16 @@ public class ServerService : IServerService
         }
 
         return port;
+    }
+
+    private static string GetActiveWorldName(Dictionary<string, string> properties)
+    {
+        if (properties.TryGetValue("level-name", out var name) && !string.IsNullOrWhiteSpace(name))
+        {
+            return name.Trim();
+        }
+
+        return "world";
     }
 
     private static void CopyDirectory(

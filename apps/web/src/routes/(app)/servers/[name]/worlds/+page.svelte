@@ -17,6 +17,7 @@
 	let uploadingNew = $state(false);
 	let uploadNewProgress = $state<number>(0);
 	let serverProperties = $state<Record<string, string>>({});
+	let settingActiveWorld = $state<string | null>(null);
 	let newWorldName = $state('');
 	let newWorldSeed = $state('');
 	let newWorldType = $state('DEFAULT');
@@ -317,6 +318,49 @@
 			creatingWorld = false;
 		}
 	}
+
+	async function handleSetActiveWorld(worldKey: string) {
+		if (!data.server) return;
+		if (!canEditProperties) {
+			await modal.error('Server properties are unavailable right now.');
+			return;
+		}
+		if (isServerRunning) {
+			await modal.error('Stop the server before switching the active world.');
+			return;
+		}
+		if (worldKey.toLowerCase() === activeWorldName.toLowerCase()) {
+			return;
+		}
+
+		const confirmed = await modal.confirm(
+			`Set "${worldKey}" as the active world? The server will need to restart to take effect.`,
+			'Set Active World'
+		);
+		if (!confirmed) return;
+
+		settingActiveWorld = worldKey;
+		try {
+			const nextProperties = {
+				...serverProperties,
+				'level-name': worldKey
+			};
+
+			const result = await api.updateServerProperties(fetch, data.server.name, nextProperties);
+			if (result.error) {
+				await modal.error(result.error);
+				return;
+			}
+
+			serverProperties = nextProperties;
+			await invalidateAll();
+			await modal.success('Active world updated. Restart the server to load it.');
+		} catch (err) {
+			await modal.error(err instanceof Error ? err.message : 'Failed to update active world.');
+		} finally {
+			settingActiveWorld = null;
+		}
+	}
 </script>
 
 <div class="worlds-page">
@@ -446,9 +490,24 @@
 							<h3>{group.label}</h3>
 							<p class="subtitle">{group.worlds.length} dimension{group.worlds.length === 1 ? '' : 's'}</p>
 						</div>
-						{#if group.isActive}
-							<span class="badge">Active</span>
-						{/if}
+						<div class="world-group__actions">
+							{#if group.isActive}
+								<span class="badge">Active</span>
+							{:else}
+								<button
+									class="btn-secondary"
+									onclick={() => handleSetActiveWorld(group.key)}
+									disabled={!canEditProperties || isServerRunning || settingActiveWorld === group.key}
+									title={isServerRunning ? 'Stop server first' : 'Set this world as active'}
+								>
+									{#if settingActiveWorld === group.key}
+										Setting...
+									{:else}
+										Set Active
+									{/if}
+								</button>
+							{/if}
+						</div>
 					</div>
 
 					<div class="world-group__rows">
@@ -597,6 +656,29 @@
 	}
 
 	.btn-primary:disabled {
+		opacity: 0.5;
+		cursor: not-allowed;
+	}
+
+	.btn-secondary {
+		background: #2b2f45;
+		color: #d4d9f1;
+		border: 1px solid #3a3f5a;
+		border-radius: 8px;
+		padding: 10px 16px;
+		font-size: 13px;
+		font-weight: 600;
+		cursor: pointer;
+		transition: all 0.2s;
+		font-family: inherit;
+		white-space: nowrap;
+	}
+
+	.btn-secondary:hover:not(:disabled) {
+		background: #3a3f5a;
+	}
+
+	.btn-secondary:disabled {
 		opacity: 0.5;
 		cursor: not-allowed;
 	}
@@ -766,6 +848,12 @@
 		align-items: center;
 		justify-content: space-between;
 		gap: 16px;
+	}
+
+	.world-group__actions {
+		display: flex;
+		align-items: center;
+		gap: 12px;
 	}
 
 	.world-group__header h3 {

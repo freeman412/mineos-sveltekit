@@ -10,5 +10,6 @@ public record ServerConfiguration
     public string? JarArgs { get; init; }
     public string? Profile { get; init; }
     public bool Unconventional { get; init; }
+    public bool LanBroadcast { get; init; }
     public bool OnRebootStart { get; init; }
 }

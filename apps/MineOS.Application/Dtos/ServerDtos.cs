@@ -59,7 +59,8 @@ public record JavaConfigDto(
 
 public record MinecraftConfigDto(
     string? Profile,
-    bool Unconventional);
+    bool Unconventional,
+    bool LanBroadcast);
 
 public record OnRebootConfigDto(
     bool Start);
