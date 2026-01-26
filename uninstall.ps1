@@ -26,15 +26,16 @@ function Set-ComposeCommand {
     if (Test-CommandExists "docker") {
         try {
             docker compose version | Out-Null
-            $script:composeCmd = @("docker", "compose")
+            $script:composeExe  = "docker"
+            $script:composeBase = @("compose")
             $script:composeCmdText = "docker compose"
             return
-        } catch {
-        }
+        } catch { }
     }
 
     if (Test-CommandExists "docker-compose") {
-        $script:composeCmd = @("docker-compose")
+        $script:composeExe  = "docker-compose"
+        $script:composeBase = @()
         $script:composeCmdText = "docker-compose"
         return
     }
@@ -42,13 +43,19 @@ function Set-ComposeCommand {
     throw "Docker Compose not found"
 }
 
+function Invoke-Compose {
+    param([Parameter(ValueFromRemainingArguments=$true)][string[]]$Args)
+    & $script:composeExe @($script:composeBase + $Args)
+}
+
 function Compose-DownKeep {
-    & $script:composeCmd down --remove-orphans
+    Invoke-Compose down --remove-orphans
 }
 
 function Compose-DownRemove {
-    & $script:composeCmd down --remove-orphans
+    Invoke-Compose down --remove-orphans --volumes
 }
+
 
 function Backup-Data {
     $timestamp = Get-Date -Format "yyyyMMdd-HHmmss"
