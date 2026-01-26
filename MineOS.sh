@@ -60,6 +60,65 @@ error() {
     echo -e "${RED}[ERR]${NC} $1"
 }
 
+# JSON-escape string for simple payloads
+json_escape() {
+    printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g'
+}
+
+reset_admin_via_api() {
+    local api_port="$1"
+    local username="$2"
+    local password="$3"
+    local rotate_api="$4"
+
+    local api_key
+    api_key=$(get_env_value ApiKey__SeedKey 2>/dev/null || echo "")
+    if [ -z "$api_key" ]; then
+        warn "ApiKey__SeedKey is missing; cannot reset admin via API."
+        return 1
+    fi
+
+    local payload
+    payload=$(printf '{"username":"%s","password":"%s","rotateApiKey":%s}' \
+        "$(json_escape "$username")" \
+        "$(json_escape "$password")" \
+        "$rotate_api")
+
+    local response
+    if ! response=$(curl -fsSL -X POST \
+        -H "Content-Type: application/json" \
+        -H "X-Api-Key: ${api_key}" \
+        -d "$payload" \
+        "http://localhost:${api_port}/api/v1/auth/seed/reset"); then
+        warn "Failed to reset admin user via API. Check that the API is running."
+        return 1
+    fi
+
+    if [ "$rotate_api" = "true" ]; then
+        local new_key
+        if command_exists python3; then
+            new_key=$(python3 - <<'PY' "$response"
+import json, sys
+data = json.loads(sys.argv[1])
+print(data.get("apiKey") or "")
+PY
+)
+        else
+            new_key=$(echo "$response" | sed -n 's/.*"apiKey":"\\([^"]*\\)".*/\\1/p')
+        fi
+
+        if [ -n "$new_key" ]; then
+            set_env_file_value ".env" "ApiKey__SeedKey" "$new_key"
+            success "API key rotated and saved to .env"
+        else
+            warn "API key rotation requested but no key returned."
+        fi
+    fi
+
+    success "Admin credentials updated in database."
+    return 0
+}
+
 # Check if command exists
 command_exists() {
     command -v "$1" >/dev/null 2>&1
@@ -1211,6 +1270,27 @@ reconfigure() {
     read -p "Discord webhook URL (leave blank to keep current): " discord_webhook
     if [ -z "$discord_webhook" ]; then
         discord_webhook="$discord_current"
+    fi
+
+    echo ""
+    read -p "Reset admin user in database now? (y/N): " reset_admin_choice
+    reset_admin_choice=${reset_admin_choice:-N}
+    if [[ "$reset_admin_choice" =~ ^[Yy]$ ]]; then
+        if [ -z "$admin_pass" ]; then
+            read -sp "New admin password (required): " admin_pass
+            echo ""
+        fi
+        if [ -z "$admin_pass" ]; then
+            warn "Admin password is required to reset."
+        else
+            read -p "Rotate API key as well? (y/N): " rotate_api_choice
+            rotate_api_choice=${rotate_api_choice:-N}
+            if [[ "$rotate_api_choice" =~ ^[Yy]$ ]]; then
+                reset_admin_via_api "$api_port" "$admin_user" "$admin_pass" "true"
+            else
+                reset_admin_via_api "$api_port" "$admin_user" "$admin_pass" "false"
+            fi
+        fi
     fi
 
     set_env_file_value ".env" "Auth__SeedUsername" "$admin_user"

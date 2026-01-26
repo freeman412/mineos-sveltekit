@@ -99,3 +99,11 @@ public record UpdateCronRequest(bool Enabled);
 public record LoginRequestDto(string Username, string Password);
 
 public record LoginResultDto(string AccessToken, int ExpiresInSeconds, string TokenType, string Username, string Role);
+
+public record SeedResetRequestDto(
+    string Username,
+    string Password,
+    bool RotateApiKey = false,
+    string? ApiKey = null);
+
+public record SeedResetResultDto(string Username, string? ApiKey);

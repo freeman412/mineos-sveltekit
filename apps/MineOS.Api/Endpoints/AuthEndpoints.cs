@@ -1,10 +1,12 @@
 using System.IdentityModel.Tokens.Jwt;
 using System.Linq;
+using System.Security.Cryptography;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.EntityFrameworkCore;
 using MineOS.Application.Dtos;
 using MineOS.Application.Interfaces;
 using MineOS.Infrastructure.Persistence;
+using MineOS.Domain.Entities;
 
 namespace MineOS.Api.Endpoints;
 
@@ -26,6 +28,75 @@ public static class AuthEndpoints
         auth.MapPost("/logout", () => EndpointHelpers.NotImplementedFeature("auth.logout"))
             .AllowAnonymous()
             .WithMetadata(new MineOS.Api.Middleware.SkipApiKeyAttribute());
+
+        auth.MapPost("/seed/reset", async (
+            SeedResetRequestDto request,
+            AppDbContext db,
+            IPasswordHasher passwordHasher,
+            CancellationToken cancellationToken) =>
+        {
+            if (string.IsNullOrWhiteSpace(request.Username) || string.IsNullOrWhiteSpace(request.Password))
+            {
+                return Results.BadRequest(new { error = "Username and password are required." });
+            }
+
+            var username = request.Username.Trim();
+            var user = await db.Users.FirstOrDefaultAsync(
+                u => u.Username.ToLower() == username.ToLower(),
+                cancellationToken);
+
+            if (user == null)
+            {
+                user = new User
+                {
+                    Username = username,
+                    PasswordHash = passwordHasher.Hash(request.Password),
+                    Role = "admin",
+                    CreatedAt = DateTimeOffset.UtcNow,
+                    IsActive = true
+                };
+                db.Users.Add(user);
+                await db.SaveChangesAsync(cancellationToken);
+            }
+            else
+            {
+                user.PasswordHash = passwordHasher.Hash(request.Password);
+                user.IsActive = true;
+                if (string.IsNullOrWhiteSpace(user.Role))
+                {
+                    user.Role = "admin";
+                }
+                await db.SaveChangesAsync(cancellationToken);
+            }
+
+            string? newApiKey = null;
+            if (request.RotateApiKey)
+            {
+                var activeKeys = await db.ApiKeys.Where(k => !k.Revoked).ToListAsync(cancellationToken);
+                foreach (var key in activeKeys)
+                {
+                    key.Revoked = true;
+                }
+
+                newApiKey = string.IsNullOrWhiteSpace(request.ApiKey)
+                    ? Convert.ToBase64String(RandomNumberGenerator.GetBytes(32))
+                    : request.ApiKey.Trim();
+
+                db.ApiKeys.Add(new ApiKey
+                {
+                    UserId = user.Id,
+                    Key = newApiKey,
+                    Name = "default",
+                    Permissions = """["*"]""",
+                    CreatedAt = DateTimeOffset.UtcNow,
+                    Revoked = false
+                });
+
+                await db.SaveChangesAsync(cancellationToken);
+            }
+
+            return Results.Ok(new SeedResetResultDto(user.Username, newApiKey));
+        });
 
         auth.MapGet("/me", async (
                 System.Security.Claims.ClaimsPrincipal user,

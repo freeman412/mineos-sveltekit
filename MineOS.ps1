@@ -705,6 +705,45 @@ function Get-CaddySite {
     }
 }
 
+function Invoke-SeedReset {
+    param(
+        [string]$Username,
+        [string]$Password,
+        [bool]$RotateApiKey,
+        [string]$ApiPort
+    )
+
+    $apiKey = Get-EnvValue "ApiKey__SeedKey"
+    if ([string]::IsNullOrWhiteSpace($apiKey)) {
+        Write-Warn "ApiKey__SeedKey is missing; cannot reset admin via API."
+        return
+    }
+
+    $payload = @{
+        username = $Username
+        password = $Password
+        rotateApiKey = $RotateApiKey
+    } | ConvertTo-Json
+
+    try {
+        $response = Invoke-RestMethod -Method Post `
+            -Uri "http://localhost:$ApiPort/api/v1/auth/seed/reset" `
+            -Headers @{ "X-Api-Key" = $apiKey } `
+            -ContentType "application/json" `
+            -Body $payload
+    } catch {
+        Write-Warn "Failed to reset admin via API. Ensure the API service is running."
+        return
+    }
+
+    if ($RotateApiKey -and $response.apiKey) {
+        Set-EnvValue -Key "ApiKey__SeedKey" -Value $response.apiKey
+        Write-Success "API key rotated and saved to .env"
+    }
+
+    Write-Success "Admin credentials updated in database."
+}
+
 function Assert-PortNumber {
     param([string]$Value, [string]$Name)
     if (-not ($Value -match '^\d+$')) { throw "$Name must be a number." }
@@ -1635,6 +1674,24 @@ function Do-Reconfigure {
 
     $newDiscordWebhook = Read-Host "Discord webhook URL (leave blank to keep current)"
     if ([string]::IsNullOrWhiteSpace($newDiscordWebhook)) { $newDiscordWebhook = Get-EnvValue "Discord__WebhookUrl" }
+
+    $resetChoice = Read-Host "Reset admin user in database now? (y/N)"
+    if ($resetChoice -match '^[Yy]$') {
+        if (-not $newAdminPass) {
+            $resetPassSecure = Read-Host "New admin password (required)" -AsSecureString
+            $resetPass = [Runtime.InteropServices.Marshal]::PtrToStringAuto(
+                [Runtime.InteropServices.Marshal]::SecureStringToBSTR($resetPassSecure)
+            )
+            $newAdminPass = $resetPass
+        }
+        if ([string]::IsNullOrWhiteSpace($newAdminPass)) {
+            Write-Warn "Admin password is required to reset."
+        } else {
+            $rotateChoice = Read-Host "Rotate API key as well? (y/N)"
+            $rotate = $rotateChoice -match '^[Yy]$'
+            Invoke-SeedReset -Username $newAdminUser -Password $newAdminPass -RotateApiKey $rotate -ApiPort $newApiPort
+        }
+    }
 
     Set-EnvValue -Key "Auth__SeedUsername" -Value $newAdminUser
     if ($newAdminPass) { Set-EnvValue -Key "Auth__SeedPassword" -Value $newAdminPass }
