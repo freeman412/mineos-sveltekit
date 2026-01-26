@@ -1,8 +1,17 @@
 import { redirect } from '@sveltejs/kit';
 import type { LayoutServerLoad } from './$types';
 import * as api from '$lib/api/client';
+import { isDemoMode } from '$lib/demo/mode';
 
 export const load: LayoutServerLoad = async ({ cookies, fetch, url }) => {
+	if (isDemoMode) {
+		return {
+			user: { id: 'demo', username: 'demo', role: 'admin' },
+			servers: [],
+			profiles: []
+		};
+	}
+
 	const token = cookies.get('auth_token');
 	const userJson = cookies.get('auth_user');
 

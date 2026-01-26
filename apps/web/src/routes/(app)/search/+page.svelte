@@ -1,6 +1,7 @@
 <script lang="ts">
 	import type { PageData } from './$types';
 	import type { Profile, ServerSummary } from '$lib/api/types';
+	import { withBase } from '$lib/utils/paths';
 
 	let { data }: { data: PageData } = $props();
 
@@ -80,7 +81,7 @@
 					<ul class="result-list">
 						{#each filteredServers as server}
 							<li>
-								<a href="/servers/{server.name}" class="result-link">
+								<a href={withBase(`/servers/${server.name}`)} class="result-link">
 									<span>{server.name}</span>
 									<span class="meta">{server.up ? 'Running' : 'Stopped'}</span>
 								</a>

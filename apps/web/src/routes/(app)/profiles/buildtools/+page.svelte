@@ -3,6 +3,7 @@
 	import { invalidateAll } from '$app/navigation';
 	import { modal } from '$lib/stores/modal';
 	import type { ServerSummary } from '$lib/api/types';
+	import { withBase } from '$lib/utils/paths';
 
 	let buildGroup = $state('spigot');
 	let buildVersion = $state('');
@@ -327,7 +328,9 @@
 							</button>
 						</div>
 						{#if servers.length === 0}
-							<p class="no-servers">No servers available. <a href="/servers">Create a server</a> first.</p>
+							<p class="no-servers">
+								No servers available. <a href={withBase('/servers')}>Create a server</a> first.
+							</p>
 						{/if}
 					</div>
 

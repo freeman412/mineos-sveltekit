@@ -4,6 +4,7 @@
 	import * as api from '$lib/api/client';
 	import { modal } from '$lib/stores/modal';
 	import { formatBytes, formatUptime } from '$lib/utils/formatting';
+	import { withBase } from '$lib/utils/paths';
 	import { createEventStream, type EventStreamHandle } from '$lib/utils/eventStream';
 	import StatusBadge from '$lib/components/StatusBadge.svelte';
 	import type { PageData } from './$types';
@@ -66,7 +67,7 @@
 	}
 
 	function openServer(serverName: string) {
-		goto(`/servers/${encodeURIComponent(serverName)}`);
+		goto(withBase(`/servers/${encodeURIComponent(serverName)}`));
 	}
 
 	function handleServerKeydown(event: KeyboardEvent, serverName: string) {
@@ -149,7 +150,7 @@
 			<h1>Dashboard</h1>
 			<p class="subtitle">Overview of your Minecraft hosting environment</p>
 		</div>
-		<a href="/servers/new" class="btn-primary">+ Create Server</a>
+		<a href={withBase('/servers/new')} class="btn-primary">+ Create Server</a>
 	</div>
 
 	<!-- Quick Stats -->
@@ -258,7 +259,7 @@
 	<div class="servers-section">
 		<div class="section-header">
 			<h2>Servers</h2>
-			<a href="/servers" class="link-btn">View all -></a>
+			<a href={withBase('/servers')} class="link-btn">View all -></a>
 		</div>
 
 		{#if serversError}
@@ -352,7 +353,7 @@
 				<p class="empty-icon">[]</p>
 				<h3>No servers yet</h3>
 				<p>Create your first Minecraft server to get started</p>
-				<a href="/servers/new" class="btn-primary">Create Server</a>
+				<a href={withBase('/servers/new')} class="btn-primary">Create Server</a>
 			</div>
 		{/if}
 	</div>

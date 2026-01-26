@@ -5,6 +5,7 @@
 	import ServerQuickActions from '$lib/components/ServerQuickActions.svelte';
 	import ServerIconUploader from '$lib/components/ServerIconUploader.svelte';
 	import type { LayoutData } from './$types';
+	import { withBase } from '$lib/utils/paths';
 
 	let { data, children }: { data: LayoutData; children: any } = $props();
 	let server = $state(data.server);
@@ -15,18 +16,18 @@
 	});
 
 	const tabs = $derived.by(() => [
-		{ href: `/servers/${server?.name}`, label: 'Dashboard', exact: true },
-		{ href: `/servers/${server?.name}/config`, label: 'Properties' },
-		{ href: `/servers/${server?.name}/advanced`, label: 'Config' },
-		{ href: `/servers/${server?.name}/backups`, label: 'Backups' },
-		{ href: `/servers/${server?.name}/archives`, label: 'Archives' },
-		{ href: `/servers/${server?.name}/files`, label: 'Files' },
-		{ href: `/servers/${server?.name}/performance`, label: 'Performance' },
-		{ href: `/servers/${server?.name}/worlds`, label: 'Worlds' },
-		{ href: `/servers/${server?.name}/players`, label: 'Players' },
-		{ href: `/servers/${server?.name}/mods`, label: 'Mods' },
-		{ href: `/servers/${server?.name}/plugins`, label: 'Plugins' },
-		{ href: `/servers/${server?.name}/cron`, label: 'Cron Jobs' }
+		{ href: withBase(`/servers/${server?.name}`), label: 'Dashboard', exact: true },
+		{ href: withBase(`/servers/${server?.name}/config`), label: 'Properties' },
+		{ href: withBase(`/servers/${server?.name}/advanced`), label: 'Config' },
+		{ href: withBase(`/servers/${server?.name}/backups`), label: 'Backups' },
+		{ href: withBase(`/servers/${server?.name}/archives`), label: 'Archives' },
+		{ href: withBase(`/servers/${server?.name}/files`), label: 'Files' },
+		{ href: withBase(`/servers/${server?.name}/performance`), label: 'Performance' },
+		{ href: withBase(`/servers/${server?.name}/worlds`), label: 'Worlds' },
+		{ href: withBase(`/servers/${server?.name}/players`), label: 'Players' },
+		{ href: withBase(`/servers/${server?.name}/mods`), label: 'Mods' },
+		{ href: withBase(`/servers/${server?.name}/plugins`), label: 'Plugins' },
+		{ href: withBase(`/servers/${server?.name}/cron`), label: 'Cron Jobs' }
 	]);
 
 	function isActiveTab(href: string, exact = false) {
@@ -106,7 +107,7 @@
 <div class="server-container">
 	<div class="server-header">
 		<div class="server-info">
-			<a href="/servers" class="breadcrumb">&lt; Back to Servers</a>
+			<a href={withBase('/servers')} class="breadcrumb">&lt; Back to Servers</a>
 			<div class="title-row">
 				<h1>{server?.name}</h1>
 				<StatusBadge variant={statusMeta.running ? 'success' : 'warning'} size="lg">

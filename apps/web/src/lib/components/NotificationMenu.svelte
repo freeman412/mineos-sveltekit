@@ -3,6 +3,7 @@
 	import { onMount } from 'svelte';
 	import { uploads, type UploadEntry } from '$lib/stores/uploads';
 	import ProgressBar from './ProgressBar.svelte';
+	import { withBase } from '$lib/utils/paths';
 
 	let notifications = $state<SystemNotification[]>([]);
 	let activeJobs = $state<JobStatus[]>([]);
@@ -284,7 +285,7 @@
 								<span class="task-server">{job.serverName}</span>
 							</div>
 							{#if job.serverName}
-								<a class="task-link" href={`/servers/${encodeURIComponent(job.serverName)}`}>
+								<a class="task-link" href={withBase(`/servers/${encodeURIComponent(job.serverName)}`)}>
 									Details
 								</a>
 							{/if}
@@ -300,7 +301,10 @@
 								<span class="task-type">Modpack Install</span>
 								<span class="task-server">{modpack.serverName}</span>
 							</div>
-							<a class="task-link" href={`/servers/${encodeURIComponent(modpack.serverName)}`}>
+							<a
+								class="task-link"
+								href={withBase(`/servers/${encodeURIComponent(modpack.serverName)}`)}
+							>
 								Details
 							</a>
 							<ProgressBar
@@ -321,7 +325,10 @@
 								<span class="task-type">Forge Install</span>
 								<span class="task-server">{forgeInstall.serverName}</span>
 							</div>
-							<a class="task-link" href={`/servers/${encodeURIComponent(forgeInstall.serverName)}`}>
+							<a
+								class="task-link"
+								href={withBase(`/servers/${encodeURIComponent(forgeInstall.serverName)}`)}
+							>
 								Details
 							</a>
 							<ProgressBar value={forgeInstall.progress} color="blue" size="sm" showLabel />

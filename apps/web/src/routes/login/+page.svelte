@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
 	import type { ActionData } from './$types';
+	import { withBase } from '$lib/utils/paths';
 
 	let { form }: { form: ActionData } = $props();
 	let loading = $state(false);
@@ -23,7 +24,7 @@
 	<div class="login-box">
 		<div class="header">
 			<div class="logo-wrap">
-				<img src="/mineos-logo.svg" alt="MineOS logo" class="logo-icon" />
+				<img src={withBase('/mineos-logo.svg')} alt="MineOS logo" class="logo-icon" />
 				<div>
 					<h1>MineOS</h1>
 					<p class="tagline">Minecraft Control</p>

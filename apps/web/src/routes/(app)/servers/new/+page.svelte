@@ -5,6 +5,7 @@
 	import type { CurseForgeSearchResult, ForgeVersion } from '$lib/api/types';
 	import ProgressBar from '$lib/components/ProgressBar.svelte';
 	import StatusBadge from '$lib/components/StatusBadge.svelte';
+	import { withBase } from '$lib/utils/paths';
 
 	let { data }: { data: PageData } = $props();
 
@@ -325,7 +326,7 @@
 					throw new Error(result.error);
 				}
 				await invalidateAll();
-				goto(`/servers/${encodeURIComponent(serverName.trim())}`);
+				goto(withBase(`/servers/${encodeURIComponent(serverName.trim())}`));
 				return;
 			}
 
@@ -438,7 +439,7 @@
 			}
 
 			await invalidateAll();
-			goto('/servers');
+			goto(withBase('/servers'));
 		} catch (err) {
 			createError = err instanceof Error ? err.message : 'Failed to create server';
 			step = 'name';
@@ -494,7 +495,7 @@
 
 	function sendForgeToBackground() {
 		forgeWatching = false;
-		goto('/servers');
+		goto(withBase('/servers'));
 	}
 
 	function startModpackWatch() {
@@ -530,7 +531,7 @@
 			modpackStreamCleanup = null;
 		}
 		modpackWatching = false;
-		goto('/servers');
+		goto(withBase('/servers'));
 	}
 
 	function goToCreatedServer() {
@@ -538,7 +539,7 @@
 			modpackStreamCleanup();
 			modpackStreamCleanup = null;
 		}
-		goto(`/servers/${encodeURIComponent(serverName.trim())}`);
+		goto(withBase(`/servers/${encodeURIComponent(serverName.trim())}`));
 	}
 
 	function goBack() {
@@ -1016,7 +1017,7 @@
 		<!-- Navigation Buttons -->
 		<div class="wizard-actions">
 			{#if step === 'type'}
-				<a href="/servers" class="btn-secondary">Cancel</a>
+				<a href={withBase('/servers')} class="btn-secondary">Cancel</a>
 				<div></div>
 			{:else if step === 'version'}
 				<button class="btn-secondary" onclick={goBack}>Back</button>

@@ -3,6 +3,7 @@
 	import ModrinthSearch from '$lib/components/ModrinthSearch.svelte';
 	import type { PageData } from './$types';
 	import type { ServerSummary } from '$lib/api/types';
+	import { withBase } from '$lib/utils/paths';
 
 	let { data }: { data: PageData } = $props();
 
@@ -29,7 +30,7 @@
 	{:else if servers.length === 0}
 		<div class="info-box">
 			<p>Create a server before installing mods.</p>
-			<a href="/servers/new" class="btn-create">Create Server</a>
+			<a href={withBase('/servers/new')} class="btn-create">Create Server</a>
 		</div>
 	{:else}
 		<div class="controls-section">

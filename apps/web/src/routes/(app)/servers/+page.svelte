@@ -7,6 +7,7 @@
 	import { modal } from '$lib/stores/modal';
 	import { formatBytes, formatDate } from '$lib/utils/formatting';
 	import { createEventStream, type EventStreamHandle } from '$lib/utils/eventStream';
+	import { withBase } from '$lib/utils/paths';
 	import ProgressBar from '$lib/components/ProgressBar.svelte';
 	import StatusBadge from '$lib/components/StatusBadge.svelte';
 	import type { PageData } from './$types';
@@ -83,7 +84,7 @@
 
 	function handleCardClick(serverName: string) {
 		if (creatingServers.has(serverName)) return;
-		goto(`/servers/${encodeURIComponent(serverName)}`);
+		goto(withBase(`/servers/${encodeURIComponent(serverName)}`));
 	}
 
 	function handleCardKeydown(event: KeyboardEvent, serverName: string) {
@@ -383,7 +384,7 @@
 		<h1>Servers</h1>
 		<p class="subtitle">Manage your Minecraft servers</p>
 	</div>
-	<a href="/servers/new" class="btn-primary">
+	<a href={withBase('/servers/new')} class="btn-primary">
 		<span>+</span> Create Server
 	</a>
 </div>
@@ -514,7 +515,7 @@
 		<p class="empty-icon">[]</p>
 		<h2>No servers yet</h2>
 		<p>Create your first Minecraft server to get started</p>
-		<a href="/servers/new" class="btn-primary">Create Server</a>
+		<a href={withBase('/servers/new')} class="btn-primary">Create Server</a>
 	</div>
 {/if}
 

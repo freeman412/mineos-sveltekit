@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { withBase } from '$lib/utils/paths';
+
 	const version = '2.0.0-beta';
 	const buildId = import.meta.env.PUBLIC_BUILD_ID ?? 'dev';
 </script>
@@ -11,7 +13,7 @@
 
 	<div class="hero-section">
 		<div class="logo-container">
-			<img src="/mineos-logo.svg" alt="MineOS logo" class="logo" />
+			<img src={withBase('/mineos-logo.svg')} alt="MineOS logo" class="logo" />
 		</div>
 		<div class="hero-text">
 			<h2>MineOS SvelteKit Edition</h2>

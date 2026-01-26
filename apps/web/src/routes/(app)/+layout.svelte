@@ -6,11 +6,13 @@
 	import FeedbackButton from '$lib/components/FeedbackButton.svelte';
 	import MinecraftSheepPet from '$lib/components/MinecraftSheepPet.svelte';
 	import { sheepEnabled } from '$lib/stores/uiPreferences';
+	import { withBase } from '$lib/utils/paths';
+	import { isDemoMode } from '$lib/demo/mode';
 
 	let { data, children }: { data: LayoutData; children: any } = $props();
 
 	async function handleLogout() {
-		window.location.href = '/logout';
+		window.location.href = withBase('/logout');
 	}
 
 	const navItems = [
@@ -25,7 +27,8 @@
 	];
 
 	function isActive(href: string) {
-		return $page.url.pathname === href || $page.url.pathname.startsWith(href + '/');
+		const target = withBase(href);
+		return $page.url.pathname === target || $page.url.pathname.startsWith(target + '/');
 	}
 
 	function handleKeyboardShortcut(event: KeyboardEvent) {
@@ -58,7 +61,7 @@
 		const path = shortcuts[key];
 		if (path) {
 			event.preventDefault();
-			goto(path);
+			goto(withBase(path));
 		}
 	}
 </script>
@@ -81,8 +84,8 @@
 <div class="app-container">
 	<nav class="sidebar">
 		<div class="sidebar-header">
-			<a href="/dashboard" class="logo-wrap logo-link" aria-label="Go to dashboard">
-				<img src="/mineos-logo.svg" alt="MineOS logo" class="logo-icon" />
+			<a href={withBase('/dashboard')} class="logo-wrap logo-link" aria-label="Go to dashboard">
+				<img src={withBase('/mineos-logo.svg')} alt="MineOS logo" class="logo-icon" />
 				<div>
 					<div class="logo-title">
 						<h1 class="logo">MineOS</h1>
@@ -96,7 +99,7 @@
 		<ul class="nav-list">
 			{#each navItems.filter((item) => !item.requiresAdmin || data.user?.role === 'admin') as item}
 				<li>
-					<a href={item.href} class:active={isActive(item.href)}>
+					<a href={withBase(item.href)} class:active={isActive(item.href)}>
 						<span class="icon">{item.icon}</span>
 						<span>{item.label}</span>
 					</a>
@@ -105,7 +108,7 @@
 		</ul>
 
 	<div class="sidebar-footer">
-		<a href="/about" class="footer-link">
+		<a href={withBase('/about')} class="footer-link">
 			<span class="icon">[?]</span>
 			<span>About</span>
 		</a>
@@ -120,12 +123,17 @@
 		</a>
 		<button class="logout-btn" onclick={handleLogout}>
 			<span class="icon">[X]</span>
-			<span>Logout</span>
+			<span>{isDemoMode ? 'Exit Demo' : 'Logout'}</span>
 		</button>
 	</div>
 	</nav>
 
 	<div class="main-wrapper">
+		{#if isDemoMode}
+			<div class="demo-banner">
+				Demo mode: changes are disabled. Data resets on refresh.
+			</div>
+		{/if}
 		<TopBar user={data.user} servers={data.servers} profiles={data.profiles} />
 		<main class="main-content">
 			{@render children()}
@@ -512,6 +520,16 @@
 		width: 100%;
 		min-width: 0; /* Allow flexbox shrinking */
 		box-sizing: border-box;
+	}
+
+	.demo-banner {
+		background: rgba(91, 158, 255, 0.15);
+		border-bottom: 1px solid rgba(91, 158, 255, 0.35);
+		color: #a5b4fc;
+		font-size: 13px;
+		padding: 10px 24px;
+		letter-spacing: 0.04em;
+		text-transform: uppercase;
 	}
 
 	@media (max-width: 768px) {

@@ -5,6 +5,8 @@
 	"type": "module",
 	"scripts": {
 		"dev": "vite dev",
+		"demo:record": "node scripts/record-demo-data.mjs",
+		"demo:build": "cross-env PUBLIC_DEMO_MODE=1 SVELTE_ADAPTER=static SVELTE_BASE_PATH=/demo npm run build",
 		"build": "vite build",
 		"preview": "vite preview",
 		"prepare": "svelte-kit sync || echo ''",
@@ -17,8 +19,10 @@
 	"devDependencies": {
 		"@playwright/test": "^1.50.0",
 		"@sveltejs/adapter-node": "^5.4.0",
+		"@sveltejs/adapter-static": "^3.0.4",
 		"@sveltejs/kit": "^2.49.1",
 		"@sveltejs/vite-plugin-svelte": "^6.2.1",
+		"cross-env": "^7.0.3",
 		"svelte": "^5.45.6",
 		"svelte-check": "^4.3.4",
 		"typescript": "^5.9.3",

@@ -5,6 +5,7 @@
 	import NotificationMenu from './NotificationMenu.svelte';
 	import type { Profile, ServerSummary, ServerDetail } from '$lib/api/types';
 	import * as api from '$lib/api/client';
+	import { withBase } from '$lib/utils/paths';
 
 	let {
 		user,
@@ -118,7 +119,7 @@
 			type: 'server',
 			label: server.name,
 			meta: isRunning ? 'RUNNING' : 'STOPPED',
-			href: `/servers/${encodeURIComponent(server.name)}`,
+			href: withBase(`/servers/${encodeURIComponent(server.name)}`),
 			server
 		};
 	}
@@ -129,7 +130,7 @@
 			type: 'profile',
 			label: profile.id,
 			meta: `${profile.group} ${profile.version}`,
-			href: '/profiles',
+			href: withBase('/profiles'),
 			profile
 		};
 	}
@@ -487,7 +488,7 @@
 
 	<div class="topbar-actions">
 		<NotificationMenu />
-		<a class="user-info" href="/profile">
+		<a class="user-info" href={withBase('/profile')}>
 			<span class="user-icon" aria-hidden="true">
 				<svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">
 					<circle cx="12" cy="8" r="4" fill="none" stroke="currentColor" stroke-width="2" />
