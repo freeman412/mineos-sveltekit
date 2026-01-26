@@ -2,7 +2,8 @@
 # Interactive setup and management using PowerShell
 
 param(
-    [switch]$Dev
+    [switch]$Dev,
+    [switch]$Force
 )
 
 $ErrorActionPreference = "Stop"
@@ -503,7 +504,7 @@ function Get-ShutdownTimeout {
 }
 
 function Stop-MinecraftServersIndividually {
-    param([int]$TimeoutSec = 30)
+    param([int]$TimeoutSec = 30, [switch]$Force)
 
     $apiKey = Get-ApiKey
     if ([string]::IsNullOrWhiteSpace($apiKey)) {
@@ -525,23 +526,31 @@ function Stop-MinecraftServersIndividually {
         return
     }
 
+    $action = if ($Force) { "kill" } else { "stop" }
+
     foreach ($server in $servers) {
         if ($server.up -ne $true) { continue }
         $name = $server.name
         if ([string]::IsNullOrWhiteSpace($name)) { continue }
-        Write-Info "Stopping Minecraft server: $name"
+        if ($Force) {
+            Write-Info "Force stopping Minecraft server: $name"
+        } else {
+            Write-Info "Stopping Minecraft server: $name"
+        }
         try {
-            Invoke-RestMethod -Method Post -Uri "$baseUrl/servers/$([uri]::EscapeDataString($name))/actions/stop" `
+            Invoke-RestMethod -Method Post -Uri "$baseUrl/servers/$([uri]::EscapeDataString($name))/actions/$action" `
                 -Headers @{ "X-Api-Key" = $apiKey } -TimeoutSec $TimeoutSec | Out-Null
         } catch {
             Write-Warn "Failed to stop server $name"
         }
-        [void](Wait-MinecraftServerStop -Name $name -BaseUrl $baseUrl -ApiKey $apiKey -TimeoutSec $TimeoutSec)
+        if (-not $Force) {
+            [void](Wait-MinecraftServerStop -Name $name -BaseUrl $baseUrl -ApiKey $apiKey -TimeoutSec $TimeoutSec)
+        }
     }
 }
 
 function Stop-MinecraftServers {
-    param([int]$TimeoutSec = 30)
+    param([int]$TimeoutSec = 30, [switch]$Force)
 
     $apiKey = Get-ApiKey
     if ([string]::IsNullOrWhiteSpace($apiKey)) {
@@ -550,6 +559,10 @@ function Stop-MinecraftServers {
     }
 
     $baseUrl = Get-ApiBaseUrl
+    if ($Force) {
+        Stop-MinecraftServersIndividually -TimeoutSec 0 -Force
+        return
+    }
     $response = $null
     try {
         $response = Invoke-RestMethod -Method Post -Uri "$baseUrl/servers/actions/stop-all?timeoutSeconds=$TimeoutSec" `
@@ -611,8 +624,19 @@ function Wait-ComposeStopped {
 }
 
 function Stop-ServicesGraceful {
-    param([switch]$Remove, [int]$TimeoutSec)
+    param([switch]$Remove, [int]$TimeoutSec, [switch]$Force)
     if (-not $TimeoutSec) { $TimeoutSec = Get-ShutdownTimeout }
+    if ($Force) {
+        Write-Info "Force stop enabled; killing servers and stopping containers immediately."
+        Stop-MinecraftServers -TimeoutSec 0 -Force
+        [void](Invoke-Compose -Args @("stop", "-t", 0))
+        if ($Remove) {
+            Write-Info "Removing containers..."
+            [void](Invoke-Compose -Args @("down"))
+        }
+        return
+    }
+
     Stop-MinecraftServers -TimeoutSec $TimeoutSec
     Write-Info "Stopping services (timeout: ${TimeoutSec}s)..."
     [void](Invoke-Compose -Args @("stop", "-t", $TimeoutSec))
@@ -1361,12 +1385,12 @@ function Start-WebDevContainer {
 }
 
 function Stop-Services {
-    Stop-ServicesGraceful -Remove
+    Stop-ServicesGraceful -Remove -Force:$Force
     Write-Success "Services stopped"
 }
 
 function Restart-Services {
-    Stop-ServicesGraceful
+    Stop-ServicesGraceful -Force:$Force
     Start-Services
     Write-Success "Services restarted"
 }
@@ -1459,7 +1483,7 @@ function Do-Rebuild {
     }
 
     Load-ExistingConfig
-    Stop-ServicesGraceful -Remove
+    Stop-ServicesGraceful -Remove -Force:$Force
     Start-Services -Rebuild
 
     Write-Success "Rebuild complete!"
@@ -1483,7 +1507,7 @@ function Do-Update {
     }
 
     Load-ExistingConfig
-    Stop-ServicesGraceful -Remove
+    Stop-ServicesGraceful -Remove -Force:$Force
     Start-Services -Rebuild
 
     Write-Success "Update complete!"

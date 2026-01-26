@@ -6,9 +6,11 @@
 set -e
 
 DEV_MODE=false
+FORCE_MODE=false
 for arg in "$@"; do
     case "$arg" in
         --dev) DEV_MODE=true ;;
+        --force) FORCE_MODE=true ;;
     esac
 done
 
@@ -159,6 +161,7 @@ PY
 }
 
 stop_minecraft_servers_individual() {
+    local force_mode="${1:-false}"
     if ! command_exists curl; then
         warn "curl not found; skipping Minecraft server shutdown."
         return
@@ -190,19 +193,31 @@ stop_minecraft_servers_individual() {
     local timeout
     timeout=$(get_shutdown_timeout)
 
+    local action="stop"
+    if [ "$force_mode" = "true" ]; then
+        action="kill"
+    fi
+
     while IFS= read -r server_name; do
         [ -z "$server_name" ] && continue
         local encoded
         encoded=$(urlencode "$server_name")
-        info "Stopping Minecraft server: ${server_name}"
+        if [ "$action" = "kill" ]; then
+            info "Force stopping Minecraft server: ${server_name}"
+        else
+            info "Stopping Minecraft server: ${server_name}"
+        fi
         curl -s -X POST -H "X-Api-Key: ${api_key}" \
-            "${api_base}/servers/${encoded}/actions/stop" >/dev/null 2>&1 || \
+            "${api_base}/servers/${encoded}/actions/${action}" >/dev/null 2>&1 || \
             warn "Failed to stop server ${server_name}"
-        wait_for_server_stop "$api_base" "$api_key" "$server_name" "$timeout"
+        if [ "$action" = "stop" ]; then
+            wait_for_server_stop "$api_base" "$api_key" "$server_name" "$timeout"
+        fi
     done <<< "$server_names"
 }
 
 stop_minecraft_servers() {
+    local force_mode="${1:-false}"
     if ! command_exists curl; then
         warn "curl not found; skipping Minecraft server shutdown."
         return
@@ -217,6 +232,11 @@ stop_minecraft_servers() {
 
     local api_base
     api_base=$(get_api_base_url)
+    if [ "$force_mode" = "true" ]; then
+        stop_minecraft_servers_individual true
+        return
+    fi
+
     local timeout
     timeout=$(get_shutdown_timeout)
 
@@ -287,6 +307,7 @@ wait_for_services_stop() {
 }
 
 graceful_stop_services() {
+    local force_mode="${1:-$FORCE_MODE}"
     if ! set_compose_cmd; then
         error "Docker Compose not found"
         exit 1
@@ -295,6 +316,13 @@ graceful_stop_services() {
     set_compose_files
     local timeout
     timeout=$(get_shutdown_timeout)
+    if [ "$force_mode" = "true" ]; then
+        info "Force stop enabled; killing servers and stopping containers immediately."
+        stop_minecraft_servers true
+        "${COMPOSE_CMD[@]}" "${COMPOSE_FILES[@]}" stop -t 0 >/dev/null 2>&1 || true
+        return
+    fi
+
     stop_minecraft_servers
     info "Stopping services (timeout: ${timeout}s)..."
     "${COMPOSE_CMD[@]}" "${COMPOSE_FILES[@]}" stop -t "$timeout" >/dev/null 2>&1 || true

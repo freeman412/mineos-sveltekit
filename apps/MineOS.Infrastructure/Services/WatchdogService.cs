@@ -128,12 +128,6 @@ public sealed class WatchdogService : BackgroundService, IWatchdogService
         }
 
         var stopRequested = HasStopRequestedFlag(serverName);
-        if (stopRequested && isRunning)
-        {
-            ClearStopRequestedFlag(serverName);
-            stopRequested = false;
-        }
-
         if (state.WasRunning && !isRunning && stopRequested)
         {
             _logger.LogInformation("Server {ServerName} stopped manually; skipping auto-restart", serverName);

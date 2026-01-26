@@ -27,7 +27,7 @@
 	let heartbeatStatus = $derived((heartbeat?.status ?? '').toLowerCase());
 	let isRunning = $derived(heartbeatStatus === 'up' || heartbeatStatus === 'running');
 	let memoryHistory = $state<number[]>([]);
-	let stopHint = $derived(() => {
+	let stopHint = $derived.by(() => {
 		if (isRunning || !watchdog) return null;
 		const manualStop = watchdog.lastManualStopTime ? Date.parse(watchdog.lastManualStopTime) : null;
 		const crashStop = watchdog.lastCrashTime ? Date.parse(watchdog.lastCrashTime) : null;
