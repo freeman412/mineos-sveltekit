@@ -68,6 +68,12 @@ chmod +x MineOS.sh uninstall.sh
 **Need to change ports?**
 Edit `.env` and run `docker compose restart`
 
+## CI
+
+**Manually run the Node.js CI workflow:**
+1. GitHub → Actions → "Node.js CI"
+2. Click "Run workflow" and choose the `main` branch.
+
 **Want Minecraft LAN discovery?**
 Re-run the setup script and enable **host networking**. This is Linux-only and disables Docker network isolation (containers bind directly to `API_PORT`/`WEB_PORT` on the host). The setup script automatically adds `docker-compose.host.yml` when needed.
 
