@@ -3,7 +3,8 @@
 
 param(
     [switch]$Dev,
-    [switch]$Force
+    [switch]$Force,
+    [switch]$Build
 )
 
 $ErrorActionPreference = "Stop"
@@ -389,7 +390,15 @@ function Get-ComposeFileArgs {
     if ([string]::IsNullOrWhiteSpace($mode)) { $mode = "bridge" }
     $args = @("-f", "docker-compose.yml")
     if ($mode -eq "host") { $args += @("-f", "docker-compose.host.yml") }
+    if (Get-BuildFromSource) { $args += @("-f", "docker-compose.build.yml") }
     return ,$args
+}
+
+function Get-BuildFromSource {
+    if ($Build) { return $true }
+    $value = Get-EnvValue "MINEOS_BUILD_FROM_SOURCE"
+    if ([string]::IsNullOrWhiteSpace($value)) { return $false }
+    return $value -match '^(?i:true|1|yes|y|on)$'
 }
 
 function Invoke-Compose {
@@ -672,6 +681,10 @@ function Load-ExistingConfig {
     if ([string]::IsNullOrWhiteSpace($script:dataDir)) { $script:dataDir = ".\\data" }
     $script:networkMode = Get-EnvValue "MINEOS_NETWORK_MODE"
     if ([string]::IsNullOrWhiteSpace($script:networkMode)) { $script:networkMode = "bridge" }
+    $script:buildFromSource = Get-EnvValue "MINEOS_BUILD_FROM_SOURCE"
+    if ([string]::IsNullOrWhiteSpace($script:buildFromSource)) { $script:buildFromSource = "false" }
+    $script:imageTag = Get-EnvValue "MINEOS_IMAGE_TAG"
+    if ([string]::IsNullOrWhiteSpace($script:imageTag)) { $script:imageTag = "latest" }
 }
 
 function Get-CaddySite {
@@ -1123,6 +1136,16 @@ function Start-ConfigWizard {
         $script:networkMode = "bridge"
     }
 
+    $buildChoice = Read-Host "Build images from source instead of pulling prebuilt images? (y/N)"
+    if ($buildChoice -match '^[Yy]') {
+        $script:buildFromSource = "true"
+    } else {
+        $script:buildFromSource = "false"
+    }
+
+    $script:imageTag = Read-Host "Image tag to pull (default: latest)"
+    if ([string]::IsNullOrWhiteSpace($script:imageTag)) { $script:imageTag = "latest" }
+
     $script:mcExtraPorts = ""
     $script:curseforgeKey = Read-Host "CurseForge API key (optional, press Enter to skip)"
     $script:discordWebhook = Read-Host "Discord webhook URL (optional, press Enter to skip)"
@@ -1162,6 +1185,8 @@ Host__OwnerGid=1000
 
 # Docker networking (bridge = isolated, host = required for LAN discovery)
 MINEOS_NETWORK_MODE=$networkMode
+MINEOS_BUILD_FROM_SOURCE=$buildFromSource
+MINEOS_IMAGE_TAG=$imageTag
 
 # Optional Integrations
 $(if ($curseforgeKey) { "CurseForge__ApiKey=$curseforgeKey" } else { "# CurseForge__ApiKey=" })
@@ -1215,23 +1240,36 @@ function Start-Services {
     Write-Info "Starting services..."
 
     if ($Rebuild) {
-        Write-Info "Building Docker images (this may take a few minutes)..."
-        $env:PUBLIC_BUILD_ID = (Get-Date -Format "yyyyMMddHHmmss")
-        Write-Info "Build ID: $env:PUBLIC_BUILD_ID"
-        if (-not $script:composeExe) { Set-ComposeCommand }
-        $buildArgs = @("build")
-        if ($script:composeExe -eq "docker") { $buildArgs = @("build", "--progress", "plain") }
-        $build = Invoke-Compose -Args $buildArgs -StreamOutput
-        if ($build.ExitCode -ne 0 -and $script:composeExe -eq "docker") {
-            Write-Warn "Build failed with --progress; retrying without it..."
-            $build = Invoke-Compose -Args @("build") -StreamOutput
-        }
-        if ($build.ExitCode -ne 0 -and (Test-ComposeBuildSuccessFromOutput -Output $build.Output)) {
-            Write-Warn "Build returned a non-zero exit code but output looks successful; continuing..."
-        } elseif ($build.ExitCode -ne 0) {
-            Write-Error-Custom "Build failed"
-            if ($build.Output) { Write-Host $build.Output }
-            exit 1
+        if (Get-BuildFromSource) {
+            if (-not (Test-Path "apps\\MineOS.Api\\Dockerfile")) {
+                Write-Error-Custom "Source files not found. Use the install script with -Build or clone the repo."
+                exit 1
+            }
+            Write-Info "Building Docker images (this may take a few minutes)..."
+            $env:PUBLIC_BUILD_ID = (Get-Date -Format "yyyyMMddHHmmss")
+            Write-Info "Build ID: $env:PUBLIC_BUILD_ID"
+            if (-not $script:composeExe) { Set-ComposeCommand }
+            $buildArgs = @("build")
+            if ($script:composeExe -eq "docker") { $buildArgs = @("build", "--progress", "plain") }
+            $build = Invoke-Compose -Args $buildArgs -StreamOutput
+            if ($build.ExitCode -ne 0 -and $script:composeExe -eq "docker") {
+                Write-Warn "Build failed with --progress; retrying without it..."
+                $build = Invoke-Compose -Args @("build") -StreamOutput
+            }
+            if ($build.ExitCode -ne 0 -and (Test-ComposeBuildSuccessFromOutput -Output $build.Output)) {
+                Write-Warn "Build returned a non-zero exit code but output looks successful; continuing..."
+            } elseif ($build.ExitCode -ne 0) {
+                Write-Error-Custom "Build failed"
+                if ($build.Output) { Write-Host $build.Output }
+                exit 1
+            }
+        } else {
+            Write-Info "Pulling Docker images..."
+            $pull = Invoke-Compose -Args @("pull") -StreamOutput
+            if ($pull.ExitCode -ne 0) {
+                Write-Warn "Image pull failed; continuing with existing images."
+                if ($pull.Output) { Write-Host $pull.Output }
+            }
         }
         $r = Invoke-Compose -Args @("up", "-d", "--force-recreate")
     } else {
@@ -1580,6 +1618,18 @@ function Do-Reconfigure {
         $newNetworkMode = "bridge"
     }
 
+    $buildPrompt = Read-Host "Build images from source instead of pulling prebuilt images? (current: $buildFromSource) (y/N)"
+    if ([string]::IsNullOrWhiteSpace($buildPrompt)) {
+        $newBuildFromSource = $buildFromSource
+    } elseif ($buildPrompt -match '^[Yy]') {
+        $newBuildFromSource = "true"
+    } else {
+        $newBuildFromSource = "false"
+    }
+
+    $newImageTag = Read-Host "Image tag to pull (default: $imageTag)"
+    if ([string]::IsNullOrWhiteSpace($newImageTag)) { $newImageTag = $imageTag }
+
     $newCurseforgeKey = Read-Host "CurseForge API key (leave blank to keep current)"
     if ([string]::IsNullOrWhiteSpace($newCurseforgeKey)) { $newCurseforgeKey = Get-EnvValue "CurseForge__ApiKey" }
 
@@ -1600,6 +1650,8 @@ function Do-Reconfigure {
     Set-EnvValue -Key "BODY_SIZE_LIMIT" -Value $newBodySizeLimit
     Set-EnvValue -Key "MC_PORT_RANGE" -Value $newMcPortRange
     Set-EnvValue -Key "MINEOS_NETWORK_MODE" -Value $newNetworkMode
+    Set-EnvValue -Key "MINEOS_BUILD_FROM_SOURCE" -Value $newBuildFromSource
+    Set-EnvValue -Key "MINEOS_IMAGE_TAG" -Value $newImageTag
     if ($newCurseforgeKey -ne $null) { Set-EnvValue -Key "CurseForge__ApiKey" -Value $newCurseforgeKey }
     if ($newDiscordWebhook -ne $null) { Set-EnvValue -Key "Discord__WebhookUrl" -Value $newDiscordWebhook }
 

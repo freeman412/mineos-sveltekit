@@ -1,0 +1,13 @@
+services:
+  api:
+    build:
+      context: ./apps
+      dockerfile: MineOS.Api/Dockerfile
+
+  web:
+    build:
+      context: ./apps/web
+      dockerfile: Dockerfile
+      args:
+        PUBLIC_BUILD_ID: ${PUBLIC_BUILD_ID:-dev}
+        PUBLIC_MINECRAFT_HOST: ${PUBLIC_MINECRAFT_HOST:-}

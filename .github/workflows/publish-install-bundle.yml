@@ -1,0 +1,32 @@
+name: Publish Install Bundle
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  bundle:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build bundle
+        run: |
+          mkdir -p dist/bundle
+          cp MineOS.sh MineOS.ps1 docker-compose.yml docker-compose.host.yml \
+            docker-compose.build.yml docker-compose.dev.yml .env.template \
+            uninstall.sh uninstall.ps1 README.md LICENSE.md dist/bundle/
+          tar -czf dist/mineos-install-bundle.tar.gz -C dist/bundle .
+          (cd dist/bundle && zip -r ../mineos-install-bundle.zip .)
+
+      - name: Publish release assets
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/mineos-install-bundle.tar.gz
+            dist/mineos-install-bundle.zip

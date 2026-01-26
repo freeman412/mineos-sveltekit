@@ -3,9 +3,7 @@ services:
   # (uses docker-compose.host.yml).
   # MineOS API
   api:
-    build:
-      context: ./apps
-      dockerfile: MineOS.Api/Dockerfile
+    image: ghcr.io/freeman412/mineos-api:${MINEOS_IMAGE_TAG:-latest}
     container_name: mineos-api
     restart: unless-stopped
     environment:
@@ -54,12 +52,7 @@ services:
 
   # MineOS Web UI
   web:
-    build:
-      context: ./apps/web
-      dockerfile: Dockerfile
-      args:
-        PUBLIC_BUILD_ID: ${PUBLIC_BUILD_ID:-dev}
-        PUBLIC_MINECRAFT_HOST: ${PUBLIC_MINECRAFT_HOST:-}
+    image: ghcr.io/freeman412/mineos-web:${MINEOS_IMAGE_TAG:-latest}
     container_name: mineos-web
     restart: unless-stopped
     environment:

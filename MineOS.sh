@@ -7,10 +7,12 @@ set -e
 
 DEV_MODE=false
 FORCE_MODE=false
+BUILD_MODE=false
 for arg in "$@"; do
     case "$arg" in
         --dev) DEV_MODE=true ;;
         --force) FORCE_MODE=true ;;
+        --build) BUILD_MODE=true ;;
     esac
 done
 
@@ -112,6 +114,27 @@ set_compose_cmd() {
     return 1
 }
 
+is_truthy() {
+    case "$1" in
+        [Tt][Rr][Uu][Ee]|1|[Yy][Ee][Ss]|[Yy]|[Oo][Nn]) return 0 ;;
+    esac
+    return 1
+}
+
+is_build_enabled() {
+    if [ "$BUILD_MODE" = "true" ]; then
+        return 0
+    fi
+
+    local value
+    value=$(get_env_value MINEOS_BUILD_FROM_SOURCE 2>/dev/null || echo "")
+    if is_truthy "$value"; then
+        return 0
+    fi
+
+    return 1
+}
+
 set_compose_files() {
     local mode
     mode=$(get_env_value MINEOS_NETWORK_MODE 2>/dev/null || echo "$DEFAULT_NETWORK_MODE")
@@ -119,6 +142,9 @@ set_compose_files() {
     COMPOSE_FILES=(-f docker-compose.yml)
     if [ "$mode" = "host" ]; then
         COMPOSE_FILES+=(-f docker-compose.host.yml)
+    fi
+    if is_build_enabled; then
+        COMPOSE_FILES+=(-f docker-compose.build.yml)
     fi
 }
 
@@ -569,6 +595,16 @@ run_config_wizard() {
 
     echo ""
 
+    read -p "Build images from source instead of pulling prebuilt images? (y/N): " build_choice
+    if [[ "$build_choice" =~ ^[Yy]$ ]]; then
+        build_from_source="true"
+    else
+        build_from_source="false"
+    fi
+
+    read -p "Image tag to pull (default: latest): " image_tag
+    image_tag=${image_tag:-latest}
+
     # Optional: CurseForge API key
     read -p "CurseForge API key (optional, press Enter to skip): " curseforge_key
 
@@ -616,6 +652,8 @@ Host__OwnerGid=1000
 
 # Docker networking (bridge = isolated, host = required for LAN discovery)
 MINEOS_NETWORK_MODE=${network_mode:-$DEFAULT_NETWORK_MODE}
+MINEOS_BUILD_FROM_SOURCE=${build_from_source:-false}
+MINEOS_IMAGE_TAG=${image_tag:-latest}
 
 # Optional: CurseForge Integration
 $([ -n "$curseforge_key" ] && echo "CurseForge__ApiKey=${curseforge_key}" || echo "# CurseForge__ApiKey=")
@@ -677,6 +715,16 @@ create_directories() {
 
 # Build and start services
 build_services() {
+    if ! is_build_enabled; then
+        info "Build-from-source disabled; skipping image build."
+        return
+    fi
+
+    if [ ! -d "./apps" ]; then
+        error "Source files not found. Use the install script with --build or clone the repo."
+        exit 1
+    fi
+
     if ! set_compose_cmd; then
         error "Docker Compose not found"
         exit 1
@@ -694,6 +742,17 @@ build_services() {
     fi
 
     success "Build complete"
+}
+
+pull_services() {
+    if ! set_compose_cmd; then
+        error "Docker Compose not found"
+        exit 1
+    fi
+
+    set_compose_files
+    info "Pulling Docker images..."
+    "${COMPOSE_CMD[@]}" "${COMPOSE_FILES[@]}" pull || true
 }
 
 # Start services (without rebuild)
@@ -947,7 +1006,11 @@ fresh_install() {
     run_config_wizard
     create_env_file
     create_directories
-    build_services
+    if is_build_enabled; then
+        build_services
+    else
+        pull_services
+    fi
     start_services
 
     echo ""
@@ -988,7 +1051,11 @@ rebuild() {
 
     graceful_stop_services
     "${COMPOSE_CMD[@]}" "${COMPOSE_FILES[@]}" down
-    build_services
+    if is_build_enabled; then
+        build_services
+    else
+        pull_services
+    fi
     "${COMPOSE_CMD[@]}" "${COMPOSE_FILES[@]}" up -d --force-recreate
 
     success "Rebuild complete"
@@ -1036,6 +1103,8 @@ reconfigure() {
     local curseforge_current
     local discord_current
     local network_mode_current
+    local build_from_source_current
+    local image_tag_current
 
     admin_user_current=$(get_env_value Auth__SeedUsername 2>/dev/null || echo "admin")
     admin_pass_current=$(get_env_value Auth__SeedPassword 2>/dev/null || echo "")
@@ -1049,6 +1118,8 @@ reconfigure() {
     curseforge_current=$(get_env_value CurseForge__ApiKey 2>/dev/null || echo "")
     discord_current=$(get_env_value Discord__WebhookUrl 2>/dev/null || echo "")
     network_mode_current=$(get_env_value MINEOS_NETWORK_MODE 2>/dev/null || echo "$DEFAULT_NETWORK_MODE")
+    build_from_source_current=$(get_env_value MINEOS_BUILD_FROM_SOURCE 2>/dev/null || echo "false")
+    image_tag_current=$(get_env_value MINEOS_IMAGE_TAG 2>/dev/null || echo "latest")
 
     read -p "Admin username (default: ${admin_user_current}): " admin_user
     admin_user=${admin_user:-$admin_user_current}
@@ -1107,6 +1178,18 @@ reconfigure() {
         network_mode="$DEFAULT_NETWORK_MODE"
     fi
 
+    read -p "Build images from source instead of pulling prebuilt images? (current: ${build_from_source_current}) (y/N): " build_choice
+    if [ -z "$build_choice" ]; then
+        build_from_source="$build_from_source_current"
+    elif [[ "$build_choice" =~ ^[Yy]$ ]]; then
+        build_from_source="true"
+    else
+        build_from_source="false"
+    fi
+
+    read -p "Image tag to pull (default: ${image_tag_current}): " image_tag
+    image_tag=${image_tag:-$image_tag_current}
+
     read -p "CurseForge API key (leave blank to keep current): " curseforge_key
     if [ -z "$curseforge_key" ]; then
         curseforge_key="$curseforge_current"
@@ -1132,6 +1215,8 @@ reconfigure() {
     set_env_file_value ".env" "PUBLIC_MINECRAFT_HOST" "$mc_public_host"
     set_env_file_value ".env" "BODY_SIZE_LIMIT" "$body_size_limit"
     set_env_file_value ".env" "MINEOS_NETWORK_MODE" "${network_mode:-$DEFAULT_NETWORK_MODE}"
+    set_env_file_value ".env" "MINEOS_BUILD_FROM_SOURCE" "${build_from_source:-false}"
+    set_env_file_value ".env" "MINEOS_IMAGE_TAG" "${image_tag:-latest}"
     if [ -n "$curseforge_key" ]; then
         set_env_file_value ".env" "CurseForge__ApiKey" "$curseforge_key"
     fi
