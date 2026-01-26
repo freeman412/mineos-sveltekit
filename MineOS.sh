@@ -24,6 +24,7 @@ DEFAULT_HOST_BASE_DIR="./minecraft"
 DEFAULT_DATA_DIR="./data"
 CONTAINER_BASE_DIR="/var/games/minecraft"
 DEFAULT_NETWORK_MODE="bridge"
+DEFAULT_SHUTDOWN_TIMEOUT=300
 
 # Print colored messages
 info() {
@@ -117,6 +118,187 @@ set_compose_files() {
     if [ "$mode" = "host" ]; then
         COMPOSE_FILES+=(-f docker-compose.host.yml)
     fi
+}
+
+get_shutdown_timeout() {
+    local value
+    value=$(get_env_value MINEOS_SHUTDOWN_TIMEOUT 2>/dev/null || echo "$DEFAULT_SHUTDOWN_TIMEOUT")
+    if [[ ! "$value" =~ ^[0-9]+$ ]]; then
+        value="$DEFAULT_SHUTDOWN_TIMEOUT"
+    fi
+    echo "$value"
+}
+
+get_api_base_url() {
+    local api_port
+    api_port=$(get_env_value API_PORT 2>/dev/null || echo "5078")
+    echo "http://localhost:${api_port}/api/v1"
+}
+
+get_api_key() {
+    get_env_value ApiKey__SeedKey 2>/dev/null || echo ""
+}
+
+urlencode() {
+    local raw="$1"
+    if command_exists python3; then
+        python3 - <<'PY' "$raw"
+import sys, urllib.parse
+print(urllib.parse.quote(sys.argv[1]))
+PY
+        return
+    fi
+    if command_exists python; then
+        python - <<'PY' "$raw"
+import sys, urllib.parse
+print(urllib.parse.quote(sys.argv[1]))
+PY
+        return
+    fi
+    echo "$raw" | sed 's/ /%20/g'
+}
+
+stop_minecraft_servers_individual() {
+    if ! command_exists curl; then
+        warn "curl not found; skipping Minecraft server shutdown."
+        return
+    fi
+
+    local api_key
+    api_key=$(get_api_key)
+    if [ -z "$api_key" ]; then
+        warn "API key not found; skipping Minecraft server shutdown."
+        return
+    fi
+
+    local api_base
+    api_base=$(get_api_base_url)
+    local server_json
+    server_json=$(curl -s -H "X-Api-Key: ${api_key}" "${api_base}/servers/list")
+    if [ -z "$server_json" ]; then
+        warn "Unable to fetch server list; skipping Minecraft server shutdown."
+        return
+    fi
+
+    local server_names
+    server_names=$(echo "$server_json" | grep -o '"name":"[^"]*"' | sed 's/"name":"//;s/"//')
+    if [ -z "$server_names" ]; then
+        info "No servers found to stop."
+        return
+    fi
+
+    local timeout
+    timeout=$(get_shutdown_timeout)
+
+    while IFS= read -r server_name; do
+        [ -z "$server_name" ] && continue
+        local encoded
+        encoded=$(urlencode "$server_name")
+        info "Stopping Minecraft server: ${server_name}"
+        curl -s -X POST -H "X-Api-Key: ${api_key}" \
+            "${api_base}/servers/${encoded}/actions/stop" >/dev/null 2>&1 || \
+            warn "Failed to stop server ${server_name}"
+        wait_for_server_stop "$api_base" "$api_key" "$server_name" "$timeout"
+    done <<< "$server_names"
+}
+
+stop_minecraft_servers() {
+    if ! command_exists curl; then
+        warn "curl not found; skipping Minecraft server shutdown."
+        return
+    fi
+
+    local api_key
+    api_key=$(get_api_key)
+    if [ -z "$api_key" ]; then
+        warn "API key not found; skipping Minecraft server shutdown."
+        return
+    fi
+
+    local api_base
+    api_base=$(get_api_base_url)
+    local timeout
+    timeout=$(get_shutdown_timeout)
+
+    local response
+    response=$(curl -s -X POST -H "X-Api-Key: ${api_key}" \
+        "${api_base}/servers/actions/stop-all?timeoutSeconds=${timeout}")
+
+    if [ -z "$response" ]; then
+        warn "Stop-all endpoint did not respond; falling back to per-server shutdown."
+        stop_minecraft_servers_individual
+        return
+    fi
+
+    info "Stop-all request complete."
+}
+
+wait_for_server_stop() {
+    local api_base="$1"
+    local api_key="$2"
+    local server_name="$3"
+    local timeout="$4"
+    local encoded
+    encoded=$(urlencode "$server_name")
+    local start
+    start=$(date +%s)
+
+    while true; do
+        local status_json
+        status_json=$(curl -s -H "X-Api-Key: ${api_key}" \
+            "${api_base}/servers/${encoded}/status")
+        if [ -z "$status_json" ]; then
+            warn "Unable to check status for ${server_name}."
+            return 1
+        fi
+        if ! echo "$status_json" | grep -q '"status":"running"'; then
+            return 0
+        fi
+        local now
+        now=$(date +%s)
+        local elapsed=$((now - start))
+        if [ "$elapsed" -ge "$timeout" ]; then
+            warn "Timed out waiting for ${server_name} to stop."
+            return 1
+        fi
+        sleep 2
+    done
+}
+
+wait_for_services_stop() {
+    local timeout="$1"
+    local start
+    start=$(date +%s)
+    while true; do
+        local running
+        running=$("${COMPOSE_CMD[@]}" "${COMPOSE_FILES[@]}" ps --status running -q 2>/dev/null | wc -l | tr -d ' ')
+        if [ "$running" -eq 0 ]; then
+            return 0
+        fi
+        local now
+        now=$(date +%s)
+        local elapsed=$((now - start))
+        if [ "$elapsed" -ge "$timeout" ]; then
+            warn "Timed out waiting for services to stop."
+            return 1
+        fi
+        sleep 2
+    done
+}
+
+graceful_stop_services() {
+    if ! set_compose_cmd; then
+        error "Docker Compose not found"
+        exit 1
+    fi
+
+    set_compose_files
+    local timeout
+    timeout=$(get_shutdown_timeout)
+    stop_minecraft_servers
+    info "Stopping services (timeout: ${timeout}s)..."
+    "${COMPOSE_CMD[@]}" "${COMPOSE_FILES[@]}" stop -t "$timeout" >/dev/null 2>&1 || true
+    wait_for_services_stop "$timeout" || true
 }
 
 # Show banner
@@ -659,27 +841,16 @@ start_web_dev_container() {
 
 # Stop services
 stop_services() {
-    if ! set_compose_cmd; then
-        error "Docker Compose not found"
-        exit 1
-    fi
-
-    set_compose_files
-    info "Stopping services..."
+    graceful_stop_services
+    info "Removing containers..."
     "${COMPOSE_CMD[@]}" "${COMPOSE_FILES[@]}" down
     success "Services stopped"
 }
 
 # Restart services
 restart_services() {
-    if ! set_compose_cmd; then
-        error "Docker Compose not found"
-        exit 1
-    fi
-
-    set_compose_files
-    info "Restarting services..."
-    "${COMPOSE_CMD[@]}" "${COMPOSE_FILES[@]}" restart
+    graceful_stop_services
+    start_services
     success "Services restarted"
 }
 
@@ -787,12 +958,7 @@ rebuild() {
 
     info "Rebuilding containers (keeping configuration)..."
 
-    if ! set_compose_cmd; then
-        error "Docker Compose not found"
-        exit 1
-    fi
-
-    set_compose_files
+    graceful_stop_services
     "${COMPOSE_CMD[@]}" "${COMPOSE_FILES[@]}" down
     build_services
     "${COMPOSE_CMD[@]}" "${COMPOSE_FILES[@]}" up -d --force-recreate

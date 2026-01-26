@@ -485,6 +485,144 @@ function Get-EnvValue {
     return $null
 }
 
+function Get-ApiBaseUrl {
+    $apiPortValue = Get-EnvValue "API_PORT"
+    if ([string]::IsNullOrWhiteSpace($apiPortValue)) { $apiPortValue = "5078" }
+    return "http://localhost:$apiPortValue/api/v1"
+}
+
+function Get-ApiKey {
+    return Get-EnvValue "ApiKey__SeedKey"
+}
+
+function Get-ShutdownTimeout {
+    $value = Get-EnvValue "MINEOS_SHUTDOWN_TIMEOUT"
+    if ([string]::IsNullOrWhiteSpace($value)) { return 300 }
+    if ($value -notmatch '^\d+$') { return 300 }
+    return [int]$value
+}
+
+function Stop-MinecraftServersIndividually {
+    param([int]$TimeoutSec = 30)
+
+    $apiKey = Get-ApiKey
+    if ([string]::IsNullOrWhiteSpace($apiKey)) {
+        Write-Warn "API key not found; skipping Minecraft server shutdown."
+        return
+    }
+
+    $baseUrl = Get-ApiBaseUrl
+    $servers = $null
+    try {
+        $servers = Invoke-RestMethod -Uri "$baseUrl/servers/list" -Headers @{ "X-Api-Key" = $apiKey } -TimeoutSec 10
+    } catch {
+        Write-Warn "Unable to fetch server list; skipping Minecraft server shutdown."
+        return
+    }
+
+    if (-not $servers) {
+        Write-Info "No servers found to stop."
+        return
+    }
+
+    foreach ($server in $servers) {
+        if ($server.up -ne $true) { continue }
+        $name = $server.name
+        if ([string]::IsNullOrWhiteSpace($name)) { continue }
+        Write-Info "Stopping Minecraft server: $name"
+        try {
+            Invoke-RestMethod -Method Post -Uri "$baseUrl/servers/$([uri]::EscapeDataString($name))/actions/stop" `
+                -Headers @{ "X-Api-Key" = $apiKey } -TimeoutSec $TimeoutSec | Out-Null
+        } catch {
+            Write-Warn "Failed to stop server $name"
+        }
+        [void](Wait-MinecraftServerStop -Name $name -BaseUrl $baseUrl -ApiKey $apiKey -TimeoutSec $TimeoutSec)
+    }
+}
+
+function Stop-MinecraftServers {
+    param([int]$TimeoutSec = 30)
+
+    $apiKey = Get-ApiKey
+    if ([string]::IsNullOrWhiteSpace($apiKey)) {
+        Write-Warn "API key not found; skipping Minecraft server shutdown."
+        return
+    }
+
+    $baseUrl = Get-ApiBaseUrl
+    $response = $null
+    try {
+        $response = Invoke-RestMethod -Method Post -Uri "$baseUrl/servers/actions/stop-all?timeoutSeconds=$TimeoutSec" `
+            -Headers @{ "X-Api-Key" = $apiKey } -TimeoutSec $TimeoutSec
+    } catch {
+        Write-Warn "Stop-all endpoint failed; falling back to per-server shutdown."
+        Stop-MinecraftServersIndividually -TimeoutSec $TimeoutSec
+        return
+    }
+
+    if (-not $response) {
+        Write-Warn "Stop-all endpoint returned no data; falling back to per-server shutdown."
+        Stop-MinecraftServersIndividually -TimeoutSec $TimeoutSec
+        return
+    }
+
+    Write-Info "Stop-all request complete."
+}
+
+function Wait-MinecraftServerStop {
+    param(
+        [Parameter(Mandatory = $true)][string]$Name,
+        [Parameter(Mandatory = $true)][string]$BaseUrl,
+        [Parameter(Mandatory = $true)][string]$ApiKey,
+        [int]$TimeoutSec = 120
+    )
+
+    $start = Get-Date
+    do {
+        try {
+            $status = Invoke-RestMethod -Uri "$BaseUrl/servers/$([uri]::EscapeDataString($Name))/status" `
+                -Headers @{ "X-Api-Key" = $ApiKey } -TimeoutSec 10
+            if ($status.status -ne "running") { return $true }
+        } catch {
+            return $false
+        }
+        Start-Sleep -Seconds 2
+    } while (((Get-Date) - $start).TotalSeconds -lt $TimeoutSec)
+
+    Write-Warn "Timed out waiting for $Name to stop."
+    return $false
+}
+
+function Wait-ComposeStopped {
+    param([int]$TimeoutSec = 120)
+    $start = Get-Date
+    do {
+        $r = Invoke-Compose -Args @("ps", "--status", "running", "-q")
+        $running = @()
+        if ($r.Output) {
+            $running = $r.Output -split "`r?`n" | Where-Object { $_ -and $_.Trim() -ne "" }
+        }
+        if ($running.Count -eq 0) { return $true }
+        Start-Sleep -Seconds 2
+    } while (((Get-Date) - $start).TotalSeconds -lt $TimeoutSec)
+
+    Write-Warn "Timed out waiting for services to stop."
+    return $false
+}
+
+function Stop-ServicesGraceful {
+    param([switch]$Remove, [int]$TimeoutSec)
+    if (-not $TimeoutSec) { $TimeoutSec = Get-ShutdownTimeout }
+    Stop-MinecraftServers -TimeoutSec $TimeoutSec
+    Write-Info "Stopping services (timeout: ${TimeoutSec}s)..."
+    [void](Invoke-Compose -Args @("stop", "-t", $TimeoutSec))
+    [void](Wait-ComposeStopped -TimeoutSec $TimeoutSec)
+    if ($Remove) {
+        Write-Info "Removing containers..."
+        [void](Invoke-Compose -Args @("down"))
+    }
+}
+
 function Load-ExistingConfig {
     $script:adminUser = Get-EnvValue "Auth__SeedUsername"
     if ([string]::IsNullOrWhiteSpace($script:adminUser)) { $script:adminUser = "admin" }
@@ -1223,29 +1361,14 @@ function Start-WebDevContainer {
 }
 
 function Stop-Services {
-    Write-Info "Stopping services..."
-    $r = Invoke-Compose -Args @("down")
-    if ($r.ExitCode -eq 0) {
-        Write-Success "Services stopped"
-    } else {
-        Write-Error-Custom "Failed to stop services"
-        Write-Host $r.Output
-    }
+    Stop-ServicesGraceful -Remove
+    Write-Success "Services stopped"
 }
 
 function Restart-Services {
-    Write-Info "Restarting services..."
-    $r = Invoke-Compose -Args @("restart")
-    if ($r.ExitCode -eq 0) {
-        Write-Success "Services restarted"
-    } else {
-        $running = Test-ComposeServicesRunning -ContainerNames @("mineos-api", "mineos-web")
-        if ($running) {
-            Write-Success "Services restarted"
-        } else {
-            Write-Error-Custom "Failed to restart services"
-        }
-    }
+    Stop-ServicesGraceful
+    Start-Services
+    Write-Success "Services restarted"
 }
 
 function Show-Logs {
@@ -1336,6 +1459,7 @@ function Do-Rebuild {
     }
 
     Load-ExistingConfig
+    Stop-ServicesGraceful -Remove
     Start-Services -Rebuild
 
     Write-Success "Rebuild complete!"
@@ -1359,6 +1483,7 @@ function Do-Update {
     }
 
     Load-ExistingConfig
+    Stop-ServicesGraceful -Remove
     Start-Services -Rebuild
 
     Write-Success "Update complete!"
