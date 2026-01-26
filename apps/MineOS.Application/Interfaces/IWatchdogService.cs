@@ -31,5 +31,6 @@ public record ServerWatchdogStatus(
     bool WasRunning,
     int RestartAttempts,
     DateTimeOffset? LastCrashTime,
+    DateTimeOffset? LastManualStopTime,
     DateTimeOffset? LastRestartAttempt,
     DateTimeOffset? CooldownEndsAt);

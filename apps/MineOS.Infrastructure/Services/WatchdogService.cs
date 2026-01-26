@@ -3,9 +3,11 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using MineOS.Application.Dtos;
 using MineOS.Application.Interfaces;
 using MineOS.Domain.Entities;
+using MineOS.Application.Options;
 using MineOS.Infrastructure.Persistence;
 
 namespace MineOS.Infrastructure.Services;
@@ -13,13 +15,18 @@ namespace MineOS.Infrastructure.Services;
 public sealed class WatchdogService : BackgroundService, IWatchdogService
 {
     private readonly IServiceScopeFactory _scopeFactory;
+    private readonly HostOptions _options;
     private readonly ILogger<WatchdogService> _logger;
     private readonly ConcurrentDictionary<string, ServerMonitorState> _serverStates = new();
     private readonly TimeSpan _checkInterval = TimeSpan.FromSeconds(5);
 
-    public WatchdogService(IServiceScopeFactory scopeFactory, ILogger<WatchdogService> logger)
+    public WatchdogService(
+        IServiceScopeFactory scopeFactory,
+        IOptions<HostOptions> options,
+        ILogger<WatchdogService> logger)
     {
         _scopeFactory = scopeFactory;
+        _options = options.Value;
         _logger = logger;
     }
 
@@ -118,6 +125,31 @@ public sealed class WatchdogService : BackgroundService, IWatchdogService
             {
                 _logger.LogDebug(ex, "Error closing sessions for server {ServerName}", serverName);
             }
+        }
+
+        var stopRequested = HasStopRequestedFlag(serverName);
+        if (stopRequested && isRunning)
+        {
+            ClearStopRequestedFlag(serverName);
+            stopRequested = false;
+        }
+
+        if (state.WasRunning && !isRunning && stopRequested)
+        {
+            _logger.LogInformation("Server {ServerName} stopped manually; skipping auto-restart", serverName);
+            state.RestartAttempts = 0;
+            state.LastCrashTime = null;
+            state.LastRestartAttempt = null;
+            state.CooldownEndsAt = null;
+            state.LastManualStopTime = DateTimeOffset.UtcNow;
+            state.WasRunning = false;
+            ClearStopRequestedFlag(serverName);
+            return;
+        }
+
+        if (isRunning && state.LastManualStopTime.HasValue)
+        {
+            state.LastManualStopTime = null;
         }
 
         if (!autoRestart.Enabled)
@@ -483,6 +515,7 @@ public sealed class WatchdogService : BackgroundService, IWatchdogService
                 kvp.Value.WasRunning,
                 kvp.Value.RestartAttempts,
                 kvp.Value.LastCrashTime,
+                kvp.Value.LastManualStopTime,
                 kvp.Value.LastRestartAttempt,
                 kvp.Value.CooldownEndsAt));
     }
@@ -494,12 +527,38 @@ public sealed class WatchdogService : BackgroundService, IWatchdogService
         public bool WasRunning { get; set; }
         public int RestartAttempts { get; set; }
         public DateTimeOffset? LastCrashTime { get; set; }
+        public DateTimeOffset? LastManualStopTime { get; set; }
         public DateTimeOffset? LastRestartAttempt { get; set; }
         public DateTimeOffset? CooldownEndsAt { get; set; }
 
         public ServerMonitorState(string serverName)
         {
             ServerName = serverName;
+        }
+    }
+
+    private string GetServerPath(string name) =>
+        Path.Combine(_options.BaseDirectory, _options.ServersPathSegment, name);
+
+    private string GetStopRequestedFlagPath(string name) =>
+        Path.Combine(GetServerPath(name), ".mineos-stop-requested");
+
+    private bool HasStopRequestedFlag(string name) =>
+        File.Exists(GetStopRequestedFlagPath(name));
+
+    private void ClearStopRequestedFlag(string name)
+    {
+        var flagPath = GetStopRequestedFlagPath(name);
+        if (File.Exists(flagPath))
+        {
+            try
+            {
+                File.Delete(flagPath);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Failed to clear stop requested flag for {ServerName}", name);
+            }
         }
     }
 }

@@ -118,6 +118,7 @@ export type WatchdogStatus = {
 	wasRunning: boolean;
 	restartAttempts: number;
 	lastCrashTime: string | null;
+	lastManualStopTime: string | null;
 	lastRestartAttempt: string | null;
 	cooldownEndsAt: string | null;
 };

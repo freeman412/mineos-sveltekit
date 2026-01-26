@@ -21,10 +21,24 @@
 	let clearingLogs = $state(false);
 	let heartbeat = $state(data.heartbeat.data ?? null);
 	let heartbeatError = $state<string | null>(data.heartbeat.error);
+	let watchdog = $state(data.watchdog.data ?? null);
+	let watchdogError = $state<string | null>(data.watchdog.error);
 	let heartbeatSource: EventSource | null = null;
 	let heartbeatStatus = $derived((heartbeat?.status ?? '').toLowerCase());
 	let isRunning = $derived(heartbeatStatus === 'up' || heartbeatStatus === 'running');
 	let memoryHistory = $state<number[]>([]);
+	let stopHint = $derived(() => {
+		if (isRunning || !watchdog) return null;
+		const manualStop = watchdog.lastManualStopTime ? Date.parse(watchdog.lastManualStopTime) : null;
+		const crashStop = watchdog.lastCrashTime ? Date.parse(watchdog.lastCrashTime) : null;
+		if (manualStop && (!crashStop || manualStop >= crashStop)) {
+			return 'Stopped by user';
+		}
+		if (crashStop && (!manualStop || crashStop > manualStop)) {
+			return 'Stopped after crash';
+		}
+		return null;
+	});
 
 	const maxMemoryPoints = 40;
 
@@ -255,7 +269,14 @@
 			<div class="info-grid">
 				<div class="info-row">
 					<span class="label">Status</span>
-					<span class="value">{heartbeat ? (isRunning ? 'Running' : 'Stopped') : 'Unknown'}</span>
+					<div class="value status-value">
+						<span>{heartbeat ? (isRunning ? 'Running' : 'Stopped') : 'Unknown'}</span>
+						{#if stopHint}
+							<span class="status-hint">{stopHint}</span>
+						{:else if watchdogError}
+							<span class="status-hint subtle">Watchdog unavailable</span>
+						{/if}
+					</div>
 				</div>
 				<div class="info-row">
 					<span class="label">Java PID</span>
@@ -527,6 +548,28 @@
 		color: #eef0f8;
 		font-weight: 500;
 		text-align: right;
+	}
+
+	.status-value {
+		display: flex;
+		flex-direction: column;
+		align-items: flex-end;
+		gap: 4px;
+	}
+
+	.status-hint {
+		font-size: 12px;
+		color: var(--color-warning-light);
+		background: var(--color-warning-bg);
+		border: 1px solid var(--color-warning-border);
+		padding: 2px 8px;
+		border-radius: 999px;
+	}
+
+	.status-hint.subtle {
+		color: #7c87b2;
+		background: rgba(88, 101, 242, 0.08);
+		border-color: rgba(88, 101, 242, 0.2);
 	}
 
 	@media (max-width: 640px) {

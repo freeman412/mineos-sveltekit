@@ -13,6 +13,7 @@ namespace MineOS.Infrastructure.Services;
 public class ServerService : IServerService
 {
     private const string RestartFlagFile = ".mineos-restart-required";
+    private const string StopRequestedFlagFile = ".mineos-stop-requested";
     private readonly IProcessManager _processManager;
     private readonly HostOptions _options;
     private readonly ILogger<ServerService> _logger;
@@ -44,6 +45,9 @@ public class ServerService : IServerService
 
     private string GetRestartFlagPath(string name) =>
         Path.Combine(GetServerPath(name), RestartFlagFile);
+
+    private string GetStopRequestedFlagPath(string name) =>
+        Path.Combine(GetServerPath(name), StopRequestedFlagFile);
 
     public async Task<ServerDetailDto> GetServerAsync(string name, CancellationToken cancellationToken)
     {
@@ -319,6 +323,8 @@ public class ServerService : IServerService
             throw new DirectoryNotFoundException($"Server '{name}' not found");
         }
 
+        ClearStopRequested(name);
+
         // Read server config to build start arguments
         var config = await GetServerConfigAsync(name, cancellationToken);
         var javaBinary = string.IsNullOrEmpty(config.Java.JavaBinary) ? "java" : config.Java.JavaBinary;
@@ -455,6 +461,8 @@ public class ServerService : IServerService
             throw new InvalidOperationException($"Server '{name}' is not running");
         }
 
+        MarkStopRequested(name);
+
         var uid = _options.RunAsUid;
         var gid = _options.RunAsGid;
 
@@ -496,6 +504,7 @@ public class ServerService : IServerService
             throw new InvalidOperationException($"Server '{name}' is not running");
         }
 
+        MarkStopRequested(name);
         await _processManager.KillProcessAsync(processInfo.JavaPid.Value, cancellationToken);
 
         _logger.LogWarning("Forcefully killed server {ServerName}", name);
@@ -816,6 +825,36 @@ public class ServerService : IServerService
             catch (Exception ex)
             {
                 _logger.LogWarning(ex, "Failed to clear restart flag for {ServerName}", name);
+            }
+        }
+    }
+
+    private void MarkStopRequested(string name)
+    {
+        var flagPath = GetStopRequestedFlagPath(name);
+        try
+        {
+            File.WriteAllText(flagPath, DateTimeOffset.UtcNow.ToString("O"));
+            OwnershipHelper.TrySetOwnership(flagPath, _options.RunAsUid, _options.RunAsGid, _logger);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to mark stop requested for {ServerName}", name);
+        }
+    }
+
+    private void ClearStopRequested(string name)
+    {
+        var flagPath = GetStopRequestedFlagPath(name);
+        if (File.Exists(flagPath))
+        {
+            try
+            {
+                File.Delete(flagPath);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to clear stop requested flag for {ServerName}", name);
             }
         }
     }
