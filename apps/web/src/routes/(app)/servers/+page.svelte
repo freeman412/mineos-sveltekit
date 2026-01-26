@@ -166,14 +166,11 @@
 		}
 	}
 
-	function getApiBase() {
-		return env.PUBLIC_API_BASE_URL || window.location.origin;
-	}
-
 	function uploadArchive(file: File): Promise<void> {
 		return new Promise((resolve, reject) => {
 			const xhr = new XMLHttpRequest();
-			xhr.open('POST', `${getApiBase()}/api/v1/host/imports/upload`, true);
+			// Use the SvelteKit proxy so uploads work behind reverse proxies
+			xhr.open('POST', `/api/host/imports/upload`, true);
 			xhr.withCredentials = true;
 			xhr.setRequestHeader('X-File-Name', file.name);
 			xhr.setRequestHeader('Content-Type', file.type || 'application/octet-stream');
