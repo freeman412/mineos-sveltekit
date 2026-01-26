@@ -1,4 +1,6 @@
-import { PUBLIC_DEMO_MODE } from '$env/static/public';
+import { env } from '$env/dynamic/public';
 
 export const isDemoMode =
-	PUBLIC_DEMO_MODE === 'true' || PUBLIC_DEMO_MODE === '1' || PUBLIC_DEMO_MODE === 'yes';
+	env.PUBLIC_DEMO_MODE === 'true' ||
+	env.PUBLIC_DEMO_MODE === '1' ||
+	env.PUBLIC_DEMO_MODE === 'yes';
