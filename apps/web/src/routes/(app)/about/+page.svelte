@@ -11,40 +11,13 @@
 
 	<div class="hero-section">
 		<div class="logo-container">
-			<svg viewBox="0 0 100 100" class="logo">
-				<defs>
-					<linearGradient id="grass-gradient" x1="0%" y1="0%" x2="0%" y2="100%">
-						<stop offset="0%" stop-color="#7bc96f" />
-						<stop offset="40%" stop-color="#6ab04c" />
-						<stop offset="100%" stop-color="#4a8035" />
-					</linearGradient>
-					<linearGradient id="dirt-gradient" x1="0%" y1="0%" x2="0%" y2="100%">
-						<stop offset="0%" stop-color="#8b6914" />
-						<stop offset="100%" stop-color="#5c4a1f" />
-					</linearGradient>
-				</defs>
-				<!-- Block base -->
-				<rect x="10" y="10" width="80" height="80" rx="8" fill="url(#dirt-gradient)" />
-				<!-- Grass top -->
-				<rect x="10" y="10" width="80" height="25" rx="8" fill="url(#grass-gradient)" />
-				<rect x="10" y="27" width="80" height="8" fill="url(#grass-gradient)" />
-				<!-- Pixelated grass detail -->
-				<rect x="15" y="32" width="8" height="6" fill="#6ab04c" opacity="0.6" />
-				<rect x="30" y="35" width="6" height="8" fill="#6ab04c" opacity="0.5" />
-				<rect x="55" y="33" width="7" height="5" fill="#6ab04c" opacity="0.6" />
-				<rect x="75" y="34" width="8" height="6" fill="#6ab04c" opacity="0.5" />
-				<!-- Server icon overlay -->
-				<rect x="30" y="50" width="40" height="30" rx="4" fill="#1a1e2f" opacity="0.9" />
-				<rect x="35" y="56" width="30" height="3" rx="1" fill="#6ab04c" />
-				<rect x="35" y="62" width="22" height="3" rx="1" fill="#5865f2" />
-				<rect x="35" y="68" width="26" height="3" rx="1" fill="#9aa2c5" />
-			</svg>
+			<img src="/mineos-logo.svg" alt="MineOS logo" class="logo" />
 		</div>
 		<div class="hero-text">
 			<h2>MineOS SvelteKit Edition</h2>
 			<p class="version">Version {version}</p>
 			<p class="build-id">Build {buildId}</p>
-			<p class="status-line">Status: Beta (2 users)</p>
+			<p class="status-line">Status: Beta</p>
 			<p class="tagline">
 				A complete rewrite of the beloved MineOS web UI, built with modern technologies
 				for a faster, more responsive Minecraft server management experience.
@@ -54,27 +27,6 @@
 	</div>
 
 	<div class="cards-grid">
-		<section class="card status">
-			<div class="card-icon">[B]</div>
-			<h3>Current Status</h3>
-			<ul class="status-list">
-				<li>Beta release with a tiny user group (2 users)</li>
-				<li>Vanilla and Forge servers are working</li>
-				<li>Modrinth installs are working</li>
-				<li>SQLite-backed with a Docker-friendly setup</li>
-			</ul>
-		</section>
-		<section class="card recent">
-			<div class="card-icon">[N]</div>
-			<h3>Recently Shipped</h3>
-			<ul class="recent-list">
-				<li>Redesigned server config page with tabs, search, and safe resets</li>
-				<li>LAN broadcast option with Docker host network guidance</li>
-				<li>Server header refresh with live player count and quick actions</li>
-				<li>Server icon hover controls for quick upload and delete</li>
-				<li>Backup sizes now display correctly</li>
-			</ul>
-		</section>
 		<section class="card ai-built tech-stack">
 			<div class="card-icon">🤖</div>
 			<h3>AI-Assisted Development</h3>
@@ -296,7 +248,7 @@
 		margin: 0 0 12px;
 		font-size: 36px;
 		font-weight: 700;
-		background: linear-gradient(135deg, #6ab04c 0%, #a8e063 100%);
+		background: linear-gradient(135deg, var(--mc-grass) 0%, var(--color-success-light) 100%);
 		-webkit-background-clip: text;
 		-webkit-text-fill-color: transparent;
 		background-clip: text;
@@ -304,7 +256,7 @@
 
 	.subtitle {
 		margin: 0;
-		color: #9aa2c5;
+		color: var(--mc-text-muted);
 		font-size: 18px;
 	}
 
@@ -312,11 +264,11 @@
 		display: flex;
 		align-items: center;
 		gap: 40px;
-		background: linear-gradient(135deg, #1a1e2f 0%, #141827 100%);
+		background: linear-gradient(135deg, var(--mc-panel) 0%, var(--mc-panel-dark) 100%);
 		border-radius: 20px;
 		padding: 40px;
 		margin-bottom: 32px;
-		border: 1px solid rgba(106, 176, 76, 0.2);
+		border: 1px solid var(--color-success-border);
 	}
 
 	.logo-container {
@@ -332,13 +284,14 @@
 	.hero-text h2 {
 		margin: 0 0 8px;
 		font-size: 28px;
-		color: #eef0f8;
+		color: var(--mc-text);
 	}
 
 	.version {
 		display: inline-block;
-		background: rgba(106, 176, 76, 0.15);
-		color: #6ab04c;
+		background: var(--color-success-bg);
+		color: var(--mc-grass);
+		border: 1px solid var(--color-success-border);
 		padding: 4px 12px;
 		border-radius: 20px;
 		font-size: 13px;
@@ -348,8 +301,9 @@
 
 	.build-id {
 		display: inline-block;
-		background: rgba(88, 101, 242, 0.12);
-		color: #8fa3ff;
+		background: var(--color-info-bg);
+		color: var(--color-info-light);
+		border: 1px solid var(--color-info-border);
 		padding: 4px 12px;
 		border-radius: 20px;
 		font-size: 12px;
@@ -359,8 +313,9 @@
 
 	.status-line {
 		display: inline-block;
-		background: rgba(255, 183, 77, 0.15);
-		color: #ffcc80;
+		background: var(--color-warning-bg);
+		color: var(--color-warning-light);
+		border: 1px solid var(--color-warning-border);
 		padding: 4px 12px;
 		border-radius: 20px;
 		font-size: 12px;
@@ -370,7 +325,7 @@
 
 	.tagline {
 		margin: 0;
-		color: #9aa2c5;
+		color: var(--mc-text-muted);
 		font-size: 16px;
 		line-height: 1.6;
 		max-width: 500px;
@@ -384,15 +339,15 @@
 	}
 
 	.card {
-		background: linear-gradient(135deg, #1a1e2f 0%, #141827 100%);
+		background: linear-gradient(135deg, var(--mc-panel) 0%, var(--mc-panel-dark) 100%);
 		border-radius: 16px;
 		padding: 28px;
-		border: 1px solid #2a2f47;
+		border: 1px solid var(--border-color);
 		transition: all 0.2s;
 	}
 
 	.card:hover {
-		border-color: rgba(106, 176, 76, 0.3);
+		border-color: var(--color-success-border);
 		transform: translateY(-2px);
 	}
 
@@ -404,24 +359,24 @@
 	.card h3 {
 		margin: 0 0 16px;
 		font-size: 20px;
-		color: #eef0f8;
+		color: var(--mc-text);
 	}
 
 	.card p {
 		margin: 0 0 16px;
-		color: #9aa2c5;
+		color: var(--mc-text-muted);
 		font-size: 14px;
 		line-height: 1.6;
 	}
 
 	.card a {
-		color: #6ab04c;
+		color: var(--mc-grass);
 		text-decoration: none;
 		transition: color 0.2s;
 	}
 
 	.card a:hover {
-		color: #a8e063;
+		color: var(--color-success-light);
 		text-decoration: underline;
 	}
 
@@ -429,12 +384,12 @@
 		display: flex;
 		gap: 8px;
 		padding-top: 12px;
-		border-top: 1px solid #2a2f47;
+		border-top: 1px solid var(--border-color);
 		font-size: 14px;
 	}
 
 	.attribution .label {
-		color: #7c87b2;
+		color: var(--mc-text-dim);
 	}
 
 	.tech-list {
@@ -453,17 +408,17 @@
 		padding: 12px;
 		background: rgba(20, 24, 39, 0.6);
 		border-radius: 10px;
-		border: 1px solid #2a2f47;
+		border: 1px solid var(--border-color);
 	}
 
 	.tech-name {
 		font-weight: 600;
-		color: #eef0f8;
+		color: var(--mc-text);
 		font-size: 14px;
 	}
 
 	.tech-desc {
-		color: #7c87b2;
+		color: var(--mc-text-dim);
 		font-size: 12px;
 	}
 
@@ -480,13 +435,13 @@
 		padding: 14px;
 		background: rgba(20, 24, 39, 0.6);
 		border-radius: 12px;
-		border: 1px solid #2a2f47;
+		border: 1px solid var(--border-color);
 		text-decoration: none !important;
 		transition: all 0.2s;
 	}
 
 	.integration:hover {
-		border-color: rgba(106, 176, 76, 0.4);
+		border-color: var(--color-success-border);
 		background: rgba(20, 24, 39, 0.8);
 	}
 
@@ -531,12 +486,12 @@
 
 	.integration-name {
 		font-weight: 600;
-		color: #eef0f8;
+		color: var(--mc-text);
 		font-size: 15px;
 	}
 
 	.integration-desc {
-		color: #7c87b2;
+		color: var(--mc-text-dim);
 		font-size: 13px;
 	}
 
@@ -550,11 +505,11 @@
 
 	.feature-list li {
 		padding: 10px 14px;
-		background: rgba(106, 176, 76, 0.08);
+		background: var(--color-success-bg);
 		border-radius: 8px;
-		color: #c4d1c0;
+		color: var(--mc-text-secondary);
 		font-size: 14px;
-		border-left: 3px solid rgba(106, 176, 76, 0.4);
+		border-left: 3px solid var(--color-success-border);
 	}
 
 	.status-list,
@@ -569,11 +524,11 @@
 	.status-list li,
 	.recent-list li {
 		padding: 10px 14px;
-		background: rgba(88, 101, 242, 0.08);
+		background: var(--color-info-bg);
 		border-radius: 8px;
-		color: #c4cff5;
+		color: var(--mc-text-secondary);
 		font-size: 14px;
-		border-left: 3px solid rgba(88, 101, 242, 0.4);
+		border-left: 3px solid var(--color-info-border);
 	}
 
 	.license-badge {
@@ -614,10 +569,10 @@
 		align-items: center;
 		gap: 8px;
 		padding: 10px 18px;
-		background: rgba(106, 176, 76, 0.1);
-		border: 1px solid rgba(106, 176, 76, 0.3);
+		background: var(--color-success-bg);
+		border: 1px solid var(--color-success-border);
 		border-radius: 8px;
-		color: #b7f5a2 !important;
+		color: var(--color-success-light) !important;
 		font-size: 14px;
 		font-weight: 500;
 		text-decoration: none !important;
@@ -647,8 +602,8 @@
 	}
 
 	.ai-built .contribute-steps {
-		background: rgba(88, 101, 242, 0.1);
-		border: 1px solid rgba(88, 101, 242, 0.2);
+		background: var(--color-info-bg);
+		border: 1px solid var(--color-info-border);
 		border-radius: 10px;
 		padding: 16px 16px 16px 20px;
 		margin-bottom: 16px;
@@ -657,16 +612,16 @@
 	.ai-built .contribute-steps ol {
 		margin: 0;
 		padding-left: 20px;
-		color: #9aa2c5;
+		color: var(--mc-text-muted);
 		font-size: 14px;
 		line-height: 1.8;
 	}
 
 	.ai-built .ai-note {
-		background: rgba(106, 176, 76, 0.1);
+		background: var(--color-success-bg);
 		border-radius: 8px;
 		padding: 12px 16px;
-		color: #b7f5a2;
+		color: var(--color-success-light);
 		font-size: 13px;
 		margin-bottom: 0;
 	}
@@ -685,7 +640,7 @@
 
 	.roadmap-category {
 		background: rgba(20, 24, 39, 0.6);
-		border: 1px solid #2a2f47;
+		border: 1px solid var(--border-color);
 		border-radius: 12px;
 		padding: 16px;
 	}
@@ -694,7 +649,7 @@
 		margin: 0 0 12px;
 		font-size: 14px;
 		font-weight: 600;
-		color: #a5b4fc;
+		color: var(--color-info-light);
 		text-transform: uppercase;
 		letter-spacing: 0.5px;
 	}
@@ -710,9 +665,9 @@
 		align-items: center;
 		gap: 8px;
 		padding: 8px 0;
-		border-bottom: 1px solid #2a2f47;
+		border-bottom: 1px solid var(--border-color);
 		font-size: 13px;
-		color: #9aa2c5;
+		color: var(--mc-text-muted);
 	}
 
 	.roadmap-category li:last-child {
@@ -730,30 +685,30 @@
 	}
 
 	.status.planned {
-		background: rgba(106, 176, 76, 0.15);
-		color: #6ab04c;
+		background: var(--color-success-bg);
+		color: var(--mc-grass);
 	}
 
 	.status.future {
-		background: rgba(88, 101, 242, 0.15);
-		color: #a5b4fc;
+		background: var(--color-info-bg);
+		color: var(--color-info-light);
 	}
 
 	.about-footer {
 		text-align: center;
 		padding: 32px 0;
-		border-top: 1px solid #2a2f47;
+		border-top: 1px solid var(--border-color);
 	}
 
 	.about-footer p {
 		margin: 0 0 8px;
-		color: #9aa2c5;
+		color: var(--mc-text-muted);
 		font-size: 14px;
 	}
 
 	.copyright {
 		font-size: 12px !important;
-		color: #7c87b2 !important;
+		color: var(--mc-text-dim) !important;
 	}
 
 	@media (max-width: 768px) {
