@@ -462,7 +462,7 @@ public class ServerService : IServerService
         await _processManager.SendCommandAsync(name, "stop", uid, gid, cancellationToken);
 
         // Wait for process to stop
-        var timeout = TimeSpan.FromSeconds(timeoutSeconds > 0 ? timeoutSeconds : 30);
+        var timeout = TimeSpan.FromSeconds(timeoutSeconds > 0 ? timeoutSeconds : 300);
         var stopwatch = System.Diagnostics.Stopwatch.StartNew();
 
         while (stopwatch.Elapsed < timeout)
@@ -481,7 +481,7 @@ public class ServerService : IServerService
 
     public async Task RestartServerAsync(string name, CancellationToken cancellationToken)
     {
-        await StopServerAsync(name, 30, cancellationToken);
+        await StopServerAsync(name, 300, cancellationToken);
         await Task.Delay(1000, cancellationToken); // Brief pause between stop and start
         await StartServerAsync(name, cancellationToken);
 

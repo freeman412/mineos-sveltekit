@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Mvc;
 using MineOS.Api.Authorization;
 using MineOS.Application.Dtos;
 using MineOS.Application.Interfaces;
+using MineOS.Infrastructure.Services;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.Processing;
 using SixLabors.ImageSharp.Formats.Png;
@@ -164,10 +165,61 @@ public static class ServerEndpoints
         });
 
         // Server actions
+        servers.MapPost("/actions/stop-all", async (
+            HttpContext context,
+            IServerService serverService,
+            ISettingsService settingsService,
+            [FromQuery] int? timeoutSeconds,
+            CancellationToken cancellationToken) =>
+        {
+            if (!IsAdminOrApiKey(context))
+            {
+                return Results.Forbid();
+            }
+
+            var timeout = await ResolveShutdownTimeoutAsync(settingsService, timeoutSeconds, cancellationToken);
+
+            var serversList = await serverService.ListServersAsync(cancellationToken);
+            var runningServers = serversList
+                .Where(server => string.Equals(server.Status, "running", StringComparison.OrdinalIgnoreCase))
+                .ToList();
+
+            var results = new List<object>();
+            var stoppedCount = 0;
+
+            foreach (var server in runningServers)
+            {
+                try
+                {
+                    await serverService.StopServerAsync(server.Name, timeout, cancellationToken);
+                    stoppedCount += 1;
+                    results.Add(new { name = server.Name, status = "stopped" });
+                }
+                catch (TimeoutException ex)
+                {
+                    results.Add(new { name = server.Name, status = "timeout", error = ex.Message });
+                }
+                catch (Exception ex)
+                {
+                    results.Add(new { name = server.Name, status = "error", error = ex.Message });
+                }
+            }
+
+            return Results.Ok(new
+            {
+                total = serversList.Count,
+                running = runningServers.Count,
+                stopped = stoppedCount,
+                skipped = serversList.Count - runningServers.Count,
+                results
+            });
+        });
+
         servers.MapPost("/{name}/actions/{action}", async (
             string name,
             string action,
             IServerService serverService,
+            ISettingsService settingsService,
             CancellationToken cancellationToken) =>
         {
             try
@@ -179,11 +231,15 @@ public static class ServerEndpoints
                         return Results.Ok(new { message = $"Server '{name}' started" });
 
                     case "stop":
-                        await serverService.StopServerAsync(name, 30, cancellationToken);
+                        var timeout = await ResolveShutdownTimeoutAsync(settingsService, null, cancellationToken);
+                        await serverService.StopServerAsync(name, timeout, cancellationToken);
                         return Results.Ok(new { message = $"Server '{name}' stopped" });
 
                     case "restart":
-                        await serverService.RestartServerAsync(name, cancellationToken);
+                        var restartTimeout = await ResolveShutdownTimeoutAsync(settingsService, null, cancellationToken);
+                        await serverService.StopServerAsync(name, restartTimeout, cancellationToken);
+                        await Task.Delay(1000, cancellationToken);
+                        await serverService.StartServerAsync(name, cancellationToken);
                         return Results.Ok(new { message = $"Server '{name}' restarted" });
 
                     case "kill":
@@ -428,6 +484,26 @@ public static class ServerEndpoints
 
         var role = context.User.FindFirstValue(ClaimTypes.Role) ?? "user";
         return string.Equals(role, "admin", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static async Task<int> ResolveShutdownTimeoutAsync(
+        ISettingsService settingsService,
+        int? overrideSeconds,
+        CancellationToken cancellationToken)
+    {
+        const int defaultTimeout = 300;
+        if (overrideSeconds.HasValue && overrideSeconds.Value > 0)
+        {
+            return overrideSeconds.Value;
+        }
+
+        var configured = await settingsService.GetAsync(SettingsService.Keys.ShutdownTimeoutSeconds, cancellationToken);
+        if (int.TryParse(configured, out var parsed) && parsed > 0)
+        {
+            return parsed;
+        }
+
+        return defaultTimeout;
     }
 
     private static bool TryGetUserId(ClaimsPrincipal user, out int userId)

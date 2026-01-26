@@ -89,7 +89,8 @@
 
 	function getKeyDisplayName(key: string): string {
 		const names: Record<string, string> = {
-			'CurseForge:ApiKey': 'CurseForge API Key'
+			'CurseForge:ApiKey': 'CurseForge API Key',
+			'MineOS:ShutdownTimeoutSeconds': 'Server shutdown timeout (seconds)'
 		};
 		return names[key] || key;
 	}

@@ -13,12 +13,14 @@ public sealed class SettingsService : ISettingsService
     public static class Keys
     {
         public const string CurseForgeApiKey = "CurseForge:ApiKey";
+        public const string ShutdownTimeoutSeconds = "MineOS:ShutdownTimeoutSeconds";
     }
 
     // Metadata for known settings (description, whether it's secret, config fallback path)
     private static readonly Dictionary<string, (string Description, bool IsSecret, string? ConfigPath)> SettingsMetadata = new()
     {
-        [Keys.CurseForgeApiKey] = ("CurseForge API key for mod and modpack downloads", true, "CurseForge:ApiKey")
+        [Keys.CurseForgeApiKey] = ("CurseForge API key for mod and modpack downloads", true, "CurseForge:ApiKey"),
+        [Keys.ShutdownTimeoutSeconds] = ("Seconds to wait for Minecraft servers to stop gracefully.", false, "MINEOS_SHUTDOWN_TIMEOUT")
     };
 
     private readonly AppDbContext _db;
