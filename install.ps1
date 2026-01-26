@@ -52,7 +52,12 @@ if ($Build) {
     }
 
     $forwardArgs = @("-Build") + $forwardArgs
-    & $scriptPath @forwardArgs
+    Push-Location $InstallDir
+    try {
+        & $scriptPath @forwardArgs
+    } finally {
+        Pop-Location
+    }
     exit $LASTEXITCODE
 }
 
@@ -81,5 +86,10 @@ if (-not (Test-Path $scriptPath)) {
     exit 1
 }
 
-& $scriptPath @forwardArgs
+Push-Location $InstallDir
+try {
+    & $scriptPath @forwardArgs
+} finally {
+    Pop-Location
+}
 exit $LASTEXITCODE
