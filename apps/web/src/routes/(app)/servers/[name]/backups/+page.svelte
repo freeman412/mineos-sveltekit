@@ -215,7 +215,7 @@
 						<tr>
 							<td>{formatDate(backup.time)}</td>
 							<td><span class="badge">{backup.step}</span></td>
-							<td>{formatBytes(backup.size)}</td>
+							<td>{backup.size == null ? 'Unknown' : formatBytes(backup.size)}</td>
 							<td>
 								<button
 									class="btn-action"

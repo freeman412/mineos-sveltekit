@@ -1,5 +1,5 @@
 <script lang="ts">
-	const version = '2.0.0-alpha';
+	const version = '2.0.0-beta';
 	const buildId = import.meta.env.PUBLIC_BUILD_ID ?? 'dev';
 </script>
 
@@ -44,14 +44,37 @@
 			<h2>MineOS SvelteKit Edition</h2>
 			<p class="version">Version {version}</p>
 			<p class="build-id">Build {buildId}</p>
+			<p class="status-line">Status: Beta (2 users)</p>
 			<p class="tagline">
 				A complete rewrite of the beloved MineOS web UI, built with modern technologies
 				for a faster, more responsive Minecraft server management experience.
+				Vanilla and Forge servers are solid, and Modrinth installs are working.
 			</p>
 		</div>
 	</div>
 
 	<div class="cards-grid">
+		<section class="card status">
+			<div class="card-icon">[B]</div>
+			<h3>Current Status</h3>
+			<ul class="status-list">
+				<li>Beta release with a tiny user group (2 users)</li>
+				<li>Vanilla and Forge servers are working</li>
+				<li>Modrinth installs are working</li>
+				<li>SQLite-backed with a Docker-friendly setup</li>
+			</ul>
+		</section>
+		<section class="card recent">
+			<div class="card-icon">[N]</div>
+			<h3>Recently Shipped</h3>
+			<ul class="recent-list">
+				<li>Redesigned server config page with tabs, search, and safe resets</li>
+				<li>LAN broadcast option with Docker host network guidance</li>
+				<li>Server header refresh with live player count and quick actions</li>
+				<li>Server icon hover controls for quick upload and delete</li>
+				<li>Backup sizes now display correctly</li>
+			</ul>
+		</section>
 		<section class="card ai-built tech-stack">
 			<div class="card-icon">🤖</div>
 			<h3>AI-Assisted Development</h3>
@@ -174,13 +197,14 @@
 			<h3>Key Features</h3>
 			<ul class="feature-list">
 				<li>Real-time server monitoring with live metrics</li>
-				<li>One-click server creation with profile templates</li>
-				<li>Integrated mod management via CurseForge</li>
+				<li>One-click vanilla and Forge server creation</li>
+				<li>Modrinth and CurseForge mod installs</li>
+				<li>Guided server.properties editor with smart defaults</li>
 				<li>World backup, restore, and management</li>
 				<li>BuildTools integration for Spigot/Paper builds</li>
-				<li>Multi-user access control</li>
 				<li>Server console with command history</li>
 				<li>Responsive design for desktop and mobile</li>
+				<li>Multi-user access control</li>
 			</ul>
 		</section>
 
@@ -202,46 +226,45 @@
 		</section>
 
 		<section class="card roadmap full-width">
-			<div class="card-icon">🗺️</div>
+			<div class="card-icon">[R]</div>
 			<h3>Roadmap</h3>
 			<p>
-				Here's what's planned for future releases. Want to help? Pick an item and contribute!
+				This list mirrors the
+				<a href="https://github.com/freeman412/mineos-sveltekit/issues" target="_blank" rel="noopener noreferrer">GitHub issues</a>.
+				Pick one and jump in.
 			</p>
 			<div class="roadmap-grid">
 				<div class="roadmap-category">
-					<h4>High Priority</h4>
+					<h4>Next Up</h4>
 					<ul>
-						<li><span class="status planned">Planned</span> Visual Cron Job Builder</li>
-						<li><span class="status planned">Planned</span> Plugin Configuration Editor</li>
-						<li><span class="status planned">Planned</span> Bulk Server Operations</li>
-						<li><span class="status planned">Planned</span> Discord Integration</li>
+						<li><span class="status planned">Planned</span> <a href="https://github.com/freeman412/mineos-sveltekit/issues/47" target="_blank" rel="noopener noreferrer">Rename users</a></li>
+						<li><span class="status planned">Planned</span> <a href="https://github.com/freeman412/mineos-sveltekit/issues/48" target="_blank" rel="noopener noreferrer">Default server visibility</a></li>
+						<li><span class="status planned">Planned</span> <a href="https://github.com/freeman412/mineos-sveltekit/issues/35" target="_blank" rel="noopener noreferrer">Server icon cropping</a></li>
+						<li><span class="status planned">Planned</span> <a href="https://github.com/freeman412/mineos-sveltekit/issues/34" target="_blank" rel="noopener noreferrer">Add mods during server creation</a></li>
+						<li><span class="status planned">Planned</span> <a href="https://github.com/freeman412/mineos-sveltekit/issues/26" target="_blank" rel="noopener noreferrer">Invite links and auto-whitelist</a></li>
 					</ul>
 				</div>
 				<div class="roadmap-category">
-					<h4>Content Management</h4>
+					<h4>Modding and Backups</h4>
 					<ul>
-						<li><span class="status planned">Planned</span> Server Version Migration</li>
-						<li><span class="status planned">Planned</span> Resource Pack Manager</li>
-						<li><span class="status planned">Planned</span> Backup Comparison & Diff</li>
-						<li><span class="status planned">Planned</span> Dynmap Integration</li>
+						<li><span class="status planned">Planned</span> <a href="https://github.com/freeman412/mineos-sveltekit/issues/38" target="_blank" rel="noopener noreferrer">Detect individual mod updates</a></li>
+						<li><span class="status planned">Planned</span> <a href="https://github.com/freeman412/mineos-sveltekit/issues/21" target="_blank" rel="noopener noreferrer">Auto install mod dependencies</a></li>
+						<li><span class="status planned">Planned</span> <a href="https://github.com/freeman412/mineos-sveltekit/issues/22" target="_blank" rel="noopener noreferrer">Scheduled cron backups</a></li>
+						<li><span class="status planned">Planned</span> <a href="https://github.com/freeman412/mineos-sveltekit/issues/10" target="_blank" rel="noopener noreferrer">Modded client download</a></li>
 					</ul>
 				</div>
 				<div class="roadmap-category">
-					<h4>Templates & Automation</h4>
+					<h4>Platform</h4>
 					<ul>
-						<li><span class="status planned">Planned</span> Server Templates</li>
-						<li><span class="status planned">Planned</span> Auto Server Detection</li>
-						<li><span class="status planned">Planned</span> Server Cloning</li>
-						<li><span class="status planned">Planned</span> Command Palette (Cmd+K)</li>
+						<li><span class="status planned">Planned</span> <a href="https://github.com/freeman412/mineos-sveltekit/issues/25" target="_blank" rel="noopener noreferrer">OAuth login support</a></li>
+						<li><span class="status planned">Planned</span> <a href="https://github.com/freeman412/mineos-sveltekit/issues/7" target="_blank" rel="noopener noreferrer">Consolidate EventSource streams</a></li>
+						<li><span class="status planned">Planned</span> <a href="https://github.com/freeman412/mineos-sveltekit/issues/9" target="_blank" rel="noopener noreferrer">Time reference on performance chart</a></li>
 					</ul>
 				</div>
 				<div class="roadmap-category">
-					<h4>Advanced Features</h4>
+					<h4>Big Bets</h4>
 					<ul>
-						<li><span class="status future">Future</span> Multi-Host Support</li>
-						<li><span class="status future">Future</span> Log Analysis with ML</li>
-						<li><span class="status future">Future</span> API Keys & Webhooks</li>
-						<li><span class="status future">Future</span> Performance Profiling</li>
+						<li><span class="status future">Future</span> <a href="https://github.com/freeman412/mineos-sveltekit/issues/23" target="_blank" rel="noopener noreferrer">Run each server in its own Docker container</a></li>
 					</ul>
 				</div>
 			</div>
@@ -327,6 +350,17 @@
 		display: inline-block;
 		background: rgba(88, 101, 242, 0.12);
 		color: #8fa3ff;
+		padding: 4px 12px;
+		border-radius: 20px;
+		font-size: 12px;
+		font-weight: 600;
+		margin: 0 0 16px;
+	}
+
+	.status-line {
+		display: inline-block;
+		background: rgba(255, 183, 77, 0.15);
+		color: #ffcc80;
 		padding: 4px 12px;
 		border-radius: 20px;
 		font-size: 12px;
@@ -521,6 +555,25 @@
 		color: #c4d1c0;
 		font-size: 14px;
 		border-left: 3px solid rgba(106, 176, 76, 0.4);
+	}
+
+	.status-list,
+	.recent-list {
+		list-style: none;
+		padding: 0;
+		margin: 0;
+		display: grid;
+		gap: 10px;
+	}
+
+	.status-list li,
+	.recent-list li {
+		padding: 10px 14px;
+		background: rgba(88, 101, 242, 0.08);
+		border-radius: 8px;
+		color: #c4cff5;
+		font-size: 14px;
+		border-left: 3px solid rgba(88, 101, 242, 0.4);
 	}
 
 	.license-badge {

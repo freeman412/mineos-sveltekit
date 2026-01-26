@@ -48,12 +48,14 @@ public sealed class BackupService : IBackupService
             .OrderByDescending(j => j.Time)
             .ToList();
 
+        var sizeEntries = (await GetBackupSizesAsync(serverName, cancellationToken)).ToList();
         if (jobEntries.Count > 0)
         {
-            return jobEntries;
+            return MergeIncrementSizes(jobEntries, sizeEntries);
         }
 
-        return await ListRdiffIncrementsAsync(serverName, cancellationToken);
+        var rdiffEntries = (await ListRdiffIncrementsAsync(serverName, cancellationToken)).ToList();
+        return MergeIncrementSizes(rdiffEntries, sizeEntries);
     }
 
     public async Task CreateBackupAsync(string serverName, CancellationToken cancellationToken)
@@ -325,28 +327,115 @@ public sealed class BackupService : IBackupService
         var lines = output.Split('\n', StringSplitOptions.RemoveEmptyEntries);
         var increments = new List<IncrementEntryDto>();
         long cumulativeSize = 0;
+        const string isoPattern = @"(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:[+-]\d{2}:\d{2}|Z))";
+        const string englishPattern = @"\b(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)\s+[A-Za-z]{3}\s+\d{1,2}\s+\d{2}:\d{2}:\d{2}\s+\d{4}\b";
 
         foreach (var line in lines)
         {
-            // Parse increment size format
-            var parts = line.Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
-            if (parts.Length >= 3)
+            var trimmed = line.Trim();
+            if (string.IsNullOrWhiteSpace(trimmed) ||
+                trimmed.StartsWith("Found ", StringComparison.OrdinalIgnoreCase))
             {
-                var timestamp = parts[0];
-                if (DateTimeOffset.TryParse(timestamp, out var time) && long.TryParse(parts[1], out var size))
-                {
-                    cumulativeSize += size;
-                    increments.Add(new IncrementEntryDto(
-                        time,
-                        "backup",
-                        size,
-                        cumulativeSize
-                    ));
-                }
+                continue;
             }
+
+            var isoMatch = Regex.Match(trimmed, isoPattern);
+            var englishMatch = isoMatch.Success ? Match.Empty : Regex.Match(trimmed, englishPattern);
+            var match = isoMatch.Success ? isoMatch : englishMatch;
+            if (!match.Success)
+            {
+                continue;
+            }
+
+            if (!TryParseRdiffTimestamp(match.Value, out var time))
+            {
+                continue;
+            }
+
+            var remainder = trimmed[(match.Index + match.Length)..];
+            var sizeMatch = Regex.Match(remainder, @"\b(\d+)\b");
+            if (!sizeMatch.Success || !long.TryParse(sizeMatch.Groups[1].Value, out var size))
+            {
+                continue;
+            }
+
+            cumulativeSize += size;
+            increments.Add(new IncrementEntryDto(
+                time,
+                "backup",
+                size,
+                cumulativeSize
+            ));
         }
 
         return increments.OrderByDescending(i => i.Time);
+    }
+
+    private static IReadOnlyList<IncrementEntryDto> MergeIncrementSizes(
+        IReadOnlyList<IncrementEntryDto> entries,
+        IReadOnlyList<IncrementEntryDto> sizeEntries)
+    {
+        if (entries.Count == 0 || sizeEntries.Count == 0)
+        {
+            return entries;
+        }
+
+        const string keyFormat = "yyyy-MM-dd'T'HH:mm:ss";
+        var sizeBySecond = sizeEntries
+            .GroupBy(entry => entry.Time.ToUniversalTime().ToString(keyFormat, CultureInfo.InvariantCulture))
+            .ToDictionary(group => group.Key, group => group.OrderByDescending(e => e.Time).First());
+
+        var merged = new List<IncrementEntryDto>(entries.Count);
+        foreach (var entry in entries)
+        {
+            if (entry.Size is not null && entry.CumulativeSize is not null)
+            {
+                merged.Add(entry);
+                continue;
+            }
+
+            var key = entry.Time.ToUniversalTime().ToString(keyFormat, CultureInfo.InvariantCulture);
+            if (!sizeBySecond.TryGetValue(key, out var sizeEntry))
+            {
+                sizeEntry = FindClosestSizeEntry(entry.Time, sizeEntries, TimeSpan.FromMinutes(2));
+            }
+
+            if (sizeEntry is null)
+            {
+                merged.Add(entry);
+                continue;
+            }
+
+            merged.Add(entry with
+            {
+                Size = entry.Size ?? sizeEntry.Size,
+                CumulativeSize = entry.CumulativeSize ?? sizeEntry.CumulativeSize
+            });
+        }
+
+        return merged;
+    }
+
+    private static IncrementEntryDto? FindClosestSizeEntry(
+        DateTimeOffset target,
+        IReadOnlyList<IncrementEntryDto> sizeEntries,
+        TimeSpan tolerance)
+    {
+        IncrementEntryDto? closest = null;
+        var closestDiff = TimeSpan.MaxValue;
+        foreach (var entry in sizeEntries)
+        {
+            var diff = (entry.Time - target).Duration();
+            if (diff > tolerance || diff >= closestDiff)
+            {
+                continue;
+            }
+
+            closest = entry;
+            closestDiff = diff;
+        }
+
+        return closest;
     }
 
     private async Task PruneRdiffAsync(string serverName, DateTimeOffset thresholdTime, CancellationToken cancellationToken)

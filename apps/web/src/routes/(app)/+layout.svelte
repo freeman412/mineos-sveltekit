@@ -81,13 +81,16 @@
 <div class="app-container">
 	<nav class="sidebar">
 		<div class="sidebar-header">
-			<div class="logo-wrap">
+			<a href="/dashboard" class="logo-wrap logo-link" aria-label="Go to dashboard">
 				<img src="/mineos-logo.svg" alt="MineOS logo" class="logo-icon" />
 				<div>
-					<h1 class="logo">MineOS</h1>
+					<div class="logo-title">
+						<h1 class="logo">MineOS</h1>
+						<span class="beta-tag">Beta</span>
+					</div>
 					<p class="logo-tagline">Minecraft Control</p>
 				</div>
-			</div>
+			</a>
 		</div>
 
 		<ul class="nav-list">
@@ -196,6 +199,13 @@
 		/* Focus states */
 		--focus-color: rgba(106, 176, 76, 0.5);
 		--focus-shadow: 0 0 0 2px rgba(106, 176, 76, 0.1);
+
+		/* Scrollbars */
+		--scrollbar-size: 6px;
+		--scrollbar-track: rgba(15, 17, 24, 0.6);
+		--scrollbar-thumb: rgba(88, 101, 242, 0.35);
+		--scrollbar-thumb-hover: rgba(88, 101, 242, 0.55);
+		--scrollbar-thumb-border: rgba(88, 101, 242, 0.5);
 	}
 
 	:global(select) {
@@ -236,6 +246,17 @@
 		transition: all 0.2s;
 	}
 
+	:global(input[type='number']) {
+		appearance: textfield;
+		-moz-appearance: textfield;
+	}
+
+	:global(input[type='number']::-webkit-outer-spin-button),
+	:global(input[type='number']::-webkit-inner-spin-button) {
+		-webkit-appearance: none;
+		margin: 0;
+	}
+
 	:global(input:focus),
 	:global(textarea:focus) {
 		outline: none;
@@ -247,6 +268,31 @@
 	:global(textarea:disabled) {
 		opacity: 0.5;
 		cursor: not-allowed;
+	}
+
+	:global(*) {
+		scrollbar-width: thin;
+		scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
+	}
+
+	:global(*::-webkit-scrollbar) {
+		width: var(--scrollbar-size);
+		height: var(--scrollbar-size);
+	}
+
+	:global(*::-webkit-scrollbar-track) {
+		background: var(--scrollbar-track);
+		border-radius: 999px;
+	}
+
+	:global(*::-webkit-scrollbar-thumb) {
+		background: var(--scrollbar-thumb);
+		border-radius: 999px;
+		border: 1px solid var(--scrollbar-thumb-border);
+	}
+
+	:global(*::-webkit-scrollbar-thumb:hover) {
+		background: var(--scrollbar-thumb-hover);
 	}
 
 	.app-container {
@@ -277,13 +323,37 @@
 		gap: 12px;
 	}
 
+	.logo-link {
+		text-decoration: none;
+		color: inherit;
+		border-radius: 12px;
+		padding: 6px 4px;
+		transition: background 0.2s, transform 0.2s;
+	}
+
+	.logo-link:hover {
+		background: rgba(88, 101, 242, 0.08);
+		transform: translateY(-1px);
+	}
+
+	.logo-link:focus-visible {
+		outline: 2px solid rgba(88, 101, 242, 0.45);
+		outline-offset: 2px;
+	}
+
+	.logo-title {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+	}
+
 	.logo-icon {
 		width: 44px;
 		height: 44px;
 	}
 
 	.logo {
-		margin: 0 0 8px;
+		margin: 0;
 		font-size: 16px;
 		font-weight: 400;
 		font-family: 'Press Start 2P', 'Space Grotesk', sans-serif;
@@ -291,11 +361,25 @@
 	}
 
 	.logo-tagline {
-		margin: 0;
+		margin: 4px 0 0;
 		font-size: 11px;
 		color: #7c87b2;
 		letter-spacing: 0.04em;
 		text-transform: uppercase;
+	}
+
+	.beta-tag {
+		display: inline-flex;
+		align-items: center;
+		padding: 2px 8px;
+		border-radius: 999px;
+		background: rgba(255, 183, 77, 0.2);
+		border: 1px solid rgba(255, 183, 77, 0.4);
+		color: #ffcc80;
+		font-size: 10px;
+		font-weight: 700;
+		text-transform: uppercase;
+		letter-spacing: 0.08em;
 	}
 
 	.nav-list {
