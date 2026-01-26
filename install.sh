@@ -1,7 +1,5 @@
 #!/usr/bin/env bash
 
-set -euo pipefail
-
 REPO_URL="https://github.com/freeman412/mineos-sveltekit.git"
 INSTALL_DIR="${MINEOS_INSTALL_DIR:-mineos}"
 REF="main"
@@ -9,16 +7,7 @@ BUILD=false
 BUNDLE_URL=""
 FORWARD_ARGS=()
 
-# When piped (curl | bash), stdin is not a TTY. Reopen /dev/tty so prompts work.
-if [ ! -t 0 ]; then
-    if [ -e /dev/tty ]; then
-        exec </dev/tty
-    else
-        echo "[ERR] Interactive installer requires a TTY."
-        echo "      Download and run: curl -fsSL https://mineos.net/install.sh -o install.sh && bash install.sh"
-        exit 1
-    fi
-fi
+set -euo pipefail
 
 usage() {
     cat <<'EOF'
@@ -120,7 +109,14 @@ if [ "$BUILD" = true ]; then
 
     cd "$INSTALL_DIR"
     chmod +x MineOS.sh
-    exec ./MineOS.sh --build "${FORWARD_ARGS[@]}"
+    if [ -t 0 ]; then
+        exec ./MineOS.sh --build "${FORWARD_ARGS[@]}"
+    elif [ -e /dev/tty ]; then
+        exec ./MineOS.sh --build "${FORWARD_ARGS[@]}" </dev/tty
+    else
+        echo "[ERR] Interactive setup requires a TTY."
+        exit 1
+    fi
 fi
 
 if ! command_exists curl; then
@@ -151,4 +147,11 @@ tar -xzf "$bundle_path" -C "$INSTALL_DIR"
 
 cd "$INSTALL_DIR"
 chmod +x MineOS.sh
-exec ./MineOS.sh "${FORWARD_ARGS[@]}"
+if [ -t 0 ]; then
+    exec ./MineOS.sh "${FORWARD_ARGS[@]}"
+elif [ -e /dev/tty ]; then
+    exec ./MineOS.sh "${FORWARD_ARGS[@]}" </dev/tty
+else
+    echo "[ERR] Interactive setup requires a TTY."
+    exit 1
+fi

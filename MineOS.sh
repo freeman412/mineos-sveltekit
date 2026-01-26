@@ -9,13 +9,11 @@ if [ -z "${BASH_VERSION:-}" ]; then
 fi
 
 # If stdin isn't a TTY (e.g., piped), reopen /dev/tty for prompts.
-if [ ! -t 0 ]; then
-    if [ -e /dev/tty ]; then
-        exec </dev/tty
-    else
-        echo "[ERR] Interactive setup requires a TTY."
-        exit 1
-    fi
+if [ ! -t 0 ] && [ -e /dev/tty ] && [ -f "$0" ]; then
+    exec </dev/tty
+elif [ ! -t 0 ] && [ ! -e /dev/tty ]; then
+    echo "[ERR] Interactive setup requires a TTY."
+    exit 1
 fi
 
 set -e
