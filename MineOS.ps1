@@ -1145,10 +1145,15 @@ function Start-ConfigWizard {
     if ([string]::IsNullOrWhiteSpace($script:webPort)) { $script:webPort = "3000" }
     [void](Assert-PortNumber -Value $script:webPort -Name "Web UI port")
 
+    Write-Info "Web UI origin = the exact URL you will type in your browser."
+    Write-Info "Examples: http://localhost:3000  or  https://mineos.example.com"
+    Write-Info "This is used for CORS/CSRF and must match your browser address."
     $script:webOrigin = Read-Host "Web UI origin (default: http://localhost:$script:webPort)"
     if ([string]::IsNullOrWhiteSpace($script:webOrigin)) { $script:webOrigin = "http://localhost:$script:webPort" }
     $script:caddySite = Get-CaddySite -Origin $script:webOrigin
 
+    Write-Info "Public Minecraft host = address players connect to (shown in Copy Address)."
+    Write-Info "Use your public domain or LAN IP (e.g., mc.example.com or 192.168.1.50)."
     $script:mcPublicHost = Read-Host "Public Minecraft host (default: localhost)"
     if ([string]::IsNullOrWhiteSpace($script:mcPublicHost)) { $script:mcPublicHost = "localhost" }
 
@@ -1186,6 +1191,7 @@ function Start-ConfigWizard {
     if ([string]::IsNullOrWhiteSpace($script:imageTag)) { $script:imageTag = "latest" }
 
     $script:mcExtraPorts = ""
+    Write-Info "CurseForge and Discord are optional and can be set later in the Web UI."
     $script:curseforgeKey = Read-Host "CurseForge API key (optional, press Enter to skip)"
     $script:discordWebhook = Read-Host "Discord webhook URL (optional, press Enter to skip)"
 
@@ -1625,10 +1631,15 @@ function Do-Reconfigure {
     if ([string]::IsNullOrWhiteSpace($newWebPort)) { $newWebPort = $webPort }
     [void](Assert-PortNumber -Value $newWebPort -Name "Web UI port")
 
+    Write-Info "Web UI origin = the exact URL you will type in your browser."
+    Write-Info "Examples: http://localhost:3000  or  https://mineos.example.com"
+    Write-Info "This is used for CORS/CSRF and must match your browser address."
     $newWebOrigin = Read-Host "Web UI origin (default: $webOrigin)"
     if ([string]::IsNullOrWhiteSpace($newWebOrigin)) { $newWebOrigin = $webOrigin }
     $newCaddySite = Get-CaddySite -Origin $newWebOrigin
 
+    Write-Info "Public Minecraft host = address players connect to (shown in Copy Address)."
+    Write-Info "Use your public domain or LAN IP (e.g., mc.example.com or 192.168.1.50)."
     $newMcPublicHost = Read-Host "Public Minecraft host (default: $mcPublicHost)"
     if ([string]::IsNullOrWhiteSpace($newMcPublicHost)) { $newMcPublicHost = $mcPublicHost }
 
@@ -1669,6 +1680,7 @@ function Do-Reconfigure {
     $newImageTag = Read-Host "Image tag to pull (default: $imageTag)"
     if ([string]::IsNullOrWhiteSpace($newImageTag)) { $newImageTag = $imageTag }
 
+    Write-Info "CurseForge and Discord are optional and can be set later in the Web UI."
     $newCurseforgeKey = Read-Host "CurseForge API key (leave blank to keep current)"
     if ([string]::IsNullOrWhiteSpace($newCurseforgeKey)) { $newCurseforgeKey = Get-EnvValue "CurseForge__ApiKey" }
 

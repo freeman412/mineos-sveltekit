@@ -638,10 +638,17 @@ run_config_wizard() {
     read -p "Web UI port (default: 3000): " web_port
     web_port=${web_port:-3000}
 
+    echo ""
+    info "Web UI origin = the exact URL you will type in your browser."
+    info "Examples: http://localhost:3000  or  https://mineos.example.com"
+    info "This is used for CORS/CSRF and must match your browser address."
     read -p "Web UI origin (default: http://localhost:${web_port}): " web_origin
     web_origin=${web_origin:-http://localhost:${web_port}}
     caddy_site=$(derive_caddy_site "$web_origin")
 
+    echo ""
+    info "Public Minecraft host = address players connect to (shown in Copy Address)."
+    info "Use your public domain or LAN IP (e.g., mc.example.com or 192.168.1.50)."
     read -p "Public Minecraft host (default: localhost): " mc_public_host
     mc_public_host=${mc_public_host:-localhost}
 
@@ -677,6 +684,8 @@ run_config_wizard() {
     read -p "Image tag to pull (default: latest): " image_tag
     image_tag=${image_tag:-latest}
 
+    echo ""
+    info "CurseForge and Discord are optional and can be set later in the Web UI."
     # Optional: CurseForge API key
     read -p "CurseForge API key (optional, press Enter to skip): " curseforge_key
 
@@ -1222,10 +1231,17 @@ reconfigure() {
     read -p "Web UI port (default: ${web_port_current}): " web_port
     web_port=${web_port:-$web_port_current}
 
+    echo ""
+    info "Web UI origin = the exact URL you will type in your browser."
+    info "Examples: http://localhost:3000  or  https://mineos.example.com"
+    info "This is used for CORS/CSRF and must match your browser address."
     read -p "Web UI origin (default: ${web_origin_current}): " web_origin
     web_origin=${web_origin:-$web_origin_current}
     caddy_site=$(derive_caddy_site "$web_origin")
 
+    echo ""
+    info "Public Minecraft host = address players connect to (shown in Copy Address)."
+    info "Use your public domain or LAN IP (e.g., mc.example.com or 192.168.1.50)."
     read -p "Public Minecraft host (default: ${mc_public_host_current}): " mc_public_host
     mc_public_host=${mc_public_host:-$mc_public_host_current}
 
@@ -1262,6 +1278,8 @@ reconfigure() {
     read -p "Image tag to pull (default: ${image_tag_current}): " image_tag
     image_tag=${image_tag:-$image_tag_current}
 
+    echo ""
+    info "CurseForge and Discord are optional and can be set later in the Web UI."
     read -p "CurseForge API key (leave blank to keep current): " curseforge_key
     if [ -z "$curseforge_key" ]; then
         curseforge_key="$curseforge_current"
