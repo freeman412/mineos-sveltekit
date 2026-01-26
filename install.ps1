@@ -54,7 +54,7 @@ if ($Build) {
     $forwardArgs = @("-Build") + $forwardArgs
     Push-Location $InstallDir
     try {
-        & $scriptPath @forwardArgs
+        & ".\\MineOS.ps1" @forwardArgs
     } finally {
         Pop-Location
     }
@@ -88,7 +88,7 @@ if (-not (Test-Path $scriptPath)) {
 
 Push-Location $InstallDir
 try {
-    & $scriptPath @forwardArgs
+    & ".\\MineOS.ps1" @forwardArgs
 } finally {
     Pop-Location
 }
