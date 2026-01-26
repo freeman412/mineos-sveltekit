@@ -3,6 +3,21 @@
 # MineOS Setup & Management Script
 # Interactive setup and management for Linux/macOS
 
+if [ -z "${BASH_VERSION:-}" ]; then
+    echo "[ERR] This script requires bash. Re-running with bash..."
+    exec /usr/bin/env bash "$0" "$@"
+fi
+
+# If stdin isn't a TTY (e.g., piped), reopen /dev/tty for prompts.
+if [ ! -t 0 ]; then
+    if [ -e /dev/tty ]; then
+        exec </dev/tty
+    else
+        echo "[ERR] Interactive setup requires a TTY."
+        exit 1
+    fi
+fi
+
 set -e
 
 DEV_MODE=false

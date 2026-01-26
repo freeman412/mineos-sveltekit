@@ -9,6 +9,17 @@ BUILD=false
 BUNDLE_URL=""
 FORWARD_ARGS=()
 
+# When piped (curl | bash), stdin is not a TTY. Reopen /dev/tty so prompts work.
+if [ ! -t 0 ]; then
+    if [ -e /dev/tty ]; then
+        exec </dev/tty
+    else
+        echo "[ERR] Interactive installer requires a TTY."
+        echo "      Download and run: curl -fsSL https://mineos.net/install.sh -o install.sh && bash install.sh"
+        exit 1
+    fi
+fi
+
 usage() {
     cat <<'EOF'
 MineOS installer
