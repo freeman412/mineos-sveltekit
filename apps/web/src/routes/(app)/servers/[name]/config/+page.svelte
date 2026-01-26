@@ -795,6 +795,28 @@
 		border-radius: 12px;
 		overflow-x: auto;
 		-webkit-overflow-scrolling: touch;
+		scrollbar-width: thin;
+		scrollbar-color: rgba(88, 101, 242, 0.5) rgba(15, 17, 24, 0.6);
+		scroll-snap-type: x proximity;
+	}
+
+	.section-tabs::-webkit-scrollbar {
+		height: 6px;
+	}
+
+	.section-tabs::-webkit-scrollbar-track {
+		background: rgba(15, 17, 24, 0.6);
+		border-radius: 999px;
+	}
+
+	.section-tabs::-webkit-scrollbar-thumb {
+		background: rgba(88, 101, 242, 0.35);
+		border-radius: 999px;
+		border: 1px solid rgba(88, 101, 242, 0.5);
+	}
+
+	.section-tabs::-webkit-scrollbar-thumb:hover {
+		background: rgba(88, 101, 242, 0.55);
 	}
 
 	.section-tab {
@@ -812,6 +834,7 @@
 		cursor: pointer;
 		transition: all 0.2s;
 		white-space: nowrap;
+		scroll-snap-align: start;
 	}
 
 	.section-tab:hover {
