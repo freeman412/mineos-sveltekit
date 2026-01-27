@@ -588,7 +588,24 @@ function Stop-MinecraftServers {
         return
     }
 
-    Write-Info "Stop-all request complete."
+    $total = if ($null -ne $response.total) { $response.total } else { 0 }
+    $running = if ($null -ne $response.running) { $response.running } else { 0 }
+    $stopped = if ($null -ne $response.stopped) { $response.stopped } else { 0 }
+    $skipped = if ($null -ne $response.skipped) { $response.skipped } else { 0 }
+
+    Write-Info "Stop-all request complete. Total: $total, running: $running, stopped: $stopped, skipped: $skipped"
+    if ($response.results) {
+        foreach ($result in $response.results) {
+            $name = $result.name
+            $status = $result.status
+            $err = $result.error
+            if ($err) {
+                Write-Warn "$name: $status ($err)"
+            } else {
+                Write-Success "$name: $status"
+            }
+        }
+    }
 }
 
 function Wait-MinecraftServerStop {

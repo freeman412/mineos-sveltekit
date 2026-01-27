@@ -20,6 +20,10 @@
 		const envHost = env.PUBLIC_MINECRAFT_HOST as string | undefined;
 		return (envHost && envHost.trim()) || (browser ? window.location.hostname : 'localhost');
 	});
+	const portRange = $derived.by(() => {
+		const envRange = env.PUBLIC_MC_PORT_RANGE as string | undefined;
+		return (envRange && envRange.trim()) || '25565-25570';
+	});
 
 	let actionLoading = $state<Record<string, boolean>>({});
 	let importLoading = $state<Record<string, boolean>>({});
@@ -379,7 +383,10 @@
 <div class="page-header">
 	<div>
 		<h1>Servers</h1>
-		<p class="subtitle">Manage your Minecraft servers</p>
+		<p class="subtitle">
+			Manage your Minecraft servers
+			<span class="port-range">Ports: {portRange}</span>
+		</p>
 	</div>
 	<a href="/servers/new" class="btn-primary">
 		<span>+</span> Create Server
@@ -684,6 +691,20 @@
 		margin: 0;
 		color: #aab2d3;
 		font-size: 15px;
+		display: flex;
+		align-items: center;
+		gap: 12px;
+		flex-wrap: wrap;
+	}
+
+	.port-range {
+		background: rgba(88, 101, 242, 0.1);
+		border: 1px solid rgba(88, 101, 242, 0.35);
+		color: #c7cbe0;
+		padding: 4px 10px;
+		border-radius: 999px;
+		font-size: 12px;
+		font-weight: 500;
 	}
 
 	.btn-primary {

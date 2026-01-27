@@ -276,7 +276,46 @@ stop_minecraft_servers() {
         return
     fi
 
-    info "Stop-all request complete."
+    if command_exists python3; then
+        python3 - <<'PY' "$response"
+import json, sys
+data = json.loads(sys.argv[1])
+total = data.get("total", 0)
+running = data.get("running", 0)
+stopped = data.get("stopped", 0)
+skipped = data.get("skipped", 0)
+print(f"[INFO] Stop-all request complete. Total: {total}, running: {running}, stopped: {stopped}, skipped: {skipped}")
+for item in data.get("results", []):
+    name = item.get("name", "unknown")
+    status = item.get("status", "unknown")
+    error = item.get("error")
+    if error:
+        print(f"[WARN] {name}: {status} ({error})")
+    else:
+        print(f"[OK] {name}: {status}")
+PY
+    elif command_exists python; then
+        python - <<'PY' "$response"
+import json, sys
+data = json.loads(sys.argv[1])
+total = data.get("total", 0)
+running = data.get("running", 0)
+stopped = data.get("stopped", 0)
+skipped = data.get("skipped", 0)
+print(f"[INFO] Stop-all request complete. Total: {total}, running: {running}, stopped: {stopped}, skipped: {skipped}")
+for item in data.get("results", []):
+    name = item.get("name", "unknown")
+    status = item.get("status", "unknown")
+    error = item.get("error")
+    if error:
+        print(f"[WARN] {name}: {status} ({error})")
+    else:
+        print(f"[OK] {name}: {status}")
+PY
+    else
+        info "Stop-all request complete."
+        echo "$response"
+    fi
 }
 
 wait_for_server_stop() {
