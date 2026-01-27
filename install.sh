@@ -7,6 +7,8 @@ INSTALL_DIR="${MINEOS_INSTALL_DIR:-mineos}"
 REF="main"
 BUILD=false
 BUNDLE_URL=""
+CLI_URL=""
+INSTALL_CLI=true
 FORWARD_ARGS=()
 
 usage() {
@@ -23,6 +25,8 @@ Options:
   --dir <path>      Install directory (default: ./mineos)
   --repo <url>      Git repo for --build
   --bundle-url <u>  Override bundle download URL
+  --cli-url <u>     Override mineos-cli download URL
+  --no-cli          Skip mineos-cli download
   -h, --help        Show this help
 EOF
 }
@@ -73,6 +77,59 @@ PY
         sed -E 's/.*"([^"]+)".*/\1/'
 }
 
+detect_platform() {
+    local os
+    local arch
+
+    os=$(uname -s 2>/dev/null | tr '[:upper:]' '[:lower:]')
+    case "$os" in
+        linux) os="linux" ;;
+        darwin) os="darwin" ;;
+        *) return 1 ;;
+    esac
+
+    arch=$(uname -m 2>/dev/null)
+    case "$arch" in
+        x86_64|amd64) arch="amd64" ;;
+        arm64|aarch64) arch="arm64" ;;
+        *) return 1 ;;
+    esac
+
+    echo "${os}:${arch}"
+}
+
+extract_zip() {
+    local zip_path="$1"
+    local dest_dir="$2"
+
+    mkdir -p "$dest_dir"
+    if command_exists unzip; then
+        unzip -o -q "$zip_path" -d "$dest_dir"
+        return
+    fi
+    if command_exists python3; then
+        python3 - <<'PY' "$zip_path" "$dest_dir"
+import sys, zipfile
+zip_path = sys.argv[1]
+dest = sys.argv[2]
+with zipfile.ZipFile(zip_path, 'r') as zf:
+    zf.extractall(dest)
+PY
+        return
+    fi
+    if command_exists python; then
+        python - <<'PY' "$zip_path" "$dest_dir"
+import sys, zipfile
+zip_path = sys.argv[1]
+dest = sys.argv[2]
+with zipfile.ZipFile(zip_path, 'r') as zf:
+    zf.extractall(dest)
+PY
+        return
+    fi
+    return 1
+}
+
 while [ $# -gt 0 ]; do
     case "$1" in
         --build) BUILD=true ;;
@@ -80,6 +137,8 @@ while [ $# -gt 0 ]; do
         --dir) INSTALL_DIR="${2:-}"; shift ;;
         --repo) REPO_URL="${2:-}"; shift ;;
         --bundle-url) BUNDLE_URL="${2:-}"; shift ;;
+        --cli-url) CLI_URL="${2:-}"; shift ;;
+        --no-cli) INSTALL_CLI=false ;;
         -h|--help) usage; exit 0 ;;
         *) FORWARD_ARGS+=("$1") ;;
     esac
@@ -140,4 +199,37 @@ tar -xzf "$bundle_path" -C "$INSTALL_DIR"
 
 cd "$INSTALL_DIR"
 chmod +x MineOS.sh
+
+if [ "$INSTALL_CLI" = true ]; then
+    platform=$(detect_platform || true)
+    if [ -n "$platform" ]; then
+        os="${platform%%:*}"
+        arch="${platform##*:}"
+        asset="mineos-cli_${os}_${arch}.zip"
+        if [ -z "$CLI_URL" ]; then
+            CLI_URL=$(get_latest_bundle_url "$asset")
+        fi
+        if [ -z "$CLI_URL" ]; then
+            echo "[WARN] Unable to locate mineos-cli asset for ${os}/${arch}. Skipping."
+        else
+            cli_zip="${tmp_dir}/${asset}"
+            echo "[INFO] Downloading mineos-cli (${os}/${arch})..."
+            curl -fsSL "$CLI_URL" -o "$cli_zip"
+            if extract_zip "$cli_zip" "$tmp_dir/cli"; then
+                bin_name="mineos-${os}-${arch}"
+                if [ -f "$tmp_dir/cli/$bin_name" ]; then
+                    mv "$tmp_dir/cli/$bin_name" "./mineos"
+                    chmod +x "./mineos"
+                    echo "[INFO] Installed mineos-cli to ${INSTALL_DIR}/mineos"
+                else
+                    echo "[WARN] mineos-cli binary not found in archive."
+                fi
+            else
+                echo "[WARN] unzip/python not available; skipping mineos-cli install."
+            fi
+        fi
+    else
+        echo "[WARN] Unsupported platform for mineos-cli (expected linux/darwin amd64/arm64)."
+    fi
+fi
 exec ./MineOS.sh "${FORWARD_ARGS[@]}"
