@@ -144,17 +144,22 @@ install_cli() {
     os="${platform%%:*}"
     arch="${platform##*:}"
     asset="mineos-cli_${os}_${arch}.zip"
-    if [ -z "$CLI_URL" ]; then
-        CLI_URL=$(get_latest_bundle_url "$asset")
-    fi
-    if [ -z "$CLI_URL" ]; then
-        echo "[WARN] Unable to locate mineos-cli asset for ${os}/${arch}. Skipping."
-        return 0
-    fi
-
+    local_bundle_zip="./cli/${asset}"
     cli_zip="${tmp_dir}/${asset}"
-    echo "[INFO] Downloading mineos-cli (${os}/${arch})..."
-    curl -fsSL "$CLI_URL" -o "$cli_zip"
+    if [ -f "$local_bundle_zip" ]; then
+        echo "[INFO] Using bundled mineos-cli (${os}/${arch})..."
+        cp "$local_bundle_zip" "$cli_zip"
+    else
+        if [ -z "$CLI_URL" ]; then
+            CLI_URL=$(get_latest_bundle_url "$asset")
+        fi
+        if [ -z "$CLI_URL" ]; then
+            echo "[WARN] Unable to locate mineos-cli asset for ${os}/${arch}. Skipping."
+            return 0
+        fi
+        echo "[INFO] Downloading mineos-cli (${os}/${arch})..."
+        curl -fsSL "$CLI_URL" -o "$cli_zip"
+    fi
     if extract_zip "$cli_zip" "$tmp_dir/cli"; then
         bin_name="mineos-${os}-${arch}"
         if [ -f "$tmp_dir/cli/$bin_name" ]; then

@@ -41,19 +41,26 @@ function Install-Cli {
         return $null
     }
 
-    if ([string]::IsNullOrWhiteSpace($CliUrl)) {
-        $assetName = "mineos-cli_windows_$arch.zip"
-        $CliUrl = Get-LatestBundleUrl -AssetName $assetName
-    }
-
-    if ([string]::IsNullOrWhiteSpace($CliUrl)) {
-        Write-Info "Unable to locate mineos-cli asset for windows/$arch. Skipping."
-        return $null
-    }
-
+    $assetName = "mineos-cli_windows_$arch.zip"
+    $bundleZip = Join-Path $InstallDir ("cli\" + $assetName)
     $cliZip = Join-Path $TmpDir "mineos-cli.zip"
-    Write-Info "Downloading mineos-cli (windows/$arch)..."
-    Invoke-WebRequest -Uri $CliUrl -OutFile $cliZip -UseBasicParsing
+
+    if (Test-Path $bundleZip) {
+        Write-Info "Using bundled mineos-cli (windows/$arch)..."
+        Copy-Item $bundleZip $cliZip -Force
+    } else {
+        if ([string]::IsNullOrWhiteSpace($CliUrl)) {
+            $CliUrl = Get-LatestBundleUrl -AssetName $assetName
+        }
+
+        if ([string]::IsNullOrWhiteSpace($CliUrl)) {
+            Write-Info "Unable to locate mineos-cli asset for windows/$arch. Skipping."
+            return $null
+        }
+
+        Write-Info "Downloading mineos-cli (windows/$arch)..."
+        Invoke-WebRequest -Uri $CliUrl -OutFile $cliZip -UseBasicParsing
+    }
 
     $cliExtract = Join-Path $TmpDir "cli"
     New-Item -ItemType Directory -Force -Path $cliExtract | Out-Null
