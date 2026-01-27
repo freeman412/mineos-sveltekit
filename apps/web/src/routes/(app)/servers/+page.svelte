@@ -7,6 +7,7 @@
 	import { modal } from '$lib/stores/modal';
 	import { formatBytes, formatDate } from '$lib/utils/formatting';
 	import { createEventStream, type EventStreamHandle } from '$lib/utils/eventStream';
+	import CopyButton from '$lib/components/CopyButton.svelte';
 	import ProgressBar from '$lib/components/ProgressBar.svelte';
 	import StatusBadge from '$lib/components/StatusBadge.svelte';
 	import type { PageData } from './$types';
@@ -428,7 +429,16 @@
 						<span class="badge">Profile: {server.profile}</span>
 					{/if}
 					{#if server.port}
-						<span class="badge badge-muted">{hostname}:{server.port}</span>
+						<span class="badge badge-muted address-badge">
+							<span>{hostname}:{server.port}</span>
+							<CopyButton
+								value={`${hostname}:${server.port}`}
+								title="Copy server address"
+								variant="ghost"
+								size="sm"
+								showErrors={false}
+							/>
+						</span>
 					{/if}
 					{#if server.needsRestart}
 						<span class="badge badge-warning">Restart required</span>
@@ -800,6 +810,11 @@
 		font-size: 12px;
 		font-weight: 500;
 		border: 1px solid rgba(106, 176, 76, 0.3);
+	}
+
+	.address-badge {
+		gap: 8px;
+		padding-right: 6px;
 	}
 
 	.badge-muted {
