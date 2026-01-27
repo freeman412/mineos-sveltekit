@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onDestroy, onMount } from 'svelte';
 	import { page } from '$app/stores';
 	import { invalidateAll } from '$app/navigation';
 	import { modal } from '$lib/stores/modal';
@@ -14,7 +14,7 @@
 	let statusFilter = $state<'all' | 'downloaded' | 'missing'>('all');
 	let sortOption = $state<'name' | 'group' | 'version'>('name');
 	let currentPage = $state(1);
-	let pageSize = $state(12);
+	let pageSize = $state(8);
 
 	let buildGroup = $state('spigot');
 	let buildVersion = $state('');
@@ -24,6 +24,9 @@
 	let profileId = $state<string | null>(null);
 	let runs = $state<any[]>([]);
 	let runsLoading = $state(false);
+	let logs = $state<string[]>([]);
+	let logContainer: HTMLDivElement | null = null;
+	let eventSource: EventSource | null = null;
 
 	// Check for group query param on mount
 	onMount(() => {
@@ -32,6 +35,10 @@
 			groupFilter = groupParam;
 		}
 		loadRuns();
+		const lastRun = localStorage.getItem('mineos_buildtools_run');
+		if (lastRun) {
+			attachRun(lastRun);
+		}
 	});
 
 	const profiles = $derived(data.profiles.data ?? []);
@@ -203,6 +210,12 @@
 		}
 	}
 
+	$effect(() => {
+		if (logContainer) {
+			logContainer.scrollTop = logContainer.scrollHeight;
+		}
+	});
+
 	async function startBuild() {
 		if (!buildVersion.trim()) {
 			buildError = 'Version is required';
@@ -211,6 +224,7 @@
 
 		buildError = '';
 		buildStatus = 'running';
+		logs = [];
 		runId = null;
 		profileId = null;
 
@@ -234,12 +248,58 @@
 
 			if (runId) {
 				localStorage.setItem('mineos_buildtools_run', runId);
+				openStream(runId);
 				await loadRuns();
 			}
 		} catch (err) {
 			buildStatus = 'failed';
 			buildError = err instanceof Error ? err.message : 'Failed to start BuildTools';
 		}
+	}
+
+	function openStream(id: string) {
+		eventSource?.close();
+		eventSource = new EventSource(`/api/host/profiles/buildtools/runs/${id}/stream`);
+
+		eventSource.onmessage = (event) => {
+			try {
+				const entry = JSON.parse(event.data);
+				if (entry?.message) {
+					logs = [...logs, entry.message];
+				}
+				if (entry?.status) {
+					buildStatus = entry.status;
+					if (entry.status !== 'running') {
+						eventSource?.close();
+						eventSource = null;
+					}
+				}
+			} catch {
+				logs = [...logs, event.data];
+			}
+		};
+
+		eventSource.onerror = () => {
+			if (buildStatus === 'running') {
+				buildError = 'Log stream disconnected. Check the server logs.';
+				buildStatus = 'failed';
+			}
+			eventSource?.close();
+			eventSource = null;
+		};
+	}
+
+	function attachRun(id: string) {
+		const run = runs.find((item) => item.runId === id);
+		runId = id;
+		logs = [];
+		buildError = '';
+		buildStatus = run?.status ?? 'running';
+		buildGroup = run?.group ?? buildGroup;
+		buildVersion = run?.version ?? buildVersion;
+		profileId = run?.profileId ?? profileId;
+		openStream(id);
+		localStorage.setItem('mineos_buildtools_run', id);
 	}
 
 	async function loadRuns() {
@@ -267,6 +327,10 @@
 	$effect(() => {
 		if (currentPage > totalPages) currentPage = totalPages;
 	});
+
+	onDestroy(() => {
+		eventSource?.close();
+	});
 </script>
 
 <div class="page-header">
@@ -289,7 +353,7 @@
 		</div>
 	</div>
 	<div class="header-actions">
-		<a class="btn-ghost" href="/profiles/buildtools">Open BuildTools Console</a>
+		<a class="btn-ghost" href="#buildtools">BuildTools</a>
 	</div>
 </div>
 
@@ -362,7 +426,7 @@
 
 		<div class="library-meta">
 			<span class="muted">
-				Showing {rangeStart}–{rangeEnd} of {filteredProfiles.length} profiles
+				Showing {rangeStart}-{rangeEnd} of {filteredProfiles.length} profiles
 			</span>
 			<div class="pagination">
 				<button
@@ -374,7 +438,7 @@
 				</button>
 				{#each paginationPages as page}
 					{#if page === '...'}
-						<span class="page-ellipsis">…</span>
+						<span class="page-ellipsis">...</span>
 					{:else}
 						<button
 							class="page-btn"
@@ -475,7 +539,7 @@
 				<h2>BuildTools Station</h2>
 				<p>Compile Spigot or CraftBukkit builds and queue them into your library.</p>
 			</div>
-			<a class="btn-ghost" href="/profiles/buildtools">Open Console</a>
+			<a class="btn-ghost" href="#buildtools-console">Console</a>
 		</div>
 
 		<form
@@ -497,14 +561,14 @@
 			<label>
 				Version
 				<select bind:value={buildVersion} disabled={buildStatus === 'running'}>
-					<option value="">Select a version…</option>
+					<option value="">Select a version...</option>
 					{#each commonVersions as version}
 						<option value={version}>{version}</option>
 					{/each}
 				</select>
 			</label>
 			<button class="btn-primary" type="submit" disabled={buildStatus === 'running'}>
-				{buildStatus === 'running' ? 'Building…' : 'Run BuildTools'}
+				{buildStatus === 'running' ? 'Building...' : 'Run BuildTools'}
 			</button>
 		</form>
 
@@ -530,7 +594,9 @@
 						<span>{profileId}</span>
 					</div>
 				{/if}
-				<a class="link-action" href="/profiles/buildtools">View logs →</a>
+				<button class="btn-secondary" onclick={() => runId && attachRun(runId)}>
+					Open console
+				</button>
 			</div>
 		{/if}
 
@@ -538,7 +604,7 @@
 			<div class="run-list-header">
 				<h3>Recent Builds</h3>
 				<button class="btn-secondary" onclick={loadRuns} disabled={runsLoading}>
-					{runsLoading ? 'Refreshing…' : 'Refresh'}
+					{runsLoading ? 'Refreshing...' : 'Refresh'}
 				</button>
 			</div>
 			{#if runs.length === 0}
@@ -559,18 +625,32 @@
 								>
 									{run.status}
 								</span>
-								<a
-									class="btn-secondary"
-									href="/profiles/buildtools"
-									onclick={() => localStorage.setItem('mineos_buildtools_run', run.runId)}
-								>
-									View
-								</a>
+								<button class="btn-secondary" onclick={() => attachRun(run.runId)}>
+									Open
+								</button>
 							</div>
 						</li>
 					{/each}
 				</ul>
 			{/if}
+		</div>
+
+		<div class="console-panel" id="buildtools-console">
+			<div class="console-header">
+				<h3>Build Console</h3>
+				{#if runId}
+					<button class="btn-secondary" onclick={() => runId && openStream(runId)}>Reconnect</button>
+				{/if}
+			</div>
+			<div class="log-output" bind:this={logContainer}>
+				{#if logs.length === 0}
+					<p class="log-placeholder">Select a build run to see output.</p>
+				{:else}
+					{#each logs as line}
+						<div class="log-line">{line}</div>
+					{/each}
+				{/if}
+			</div>
 		</div>
 	</aside>
 </div>
@@ -671,6 +751,7 @@
 		padding: 20px;
 		box-shadow: 0 20px 40px rgba(0, 0, 0, 0.35);
 		border: 1px solid rgba(42, 47, 71, 0.9);
+		min-width: 0;
 	}
 
 	.library-toolbar {
@@ -679,6 +760,14 @@
 		gap: 16px;
 		padding-bottom: 20px;
 		border-bottom: 1px solid rgba(42, 47, 71, 0.6);
+		min-width: 0;
+	}
+
+	.search-field {
+		min-width: 0;
+		width: 100%;
+		display: flex;
+		flex-direction: column;
 	}
 
 	.search-field label {
@@ -690,6 +779,9 @@
 
 	.search-field input {
 		width: 100%;
+		max-width: 100%;
+		min-width: 0;
+		box-sizing: border-box;
 	}
 
 	.toolbar-row {
@@ -1114,6 +1206,51 @@
 		margin: 0;
 		color: #9aa2c5;
 		font-size: 13px;
+	}
+
+	.console-panel {
+		display: flex;
+		flex-direction: column;
+		gap: 10px;
+		background: #0f121e;
+		border-radius: 14px;
+		padding: 14px;
+		border: 1px solid rgba(42, 47, 71, 0.8);
+	}
+
+	.console-header {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 8px;
+	}
+
+	.console-header h3 {
+		margin: 0;
+		font-size: 14px;
+		color: #c9d1d9;
+	}
+
+	.log-output {
+		background: #0b0e18;
+		border: 1px solid rgba(42, 47, 71, 0.6);
+		border-radius: 12px;
+		padding: 12px;
+		height: 260px;
+		overflow-y: auto;
+		font-family: "Cascadia Code", "Fira Code", "Consolas", monospace;
+		font-size: 12px;
+		color: #d4d9f1;
+	}
+
+	.log-line {
+		white-space: pre-wrap;
+		word-break: break-word;
+	}
+
+	.log-placeholder {
+		margin: 0;
+		color: #6f789b;
 	}
 
 	.link-action {
