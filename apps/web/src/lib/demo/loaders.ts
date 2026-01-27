@@ -7,9 +7,6 @@ export async function demoLoad<T>(
 	fetch: Fetcher,
 	loader: (demoFetch: Fetcher) => Promise<T>
 ): Promise<T | Record<string, never>> {
-	if (!isDemoMode) {
-		return {};
-	}
-	const demoFetch = createDemoFetch(fetch);
-	return loader(demoFetch);
+	const activeFetch = isDemoMode ? createDemoFetch(fetch) : fetch;
+	return loader(activeFetch);
 }
