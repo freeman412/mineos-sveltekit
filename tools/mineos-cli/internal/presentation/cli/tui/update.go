@@ -2,7 +2,6 @@ package tui
 
 import (
 	"context"
-	"errors"
 	"io"
 	"os/exec"
 	"sort"
@@ -105,11 +104,21 @@ func (m TuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case LogLineMsg:
 		m.AppendLog(msg.Line)
+		// Clear log-related errors on successful log receipt
+		if strings.Contains(m.ErrMsg, "log stream") || strings.Contains(m.ErrMsg, "stream") {
+			m.ErrMsg = ""
+		}
 		return m, m.ListenLogsCmd()
 
 	case LogErrorMsg:
 		if msg.Err != nil {
-			m.ErrMsg = msg.Err.Error()
+			errStr := msg.Err.Error()
+			// Log stream errors are transient reconnection events - don't mark API as unhealthy
+			isStreamError := strings.Contains(errStr, "log stream") || strings.Contains(errStr, "stream closed")
+			if !isStreamError {
+				m.ErrMsg = errStr
+			}
+			// Retry streaming if active
 			if m.LogsActive && !m.Quitting {
 				return m, tea.Tick(LogRetryDelay, func(time.Time) tea.Msg {
 					return LogRetryMsg{}
@@ -456,12 +465,14 @@ func (m TuiModel) ListenLogsCmd() tea.Cmd {
 		select {
 		case line, ok := <-logsChan:
 			if !ok {
-				return LogErrorMsg{Err: errors.New("log stream closed")}
+				// Channel closed cleanly - trigger silent retry
+				return LogRetryMsg{}
 			}
 			return LogLineMsg{Line: line}
 		case err, ok := <-errsChan:
 			if !ok {
-				return LogErrorMsg{Err: errors.New("log stream closed")}
+				// Channel closed cleanly - trigger silent retry
+				return LogRetryMsg{}
 			}
 			return LogErrorMsg{Err: err}
 		}

@@ -8,19 +8,27 @@ import (
 func (m TuiModel) RenderDashboardMain(width, height int) []string {
 	lines := make([]string, 0, height)
 
-	lines = append(lines, StyleHeader.Render(" DASHBOARD "))
+	// Banner
+	for _, bannerLine := range strings.Split(Banner, "\n") {
+		lines = append(lines, StyleHeader.Render(bannerLine))
+	}
+	lines = append(lines, StyleSubtle.Render(BannerTagline))
+	lines = append(lines, "")
 	lines = append(lines, StyleSubtle.Render(strings.Repeat("─", width)))
 	lines = append(lines, "")
 
-	// API Status
+	// API Status - based on config ready and server list loaded
 	lines = append(lines, StyleHeader.Render("API Status"))
-	health := StyleError.Render("unhealthy")
-	if m.ConfigReady && m.ErrMsg == "" {
-		health = StyleRunning.Render("healthy")
-	} else if m.ErrMsg != "" {
-		health = StyleError.Render("error")
+	health := StyleError.Render("not connected")
+	if m.ConfigReady && len(m.Servers) >= 0 && m.Client != nil {
+		health = StyleRunning.Render("connected")
+	} else if !m.ConfigReady {
+		health = StyleSubtle.Render("loading...")
 	}
 	lines = append(lines, "  "+health)
+	if m.ErrMsg != "" {
+		lines = append(lines, "  "+StyleError.Render(m.ErrMsg))
+	}
 	lines = append(lines, "")
 
 	// Stack Health

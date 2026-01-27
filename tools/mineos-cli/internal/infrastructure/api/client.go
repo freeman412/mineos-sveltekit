@@ -113,7 +113,10 @@ func (c *Client) StopAll(ctx context.Context, timeoutSeconds int) (ports.StopAll
 	}
 	req.Header.Set("X-Api-Key", c.apiKey)
 
-	resp, err := c.httpClient.Do(req)
+	// Use a longer timeout for stop-all since it waits for all servers to stop
+	// Add 30 seconds buffer for API overhead
+	longClient := &http.Client{Timeout: time.Duration(timeoutSeconds+30) * time.Second}
+	resp, err := longClient.Do(req)
 	if err != nil {
 		return ports.StopAllResult{}, err
 	}
@@ -134,6 +137,10 @@ func (c *Client) StopAll(ctx context.Context, timeoutSeconds int) (ports.StopAll
 }
 
 func (c *Client) ServerAction(ctx context.Context, name, action string) error {
+	return c.ServerActionWithTimeout(ctx, name, action, 0)
+}
+
+func (c *Client) ServerActionWithTimeout(ctx context.Context, name, action string, timeoutSeconds int) error {
 	if strings.TrimSpace(c.apiKey) == "" {
 		return ErrApiKeyMissing
 	}
@@ -151,7 +158,16 @@ func (c *Client) ServerAction(ctx context.Context, name, action string) error {
 	}
 	req.Header.Set("X-Api-Key", c.apiKey)
 
-	resp, err := c.httpClient.Do(req)
+	// Use longer timeout for stop/restart actions which wait for server to stop
+	client := c.httpClient
+	if timeoutSeconds > 0 {
+		client = &http.Client{Timeout: time.Duration(timeoutSeconds+30) * time.Second}
+	} else if action == "stop" || action == "restart" {
+		// Default 5 minute timeout for stop/restart if not specified
+		client = &http.Client{Timeout: 330 * time.Second}
+	}
+
+	resp, err := client.Do(req)
 	if err != nil {
 		return err
 	}

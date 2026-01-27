@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"runtime"
 	"strconv"
 	"strings"
@@ -223,7 +224,34 @@ func runReconfigure(cmd *cobra.Command, loadConfig *usecases.LoadConfigUseCase) 
 		}
 	}
 
-	fmt.Fprintln(out, "Configuration updated. Restart services to apply changes.")
+	fmt.Println("Configuration updated.")
+
+	// Ask if user wants to restart services
+	restartServices, err := promptYesNo(nil, nil, "Restart services now to apply changes", true)
+	if err != nil {
+		return err
+	}
+
+	if restartServices {
+		fmt.Println("Restarting services...")
+		compose, composeErr := detectCompose()
+		if composeErr != nil {
+			fmt.Println("Warning: Could not detect docker compose. Please restart services manually.")
+			return nil
+		}
+
+		// Run docker compose restart
+		args := append([]string{}, compose.baseArgs...)
+		args = append(args, "restart")
+		restartCmd := exec.Command(compose.exe, args...)
+		restartCmd.Stdout = os.Stdout
+		restartCmd.Stderr = os.Stderr
+		if err := restartCmd.Run(); err != nil {
+			return fmt.Errorf("failed to restart services: %w", err)
+		}
+		fmt.Println("Services restarted successfully.")
+	}
+
 	return nil
 }
 

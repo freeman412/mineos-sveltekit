@@ -1,8 +1,10 @@
 package tui
 
+import "os"
+
 // BuildNavItems creates the full navigation menu
 func BuildNavItems() []NavItem {
-	return []NavItem{
+	items := []NavItem{
 		// Views section
 		{Label: "VIEWS", ItemType: NavHeader},
 		{Label: "Dashboard", ItemType: NavView, View: ViewDashboard},
@@ -18,19 +20,32 @@ func BuildNavItems() []NavItem {
 		{Label: "Stop Services", ItemType: NavAction, Action: &MenuItem{Label: "Stop Services", Args: []string{"stack", "stop"}}},
 		{Label: "Restart Services", ItemType: NavAction, Action: &MenuItem{Label: "Restart Services", Args: []string{"stack", "restart"}}},
 		{Label: "Stop & Remove", ItemType: NavAction, Action: &MenuItem{Label: "Stop & Remove", Args: []string{"stack", "down"}}, Destructive: true},
-		{Label: "Pull Images", ItemType: NavAction, Action: &MenuItem{Label: "Pull Images", Args: []string{"stack", "pull"}}},
-		{Label: "Rebuild", ItemType: NavAction, Action: &MenuItem{Label: "Rebuild", Args: []string{"stack", "rebuild"}}},
 		{Label: "Update", ItemType: NavAction, Action: &MenuItem{Label: "Update", Args: []string{"stack", "update"}}},
+	}
 
-		{Label: "", ItemType: NavSeparator},
+	// Only show Rebuild if source code is available (apps directory exists)
+	if hasSourceCode() {
+		items = append(items, NavItem{Label: "Rebuild", ItemType: NavAction, Action: &MenuItem{Label: "Rebuild", Args: []string{"stack", "rebuild"}}})
+	}
+
+	items = append(items,
+		NavItem{Label: "", ItemType: NavSeparator},
 
 		// System actions
-		{Label: "SYSTEM", ItemType: NavHeader},
-		{Label: "Reconfigure", ItemType: NavAction, Action: &MenuItem{Label: "Reconfigure", Args: []string{"reconfigure"}, Interactive: true}},
-		{Label: "Refresh API Key", ItemType: NavAction, Action: &MenuItem{Label: "Refresh API Key", Args: []string{"api-key", "refresh"}}},
-		{Label: "Install", ItemType: NavAction, Action: &MenuItem{Label: "Install", Args: []string{"install"}, Interactive: true}},
-		{Label: "Uninstall", ItemType: NavAction, Action: &MenuItem{Label: "Uninstall", Args: []string{"uninstall"}, Interactive: true}},
-	}
+		NavItem{Label: "SYSTEM", ItemType: NavHeader},
+		NavItem{Label: "Reconfigure", ItemType: NavAction, Action: &MenuItem{Label: "Reconfigure", Args: []string{"reconfigure"}, Interactive: true}},
+		NavItem{Label: "Refresh API Key", ItemType: NavAction, Action: &MenuItem{Label: "Refresh API Key", Args: []string{"api-key", "refresh"}}},
+		NavItem{Label: "Install", ItemType: NavAction, Action: &MenuItem{Label: "Install", Args: []string{"install"}, Interactive: true}},
+		NavItem{Label: "Uninstall", ItemType: NavAction, Action: &MenuItem{Label: "Uninstall", Args: []string{"uninstall"}, Interactive: true}},
+	)
+
+	return items
+}
+
+// hasSourceCode checks if the source code is available (apps directory exists)
+func hasSourceCode() bool {
+	info, err := os.Stat("apps")
+	return err == nil && info.IsDir()
 }
 
 // IsSelectable returns true if the nav item can be selected

@@ -22,6 +22,14 @@ import (
 
 const (
 	defaultLogSource = "combined"
+
+	interactiveBanner = `  __  __ _             ___  ____
+ |  \/  (_)_ __   ___ / _ \/ ___|
+ | |\/| | | '_ \ / _ \ | | \___ \
+ | |  | | | | | |  __/ |_| |___) |
+ |_|  |_|_|_| |_|\___|\___/|____/`
+
+	interactiveBannerTagline = "Minecraft Server Management"
 )
 
 type interactiveSession struct {
@@ -48,7 +56,10 @@ func NewInteractiveCommand(loadConfig *usecases.LoadConfigUseCase) *cobra.Comman
 }
 
 func (s *interactiveSession) Run(ctx context.Context, _ io.Reader) error {
-	fmt.Println("MineOS interactive shell")
+	// Print banner
+	fmt.Println(interactiveBanner)
+	fmt.Println(interactiveBannerTagline)
+	fmt.Println()
 	fmt.Println("Type 'help' for commands. Ctrl+C exits logs; 'quit' exits the shell.")
 
 	scanner := bufio.NewScanner(os.Stdin)

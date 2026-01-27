@@ -46,18 +46,24 @@ func StreamMinecraftLogs(ctx context.Context, client *api.Client, server, source
 		for {
 			select {
 			case <-ctx.Done():
+				// Normal cancellation, don't send error
 				return
 			case err, ok := <-apiErrs:
 				if !ok {
+					// Channel closed normally
 					return
 				}
 				if err != nil {
-					errsChan <- err
+					// Only send actual API errors, not connection closes
+					if ctx.Err() == nil {
+						errsChan <- err
+					}
 					return
 				}
 			case entry, ok := <-entries:
 				if !ok {
-					errsChan <- fmt.Errorf("log stream closed")
+					// Stream closed - will trigger reconnection via channel close
+					// Don't send explicit error, let the channel close handle it
 					return
 				}
 				msg := entry.Message

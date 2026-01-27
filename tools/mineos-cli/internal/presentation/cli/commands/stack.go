@@ -355,16 +355,39 @@ func NewStackRebuildSourceCommand(loadConfig *usecases.LoadConfigUseCase) *cobra
 }
 
 func NewStackUpdateCommand(loadConfig *usecases.LoadConfigUseCase) *cobra.Command {
-	return &cobra.Command{
+	var timeout int
+
+	cmd := &cobra.Command{
 		Use:   "update",
-		Short: "Pull latest source and rebuild (respect build-from-source setting)",
+		Short: "Pull latest images and restart services",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			if err := runGitPull(cmd.OutOrStdout()); err != nil {
+			ctx := cmd.Context()
+			out := cmd.OutOrStdout()
+
+			// Force non-build mode for update - always pull images
+			compose, cfg, err := loadComposeWithBuildOverride(ctx, loadConfig, false)
+			if err != nil {
 				return err
 			}
-			return NewStackRebuildCommand(loadConfig).RunE(cmd, []string{})
+
+			fmt.Fprintln(out, "Pulling latest images...")
+			if err := compose.run([]string{"pull"}); err != nil {
+				return err
+			}
+
+			timeoutSeconds := effectiveShutdownTimeout(cfg, timeout)
+			if err := gracefulStop(ctx, loadConfig, compose, cfg, timeoutSeconds, false, out); err != nil {
+				return err
+			}
+
+			fmt.Fprintln(out, "Recreating containers with new images...")
+			return compose.run([]string{"up", "-d", "--force-recreate"})
 		},
 	}
+
+	cmd.Flags().IntVar(&timeout, "timeout", 0, "Shutdown timeout in seconds (default from .env)")
+
+	return cmd
 }
 
 func NewStackUpdateSourceCommand(loadConfig *usecases.LoadConfigUseCase) *cobra.Command {
