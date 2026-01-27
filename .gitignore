@@ -55,3 +55,4 @@ apps/web/.env
 !.env.example
 !apps/web/.env.example
 tools/mineos-cli/mineos.exe
+tools/mineos-cli/.idea/*
