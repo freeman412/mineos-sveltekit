@@ -154,6 +154,27 @@ set_compose_files() {
     fi
 }
 
+set_compose_files_without_build() {
+    local mode
+    mode=$(get_env_value MINEOS_NETWORK_MODE 2>/dev/null || echo "$DEFAULT_NETWORK_MODE")
+
+    COMPOSE_FILES=(-f docker-compose.yml)
+    if [ "$mode" = "host" ]; then
+        COMPOSE_FILES+=(-f docker-compose.host.yml)
+    fi
+}
+
+set_compose_files_with_build() {
+    local mode
+    mode=$(get_env_value MINEOS_NETWORK_MODE 2>/dev/null || echo "$DEFAULT_NETWORK_MODE")
+
+    COMPOSE_FILES=(-f docker-compose.yml)
+    if [ "$mode" = "host" ]; then
+        COMPOSE_FILES+=(-f docker-compose.host.yml)
+    fi
+    COMPOSE_FILES+=(-f docker-compose.build.yml)
+}
+
 get_shutdown_timeout() {
     local value
     value=$(get_env_value MINEOS_SHUTDOWN_TIMEOUT 2>/dev/null || echo "$DEFAULT_SHUTDOWN_TIMEOUT")
@@ -812,6 +833,31 @@ build_services() {
     success "Build complete"
 }
 
+build_services_force() {
+    if [ ! -d "./apps" ]; then
+        error "Source files not found. Use the install script with --build or clone the repo."
+        exit 1
+    fi
+
+    if ! set_compose_cmd; then
+        error "Docker Compose not found"
+        exit 1
+    fi
+
+    set_compose_files_with_build
+    info "Building Docker images (this may take a few minutes)..."
+    PUBLIC_BUILD_ID=$(date +%Y%m%d%H%M%S)
+    export PUBLIC_BUILD_ID
+    info "Build ID: ${PUBLIC_BUILD_ID}"
+    if [ "${COMPOSE_CMD[0]}" = "docker" ]; then
+        "${COMPOSE_CMD[@]}" "${COMPOSE_FILES[@]}" build --progress plain
+    else
+        "${COMPOSE_CMD[@]}" "${COMPOSE_FILES[@]}" build
+    fi
+
+    success "Build complete"
+}
+
 pull_services() {
     if ! set_compose_cmd; then
         error "Docker Compose not found"
@@ -819,6 +865,17 @@ pull_services() {
     fi
 
     set_compose_files
+    info "Pulling Docker images..."
+    "${COMPOSE_CMD[@]}" "${COMPOSE_FILES[@]}" pull || true
+}
+
+pull_services_force() {
+    if ! set_compose_cmd; then
+        error "Docker Compose not found"
+        exit 1
+    fi
+
+    set_compose_files_without_build
     info "Pulling Docker images..."
     "${COMPOSE_CMD[@]}" "${COMPOSE_FILES[@]}" pull || true
 }
@@ -1131,6 +1188,73 @@ rebuild() {
     read -p "Press Enter to continue..."
 }
 
+pull_latest_images() {
+    echo -e "${CYAN}Pull Latest Images${NC}"
+    echo ""
+
+    pull_services_force
+
+    success "Image pull complete"
+    echo ""
+    read -p "Press Enter to continue..."
+}
+
+recreate_from_images() {
+    echo -e "${CYAN}Recreate (pull images)${NC}"
+    echo ""
+
+    info "Recreating containers from the latest registry images..."
+    graceful_stop_services
+    if ! set_compose_cmd; then
+        error "Docker Compose not found"
+        exit 1
+    fi
+    set_compose_files_without_build
+    "${COMPOSE_CMD[@]}" "${COMPOSE_FILES[@]}" down
+    pull_services_force
+    "${COMPOSE_CMD[@]}" "${COMPOSE_FILES[@]}" up -d --force-recreate
+
+    success "Recreate complete"
+    echo ""
+    read -p "Press Enter to continue..."
+}
+
+rebuild_from_source() {
+    echo -e "${CYAN}Rebuild From Source${NC}"
+    echo ""
+
+    info "Rebuilding containers from local source..."
+    graceful_stop_services
+    if ! set_compose_cmd; then
+        error "Docker Compose not found"
+        exit 1
+    fi
+    set_compose_files_with_build
+    "${COMPOSE_CMD[@]}" "${COMPOSE_FILES[@]}" down
+    build_services_force
+    "${COMPOSE_CMD[@]}" "${COMPOSE_FILES[@]}" up -d --force-recreate
+
+    success "Source rebuild complete"
+    echo ""
+    read -p "Press Enter to continue..."
+}
+
+update_source() {
+    echo -e "${CYAN}Update Source${NC}"
+    echo ""
+
+    if ! command_exists git; then
+        error "Git is not installed"
+        read -p "Press Enter to continue..."
+        return
+    fi
+
+    info "Pulling latest changes..."
+    git pull
+
+    rebuild_from_source
+}
+
 # Update (git pull + rebuild)
 update() {
     echo -e "${CYAN}Update${NC}"
@@ -1309,18 +1433,24 @@ show_menu_not_installed() {
 # Show menu for installed state
 show_menu_installed() {
     echo -e "${CYAN}Options:${NC}"
-    echo "  [1] Start Services"
-    echo "  [2] Stop Services"
-    echo "  [3] Restart Services"
-    echo "  [4] View Logs"
-    echo "  [5] Show Status"
-    echo "  [R] Reconfigure (update .env)"
-    echo "  [W] Web Dev Container (Vite)"
+    echo "  Run"
+    echo "    [1] Start Services"
+    echo "    [2] Stop Services"
+    echo "    [3] Restart Services"
+    echo "    [4] View Logs"
+    echo "    [5] Show Status"
     echo ""
-    echo "  [6] Rebuild (keep config)"
-    echo "  [7] Update (git pull + rebuild)"
-    echo "  [8] Fresh Install (reset everything)"
-    echo "  [9] Dev Mode (API only + web dev env)"
+    echo "  Configure"
+    echo "    [R] Reconfigure (.env)"
+    echo "    [W] Web Dev Container (Vite)"
+    echo "    [D] Dev Mode (API only + web dev env)"
+    echo ""
+    echo "  Maintenance"
+    echo "    [6] Pull Latest Images"
+    echo "    [7] Recreate (pull images)"
+    echo "    [8] Rebuild From Source"
+    echo "    [9] Update Source (git pull + rebuild)"
+    echo "    [F] Fresh Install (reset everything)"
     echo ""
     echo "  [Q] Quit"
     echo ""
@@ -1349,10 +1479,12 @@ main() {
                 5) show_detailed_status ;;
                 [Rr]) reconfigure ;;
                 [Ww]) start_web_dev_container ;;
-                6) rebuild ;;
-                7) update ;;
-                8) fresh_install ;;
-                9) start_dev_mode; read -p "Press Enter to continue..." ;;
+                [Dd]) start_dev_mode; read -p "Press Enter to continue..." ;;
+                6) pull_latest_images ;;
+                7) recreate_from_images ;;
+                8) rebuild_from_source ;;
+                9) update_source ;;
+                [Ff]) fresh_install ;;
                 [Qq]) echo "Goodbye!"; exit 0 ;;
                 *) warn "Invalid option" ;;
             esac

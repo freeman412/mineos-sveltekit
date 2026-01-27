@@ -13,6 +13,8 @@ if ($PSVersionTable.PSVersion.Major -ge 7) {
     $global:PSNativeCommandUseErrorActionPreference = $false
 }
 
+$script:BuildOverride = $null
+
 # Colors
 function Write-Info { Write-Host "[INFO] $($args -join ' ')" -ForegroundColor Cyan }
 function Write-Success { Write-Host "[OK] $($args -join ' ')" -ForegroundColor Green }
@@ -395,6 +397,7 @@ function Get-ComposeFileArgs {
 }
 
 function Get-BuildFromSource {
+    if ($null -ne $script:BuildOverride) { return [bool]$script:BuildOverride }
     if ($Build) { return $true }
     $value = Get-EnvValue "MINEOS_BUILD_FROM_SOURCE"
     if ([string]::IsNullOrWhiteSpace($value)) { return $false }
@@ -1563,15 +1566,85 @@ function Do-Rebuild {
     Write-Host "Web UI: $webOrigin" -ForegroundColor Green
 }
 
-function Do-Update {
-    Write-Header "Update"
+function Do-PullImages {
+    Write-Header "Pull Latest Images"
 
     if (-not (Test-Path ".env")) {
         Write-Error-Custom "No installation found. Run fresh install first."
         return
     }
 
-    Write-Info "Pulling latest code and rebuilding..."
+    Load-ExistingConfig
+    Ensure-DockerEngine
+
+    $script:BuildOverride = $false
+    try {
+        Write-Info "Pulling Docker images..."
+        $pull = Invoke-Compose -Args @("pull") -StreamOutput
+        if ($pull.ExitCode -ne 0) {
+            Write-Warn "Image pull failed; continuing with existing images."
+            if ($pull.Output) { Write-Host $pull.Output }
+        } else {
+            Write-Success "Image pull complete."
+        }
+    } finally {
+        $script:BuildOverride = $null
+    }
+}
+
+function Do-RecreateFromImages {
+    Write-Header "Recreate (pull images)"
+
+    if (-not (Test-Path ".env")) {
+        Write-Error-Custom "No installation found. Run fresh install first."
+        return
+    }
+
+    Load-ExistingConfig
+    Stop-ServicesGraceful -Remove -Force:$Force
+
+    $script:BuildOverride = $false
+    try {
+        Start-Services -Rebuild
+    } finally {
+        $script:BuildOverride = $null
+    }
+
+    Write-Success "Recreate complete!"
+    Write-Host "Web UI: $webOrigin" -ForegroundColor Green
+}
+
+function Do-RebuildFromSource {
+    Write-Header "Rebuild From Source"
+
+    if (-not (Test-Path ".env")) {
+        Write-Error-Custom "No installation found. Run fresh install first."
+        return
+    }
+
+    Load-ExistingConfig
+    Stop-ServicesGraceful -Remove -Force:$Force
+
+    $script:BuildOverride = $true
+    try {
+        Start-Services -Rebuild
+    } finally {
+        $script:BuildOverride = $null
+    }
+
+    Write-Success "Source rebuild complete!"
+    Write-Host "Web UI: $webOrigin" -ForegroundColor Green
+}
+
+function Do-UpdateSource {
+    Write-Header "Update Source"
+
+    if (-not (Test-Path ".env")) {
+        Write-Error-Custom "No installation found. Run fresh install first."
+        return
+    }
+
+    Write-Info "Pulling latest code and rebuilding from source..."
 
     # Pull latest if in git repo
     if (Test-Path ".git") {
@@ -1579,12 +1652,7 @@ function Do-Update {
         git pull
     }
 
-    Load-ExistingConfig
-    Stop-ServicesGraceful -Remove -Force:$Force
-    Start-Services -Rebuild
-
-    Write-Success "Update complete!"
-    Write-Host "Web UI: $webOrigin" -ForegroundColor Green
+    Do-RebuildFromSource
 }
 
 function Do-Reconfigure {
@@ -1726,18 +1794,24 @@ function Show-Menu {
         Write-Host ""
         Write-Host " [Q] Quit" -ForegroundColor DarkGray
     } else {
-        Write-Host " [1] Start Services" -ForegroundColor White
-        Write-Host " [2] Stop Services" -ForegroundColor White
-        Write-Host " [3] Restart Services" -ForegroundColor White
-        Write-Host " [4] View Logs" -ForegroundColor White
-        Write-Host " [5] Show Status" -ForegroundColor White
-        Write-Host " [R] Reconfigure (update .env)" -ForegroundColor Yellow
-        Write-Host " [W] Web Dev Container (Vite)" -ForegroundColor Yellow
+        Write-Host " Run" -ForegroundColor DarkGray
+        Write-Host "  [1] Start Services" -ForegroundColor White
+        Write-Host "  [2] Stop Services" -ForegroundColor White
+        Write-Host "  [3] Restart Services" -ForegroundColor White
+        Write-Host "  [4] View Logs" -ForegroundColor White
+        Write-Host "  [5] Show Status" -ForegroundColor White
         Write-Host ""
-        Write-Host " [6] Rebuild (keep config)" -ForegroundColor Yellow
-        Write-Host " [7] Update (git pull + rebuild)" -ForegroundColor Yellow
-        Write-Host " [8] Fresh Install (reset everything)" -ForegroundColor Red
-        Write-Host " [9] Dev Mode (API only + web dev env)" -ForegroundColor Yellow
+        Write-Host " Configure" -ForegroundColor DarkGray
+        Write-Host "  [R] Reconfigure (.env)" -ForegroundColor Yellow
+        Write-Host "  [W] Web Dev Container (Vite)" -ForegroundColor Yellow
+        Write-Host "  [D] Dev Mode (API only + web dev env)" -ForegroundColor Yellow
+        Write-Host ""
+        Write-Host " Maintenance" -ForegroundColor DarkGray
+        Write-Host "  [6] Pull Latest Images" -ForegroundColor Yellow
+        Write-Host "  [7] Recreate (pull images)" -ForegroundColor Yellow
+        Write-Host "  [8] Rebuild From Source" -ForegroundColor Yellow
+        Write-Host "  [9] Update Source (git pull + rebuild)" -ForegroundColor Yellow
+        Write-Host "  [F] Fresh Install (reset everything)" -ForegroundColor Red
         Write-Host ""
         Write-Host " [Q] Quit" -ForegroundColor DarkGray
     }
@@ -1774,10 +1848,12 @@ function Main {
                 "5" { Show-Status; Read-Host "Press Enter to continue" }
                 "R" { Do-Reconfigure; Read-Host "Press Enter to continue" }
                 "W" { Start-WebDevContainer; Read-Host "Press Enter to continue" }
-                "6" { Do-Rebuild; Read-Host "Press Enter to continue" }
-                "7" { Do-Update; Read-Host "Press Enter to continue" }
-                "8" { Do-FreshInstall; Read-Host "Press Enter to continue" }
-                "9" { Start-DevMode -Pause }
+                "D" { Start-DevMode -Pause }
+                "6" { Do-PullImages; Read-Host "Press Enter to continue" }
+                "7" { Do-RecreateFromImages; Read-Host "Press Enter to continue" }
+                "8" { Do-RebuildFromSource; Read-Host "Press Enter to continue" }
+                "9" { Do-UpdateSource; Read-Host "Press Enter to continue" }
+                "F" { Do-FreshInstall; Read-Host "Press Enter to continue" }
                 "Q" { Write-Host "Goodbye!"; exit 0 }
                 default { Write-Warn "Invalid option" }
             }
