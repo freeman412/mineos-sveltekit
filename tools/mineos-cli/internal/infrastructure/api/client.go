@@ -1,6 +1,8 @@
 package api
 
 import (
+	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -20,6 +22,11 @@ type Client struct {
 	apiBaseURL string
 	apiKey     string
 	httpClient *http.Client
+}
+
+type LogEntry struct {
+	Timestamp time.Time `json:"timestamp"`
+	Message   string    `json:"message"`
 }
 
 func NewClient(baseURL, apiKey string) *Client {
@@ -153,6 +160,126 @@ func (c *Client) ServerAction(ctx context.Context, name, action string) error {
 	}
 
 	return nil
+}
+
+func (c *Client) SendConsoleCommand(ctx context.Context, name, command string) error {
+	if strings.TrimSpace(c.apiKey) == "" {
+		return errors.New("API key missing; set MINEOS_API_KEY in .env or provide ApiKey__StaticKey")
+	}
+	if strings.TrimSpace(name) == "" {
+		return errors.New("server name is required")
+	}
+	command = strings.TrimSpace(command)
+	if command == "" {
+		return errors.New("console command is required")
+	}
+
+	url := fmt.Sprintf("%s/servers/%s/console", c.apiBaseURL, url.PathEscape(strings.TrimSpace(name)))
+	payload, err := json.Marshal(map[string]string{"command": command})
+	if err != nil {
+		return err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(payload))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("X-Api-Key", c.apiKey)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusForbidden || resp.StatusCode == http.StatusUnauthorized {
+		return errors.New("invalid API key")
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return fmt.Errorf("console command failed: %s", readBody(resp.Body))
+	}
+
+	return nil
+}
+
+func (c *Client) StreamConsoleLogs(ctx context.Context, name, source string) (<-chan LogEntry, <-chan error) {
+	logs := make(chan LogEntry)
+	errs := make(chan error, 1)
+
+	go func() {
+		defer close(logs)
+		defer close(errs)
+
+		if strings.TrimSpace(c.apiKey) == "" {
+			errs <- errors.New("API key missing; set MINEOS_API_KEY in .env or provide ApiKey__StaticKey")
+			return
+		}
+		if strings.TrimSpace(name) == "" {
+			errs <- errors.New("server name is required")
+			return
+		}
+
+		url := fmt.Sprintf("%s/servers/%s/console/stream", c.apiBaseURL, url.PathEscape(strings.TrimSpace(name)))
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+		if err != nil {
+			errs <- err
+			return
+		}
+		if strings.TrimSpace(source) != "" {
+			query := req.URL.Query()
+			query.Set("source", strings.TrimSpace(source))
+			req.URL.RawQuery = query.Encode()
+		}
+		req.Header.Set("X-Api-Key", c.apiKey)
+
+		streamClient := *c.httpClient
+		streamClient.Timeout = 0
+		resp, err := streamClient.Do(req)
+		if err != nil {
+			if ctx.Err() == nil {
+				errs <- err
+			}
+			return
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode == http.StatusForbidden || resp.StatusCode == http.StatusUnauthorized {
+			errs <- errors.New("invalid API key")
+			return
+		}
+		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+			errs <- fmt.Errorf("stream logs failed: %s", readBody(resp.Body))
+			return
+		}
+
+		scanner := bufio.NewScanner(resp.Body)
+		scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+		for scanner.Scan() {
+			line := scanner.Text()
+			if !strings.HasPrefix(line, "data:") {
+				continue
+			}
+			payload := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+			if payload == "" {
+				continue
+			}
+			var entry LogEntry
+			if err := json.Unmarshal([]byte(payload), &entry); err != nil {
+				continue
+			}
+			select {
+			case logs <- entry:
+			case <-ctx.Done():
+				return
+			}
+		}
+
+		if err := scanner.Err(); err != nil && ctx.Err() == nil {
+			errs <- err
+		}
+	}()
+
+	return logs, errs
 }
 
 func readBody(reader io.Reader) string {

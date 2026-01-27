@@ -10,10 +10,13 @@ This directory contains the scaffold for the MineOS management CLI.
 ## Commands (scaffolded)
 - `mineos config` - show resolved configuration
 - `mineos health` - API health check
+- `mineos interactive` - REPL-style shell (aliases: shell, repl)
 - `mineos servers list` - list servers
 - `mineos servers stop-all --timeout 300` - stop all servers
 - `mineos servers start <name>` / `stop` / `restart` / `kill`
 - `mineos status` - basic API + env status
+- `mineos tui` - full-screen dashboard (alias: ui)
+- `mineos uninstall` - remove containers, optionally data (interactive)
 - `mineos version`
 
 ## Development
