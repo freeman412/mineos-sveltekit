@@ -24,6 +24,18 @@ function buildHeaders(request: Request, token?: string | null): HeadersInit {
 	const accept = request.headers.get('accept');
 	if (accept) headers['Accept'] = accept;
 
+	const contentLength = request.headers.get('content-length');
+	if (contentLength) headers['Content-Length'] = contentLength;
+
+	const contentEncoding = request.headers.get('content-encoding');
+	if (contentEncoding) headers['Content-Encoding'] = contentEncoding;
+
+	const fileName = request.headers.get('x-file-name');
+	if (fileName) headers['X-File-Name'] = fileName;
+
+	const fileSize = request.headers.get('x-file-size');
+	if (fileSize) headers['X-File-Size'] = fileSize;
+
 	if (apiKey) headers['X-Api-Key'] = apiKey;
 	if (token) headers['Authorization'] = `Bearer ${token}`;
 
@@ -52,16 +64,17 @@ async function forward(event: RequestEvent, opts: ProxyOptions, method?: string)
 	const token = event.cookies.get(authCookieName);
 	const headers = buildHeaders(event.request, token);
 
-	const body =
-		m === 'GET' || m === 'DELETE'
-			? undefined
-			: await event.request.arrayBuffer();
+	const hasBody = m !== 'GET' && m !== 'DELETE';
+	const body = hasBody ? event.request.body : undefined;
 
 	const path = (event.params as any)[paramName] ?? '';
 	const suffix = path ? `/${path}` : '';
 	const upstreamUrl = `${baseUrl}${opts.prefix}${suffix}${event.url.search}`;
 
-	const res = await fetch(upstreamUrl, { method: m, headers, body });
+	const fetchInit: RequestInit & { duplex?: 'half' } = { method: m, headers, body };
+	if (hasBody) fetchInit.duplex = 'half';
+
+	const res = await fetch(upstreamUrl, fetchInit);
 
 	return new Response(res.body, {
 		status: res.status,
