@@ -279,7 +279,13 @@ stop_minecraft_servers() {
     if command_exists python3; then
         python3 - <<'PY' "$response"
 import json, sys
-data = json.loads(sys.argv[1])
+raw = sys.argv[1]
+try:
+    data = json.loads(raw)
+except Exception:
+    print("[WARN] Stop-all response was not valid JSON.")
+    print(raw)
+    sys.exit(0)
 total = data.get("total", 0)
 running = data.get("running", 0)
 stopped = data.get("stopped", 0)
@@ -297,7 +303,13 @@ PY
     elif command_exists python; then
         python - <<'PY' "$response"
 import json, sys
-data = json.loads(sys.argv[1])
+raw = sys.argv[1]
+try:
+    data = json.loads(raw)
+except Exception:
+    print("[WARN] Stop-all response was not valid JSON.")
+    print(raw)
+    sys.exit(0)
 total = data.get("total", 0)
 running = data.get("running", 0)
 stopped = data.get("stopped", 0)
