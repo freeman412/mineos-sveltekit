@@ -35,6 +35,7 @@ func NewRootCommand(deps RootDeps) *cobra.Command {
 	cmd.AddCommand(NewConfigCommand(deps.LoadConfig))
 	cmd.AddCommand(NewHealthCommand(deps.LoadConfig))
 	cmd.AddCommand(NewInteractiveCommand(deps.LoadConfig))
+	cmd.AddCommand(NewInstallCommand())
 	cmd.AddCommand(NewTuiCommand(deps.LoadConfig))
 	cmd.AddCommand(NewServersCommand(deps.LoadConfig))
 	cmd.AddCommand(NewStatusCommand(deps.LoadConfig))

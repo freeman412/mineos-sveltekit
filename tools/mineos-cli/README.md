@@ -11,6 +11,7 @@ This directory contains the scaffold for the MineOS management CLI.
 - `mineos config` - show resolved configuration
 - `mineos health` - API health check
 - `mineos interactive` - REPL-style shell (aliases: shell, repl)
+- `mineos install` - interactive installer (creates .env and starts services)
 - `mineos servers list` - list servers
 - `mineos servers stop-all --timeout 300` - stop all servers
 - `mineos servers start <name>` / `stop` / `restart` / `kill`

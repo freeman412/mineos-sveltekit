@@ -130,6 +130,59 @@ PY
     return 1
 }
 
+install_cli() {
+    if [ "$INSTALL_CLI" != true ]; then
+        return 0
+    fi
+
+    platform=$(detect_platform || true)
+    if [ -z "$platform" ]; then
+        echo "[WARN] Unsupported platform for mineos-cli (expected linux/darwin amd64/arm64)."
+        return 0
+    fi
+
+    os="${platform%%:*}"
+    arch="${platform##*:}"
+    asset="mineos-cli_${os}_${arch}.zip"
+    if [ -z "$CLI_URL" ]; then
+        CLI_URL=$(get_latest_bundle_url "$asset")
+    fi
+    if [ -z "$CLI_URL" ]; then
+        echo "[WARN] Unable to locate mineos-cli asset for ${os}/${arch}. Skipping."
+        return 0
+    fi
+
+    cli_zip="${tmp_dir}/${asset}"
+    echo "[INFO] Downloading mineos-cli (${os}/${arch})..."
+    curl -fsSL "$CLI_URL" -o "$cli_zip"
+    if extract_zip "$cli_zip" "$tmp_dir/cli"; then
+        bin_name="mineos-${os}-${arch}"
+        if [ -f "$tmp_dir/cli/$bin_name" ]; then
+            mv "$tmp_dir/cli/$bin_name" "./mineos"
+            chmod +x "./mineos"
+            echo "[INFO] Installed mineos-cli to ${INSTALL_DIR}/mineos"
+        else
+            echo "[WARN] mineos-cli binary not found in archive."
+        fi
+    else
+        echo "[WARN] unzip/python not available; skipping mineos-cli install."
+    fi
+}
+
+run_cli_installer() {
+    local cli="./mineos"
+    if [ ! -x "$cli" ]; then
+        if command_exists mineos; then
+            cli="mineos"
+        else
+            echo "[ERR] mineos-cli not found. Re-run without --no-cli."
+            exit 1
+        fi
+    fi
+
+    "$cli" install "$@"
+}
+
 while [ $# -gt 0 ]; do
     case "$1" in
         --build) BUILD=true ;;
@@ -167,8 +220,10 @@ if [ "$BUILD" = true ]; then
     fi
 
     cd "$INSTALL_DIR"
-    chmod +x MineOS.sh
-    exec ./MineOS.sh --build "${FORWARD_ARGS[@]}"
+    tmp_dir=$(mktemp -d)
+    install_cli
+    run_cli_installer --build "${FORWARD_ARGS[@]}"
+    exit 0
 fi
 
 if ! command_exists curl; then
@@ -198,38 +253,5 @@ mkdir -p "$INSTALL_DIR"
 tar -xzf "$bundle_path" -C "$INSTALL_DIR"
 
 cd "$INSTALL_DIR"
-chmod +x MineOS.sh
-
-if [ "$INSTALL_CLI" = true ]; then
-    platform=$(detect_platform || true)
-    if [ -n "$platform" ]; then
-        os="${platform%%:*}"
-        arch="${platform##*:}"
-        asset="mineos-cli_${os}_${arch}.zip"
-        if [ -z "$CLI_URL" ]; then
-            CLI_URL=$(get_latest_bundle_url "$asset")
-        fi
-        if [ -z "$CLI_URL" ]; then
-            echo "[WARN] Unable to locate mineos-cli asset for ${os}/${arch}. Skipping."
-        else
-            cli_zip="${tmp_dir}/${asset}"
-            echo "[INFO] Downloading mineos-cli (${os}/${arch})..."
-            curl -fsSL "$CLI_URL" -o "$cli_zip"
-            if extract_zip "$cli_zip" "$tmp_dir/cli"; then
-                bin_name="mineos-${os}-${arch}"
-                if [ -f "$tmp_dir/cli/$bin_name" ]; then
-                    mv "$tmp_dir/cli/$bin_name" "./mineos"
-                    chmod +x "./mineos"
-                    echo "[INFO] Installed mineos-cli to ${INSTALL_DIR}/mineos"
-                else
-                    echo "[WARN] mineos-cli binary not found in archive."
-                fi
-            else
-                echo "[WARN] unzip/python not available; skipping mineos-cli install."
-            fi
-        fi
-    else
-        echo "[WARN] Unsupported platform for mineos-cli (expected linux/darwin amd64/arm64)."
-    fi
-fi
-exec ./MineOS.sh "${FORWARD_ARGS[@]}"
+install_cli
+run_cli_installer "${FORWARD_ARGS[@]}"

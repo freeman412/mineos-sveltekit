@@ -23,11 +23,90 @@ function Get-LatestBundleUrl {
     return $asset.browser_download_url
 }
 
+function Install-Cli {
+    param(
+        [string]$InstallDir,
+        [string]$TmpDir,
+        [string]$CliUrl,
+        [switch]$NoCli
+    )
+
+    if ($NoCli) {
+        return $null
+    }
+
+    $arch = Get-PlatformArch
+    if ([string]::IsNullOrWhiteSpace($arch)) {
+        Write-Info "Unsupported CPU architecture for mineos-cli. Skipping."
+        return $null
+    }
+
+    if ([string]::IsNullOrWhiteSpace($CliUrl)) {
+        $assetName = "mineos-cli_windows_$arch.zip"
+        $CliUrl = Get-LatestBundleUrl -AssetName $assetName
+    }
+
+    if ([string]::IsNullOrWhiteSpace($CliUrl)) {
+        Write-Info "Unable to locate mineos-cli asset for windows/$arch. Skipping."
+        return $null
+    }
+
+    $cliZip = Join-Path $TmpDir "mineos-cli.zip"
+    Write-Info "Downloading mineos-cli (windows/$arch)..."
+    Invoke-WebRequest -Uri $CliUrl -OutFile $cliZip -UseBasicParsing
+
+    $cliExtract = Join-Path $TmpDir "cli"
+    New-Item -ItemType Directory -Force -Path $cliExtract | Out-Null
+    Expand-Archive -Path $cliZip -DestinationPath $cliExtract -Force
+
+    $binName = "mineos-windows-$arch.exe"
+    $binPath = Join-Path $cliExtract $binName
+    if (Test-Path $binPath) {
+        $dest = Join-Path $InstallDir "mineos.exe"
+        Copy-Item $binPath $dest -Force
+        Write-Info "Installed mineos-cli to $dest"
+        return $dest
+    }
+
+    Write-Info "mineos-cli binary not found in archive. Skipping."
+    return $null
+}
+
+function Resolve-CliPath {
+    param([string]$InstallDir)
+    $local = Join-Path $InstallDir "mineos.exe"
+    if (Test-Path $local) {
+        return $local
+    }
+    $cmd = Get-Command mineos -ErrorAction SilentlyContinue
+    if ($cmd) {
+        return $cmd.Path
+    }
+    return $null
+}
+
 function Get-PlatformArch {
-    $arch = [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString()
+    $arch = ""
+    $archObj = $null
+    try {
+        $archObj = [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture
+    } catch {
+        $archObj = $null
+    }
+    if ($archObj) {
+        $arch = $archObj.ToString()
+    }
+    if ([string]::IsNullOrWhiteSpace($arch)) {
+        $arch = $env:PROCESSOR_ARCHITECTURE
+    }
+    if ([string]::IsNullOrWhiteSpace($arch) -and $env:PROCESSOR_ARCHITEW6432) {
+        $arch = $env:PROCESSOR_ARCHITEW6432
+    }
     switch ($arch) {
         "X64" { return "amd64" }
+        "AMD64" { return "amd64" }
         "Arm64" { return "arm64" }
+        "ARM64" { return "arm64" }
         default { return "" }
     }
 }
@@ -56,14 +135,21 @@ if ($Build) {
         git clone --depth 1 --branch $Ref $RepoUrl $InstallDir
     }
 
-    $scriptPath = Join-Path $InstallDir "MineOS.ps1"
-    if (-not (Test-Path $scriptPath)) {
-        Write-Error-Custom "MineOS.ps1 not found in $InstallDir."
+    $tmpDir = Join-Path $env:TEMP ("mineos-" + [Guid]::NewGuid().ToString("n"))
+    New-Item -ItemType Directory -Force -Path $tmpDir | Out-Null
+    Install-Cli -InstallDir $InstallDir -TmpDir $tmpDir -CliUrl $CliUrl -NoCli:$NoCli | Out-Null
+    $cliPath = Resolve-CliPath -InstallDir $InstallDir
+    if (-not $cliPath) {
+        Write-Error-Custom "mineos-cli not found. Re-run without -NoCli."
         exit 1
     }
-
-    $forwardArgs = @("-Build") + $forwardArgs
-    & $scriptPath @forwardArgs
+    $forwardArgs = @("install", "--build") + $forwardArgs
+    Push-Location $InstallDir
+    try {
+        & $cliPath @forwardArgs
+    } finally {
+        Pop-Location
+    }
     exit $LASTEXITCODE
 }
 
@@ -86,45 +172,23 @@ Invoke-WebRequest -Uri $BundleUrl -OutFile $zipPath -UseBasicParsing
 New-Item -ItemType Directory -Force -Path $InstallDir | Out-Null
 Expand-Archive -Path $zipPath -DestinationPath $InstallDir -Force
 
-$scriptPath = Join-Path $InstallDir "MineOS.ps1"
-if (-not (Test-Path $scriptPath)) {
-    Write-Error-Custom "MineOS.ps1 not found after extraction."
+try {
+    Install-Cli -InstallDir $InstallDir -TmpDir $tmpDir -CliUrl $CliUrl -NoCli:$NoCli | Out-Null
+} catch {
+    Write-Info "mineos-cli install failed: $($_.Exception.Message)"
+}
+
+$cliPath = Resolve-CliPath -InstallDir $InstallDir
+if (-not $cliPath) {
+    Write-Error-Custom "mineos-cli not found. Re-run without -NoCli."
     exit 1
 }
 
-if (-not $NoCli) {
-    $arch = Get-PlatformArch
-    if ([string]::IsNullOrWhiteSpace($arch)) {
-        Write-Info "Unsupported CPU architecture for mineos-cli. Skipping."
-    } else {
-        if ([string]::IsNullOrWhiteSpace($CliUrl)) {
-            $assetName = "mineos-cli_windows_$arch.zip"
-            $CliUrl = Get-LatestBundleUrl -AssetName $assetName
-        }
-
-        if ([string]::IsNullOrWhiteSpace($CliUrl)) {
-            Write-Info "Unable to locate mineos-cli asset for windows/$arch. Skipping."
-        } else {
-            $cliZip = Join-Path $tmpDir "mineos-cli.zip"
-            Write-Info "Downloading mineos-cli (windows/$arch)..."
-            Invoke-WebRequest -Uri $CliUrl -OutFile $cliZip -UseBasicParsing
-
-            $cliExtract = Join-Path $tmpDir "cli"
-            New-Item -ItemType Directory -Force -Path $cliExtract | Out-Null
-            Expand-Archive -Path $cliZip -DestinationPath $cliExtract -Force
-
-            $binName = "mineos-windows-$arch.exe"
-            $binPath = Join-Path $cliExtract $binName
-            if (Test-Path $binPath) {
-                $dest = Join-Path $InstallDir "mineos.exe"
-                Copy-Item $binPath $dest -Force
-                Write-Info "Installed mineos-cli to $dest"
-            } else {
-                Write-Info "mineos-cli binary not found in archive. Skipping."
-            }
-        }
-    }
+$forwardArgs = @("install") + $forwardArgs
+Push-Location $InstallDir
+try {
+    & $cliPath @forwardArgs
+} finally {
+    Pop-Location
 }
-
-& $scriptPath @forwardArgs
 exit $LASTEXITCODE
