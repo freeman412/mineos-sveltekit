@@ -5,6 +5,12 @@
 
 set -e
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [ -n "$SCRIPT_DIR" ]; then
+    cd "$SCRIPT_DIR"
+fi
+ENV_FILE="${SCRIPT_DIR}/.env"
+
 DEV_MODE=false
 FORCE_MODE=false
 BUILD_MODE=false
@@ -208,6 +214,11 @@ stop_minecraft_servers_individual() {
         warn "Unable to fetch server list; skipping Minecraft server shutdown."
         return
     fi
+    if echo "$server_json" | grep -qi "invalid api key\|unauthorized\|forbidden"; then
+        warn "Invalid API key; skipping Minecraft server shutdown."
+        warn "Run Reconfigure and choose Reset API key to update .env."
+        return
+    fi
 
     local server_names
     server_names=$(echo "$server_json" | grep -o '"name":"[^"]*"' | sed 's/"name":"//;s/"//')
@@ -273,6 +284,11 @@ stop_minecraft_servers() {
     if [ -z "$response" ]; then
         warn "Stop-all endpoint did not respond; falling back to per-server shutdown."
         stop_minecraft_servers_individual
+        return
+    fi
+    if echo "$response" | grep -qi "invalid api key\|unauthorized\|forbidden"; then
+        warn "Invalid API key; skipping Minecraft server shutdown."
+        warn "Run Reconfigure and choose Reset API key to update .env."
         return
     fi
 
@@ -497,12 +513,13 @@ check_dependencies() {
 
 get_env_value() {
     local key="$1"
-    if [ ! -f .env ]; then
+    local env_path="${ENV_FILE:-.env}"
+    if [ ! -f "$env_path" ]; then
         return 1
     fi
 
     local line
-    line=$(grep -E "^${key}=" .env | head -n 1)
+    line=$(grep -E "^${key}=" "$env_path" | head -n 1)
     if [ -z "$line" ]; then
         return 1
     fi

@@ -526,6 +526,15 @@ function Stop-MinecraftServersIndividually {
     try {
         $servers = Invoke-RestMethod -Uri "$baseUrl/servers/list" -Headers @{ "X-Api-Key" = $apiKey } -TimeoutSec 10
     } catch {
+        $status = $null
+        if ($_.Exception.Response) {
+            try { $status = [int]$_.Exception.Response.StatusCode } catch { }
+        }
+        if ($status -eq 401 -or $status -eq 403) {
+            Write-Warn "Invalid API key; skipping Minecraft server shutdown."
+            Write-Warn "Run Reconfigure and choose Reset API key to update .env."
+            return
+        }
         Write-Warn "Unable to fetch server list; skipping Minecraft server shutdown."
         return
     }
@@ -577,6 +586,15 @@ function Stop-MinecraftServers {
         $response = Invoke-RestMethod -Method Post -Uri "$baseUrl/servers/actions/stop-all?timeoutSeconds=$TimeoutSec" `
             -Headers @{ "X-Api-Key" = $apiKey } -TimeoutSec $TimeoutSec
     } catch {
+        $status = $null
+        if ($_.Exception.Response) {
+            try { $status = [int]$_.Exception.Response.StatusCode } catch { }
+        }
+        if ($status -eq 401 -or $status -eq 403) {
+            Write-Warn "Invalid API key; skipping Minecraft server shutdown."
+            Write-Warn "Run Reconfigure and choose Reset API key to update .env."
+            return
+        }
         Write-Warn "Stop-all endpoint failed; falling back to per-server shutdown."
         Stop-MinecraftServersIndividually -TimeoutSec $TimeoutSec
         return
