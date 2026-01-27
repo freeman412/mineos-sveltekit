@@ -191,7 +191,130 @@ get_api_base_url() {
 }
 
 get_api_key() {
+    local override
+    override=$(get_env_value MINEOS_API_KEY 2>/dev/null || echo "")
+    if [ -n "$override" ]; then
+        echo "$override"
+        return
+    fi
+    override=$(get_env_value ApiKey__StaticKey 2>/dev/null || echo "")
+    if [ -n "$override" ]; then
+        echo "$override"
+        return
+    fi
     get_env_value ApiKey__SeedKey 2>/dev/null || echo ""
+}
+
+get_data_dir_path() {
+    local data_dir
+    data_dir=$(get_env_value Data__Directory 2>/dev/null || echo "$DEFAULT_DATA_DIR")
+    if [ -z "$data_dir" ]; then
+        data_dir="$DEFAULT_DATA_DIR"
+    fi
+    if [[ "$data_dir" != /* ]]; then
+        data_dir="${SCRIPT_DIR}/${data_dir}"
+    fi
+    echo "$data_dir"
+}
+
+get_sqlite_db_path() {
+    local db_type
+    db_type=$(get_env_value DB_TYPE 2>/dev/null || echo "sqlite")
+    if [ -n "$db_type" ] && [ "$db_type" != "sqlite" ]; then
+        return 1
+    fi
+
+    local data_dir
+    data_dir=$(get_data_dir_path)
+    local conn
+    conn=$(get_env_value ConnectionStrings__DefaultConnection 2>/dev/null || echo "")
+    local db_path="${data_dir}/mineos.db"
+
+    if [[ "$conn" =~ Data\ Source=([^;]+) ]]; then
+        local raw="${BASH_REMATCH[1]}"
+        if [[ "$raw" == /app/data/* ]]; then
+            local fname="${raw##*/}"
+            db_path="${data_dir}/${fname}"
+        elif [[ "$raw" == /* ]]; then
+            db_path="$raw"
+        else
+            db_path="${data_dir}/${raw}"
+        fi
+    fi
+
+    echo "$db_path"
+}
+
+query_sqlite_for_key() {
+    local db_path="$1"
+    if [ -z "$db_path" ] || [ ! -f "$db_path" ]; then
+        return 1
+    fi
+
+    if command_exists python3; then
+        python3 - <<'PY' "$db_path"
+import sqlite3, sys
+db = sys.argv[1]
+try:
+    con = sqlite3.connect(db)
+    cur = con.cursor()
+    cur.execute("SELECT Key FROM ApiKeys WHERE Revoked=0 ORDER BY CreatedAt DESC LIMIT 1")
+    row = cur.fetchone()
+    if row and row[0]:
+        print(row[0])
+finally:
+    try:
+        con.close()
+    except Exception:
+        pass
+PY
+        return 0
+    fi
+
+    if command_exists python; then
+        python - <<'PY' "$db_path"
+import sqlite3, sys
+db = sys.argv[1]
+try:
+    con = sqlite3.connect(db)
+    cur = con.cursor()
+    cur.execute("SELECT Key FROM ApiKeys WHERE Revoked=0 ORDER BY CreatedAt DESC LIMIT 1")
+    row = cur.fetchone()
+    if row and row[0]:
+        print(row[0])
+finally:
+    try:
+        con.close()
+    except Exception:
+        pass
+PY
+        return 0
+    fi
+
+    if command_exists sqlite3; then
+        sqlite3 "$db_path" "SELECT Key FROM ApiKeys WHERE Revoked=0 ORDER BY CreatedAt DESC LIMIT 1;"
+        return 0
+    fi
+
+    return 1
+}
+
+refresh_api_key_from_db() {
+    local db_path
+    db_path=$(get_sqlite_db_path) || return 1
+    if [ -z "$db_path" ] || [ ! -f "$db_path" ]; then
+        return 1
+    fi
+
+    local key
+    key=$(query_sqlite_for_key "$db_path" | tr -d '\r\n')
+    if [ -z "$key" ]; then
+        return 1
+    fi
+
+    set_env_file_value "$ENV_FILE" "MINEOS_API_KEY" "$key"
+    echo "$key"
+    return 0
 }
 
 urlencode() {
@@ -215,6 +338,7 @@ PY
 
 stop_minecraft_servers_individual() {
     local force_mode="${1:-false}"
+    local allow_refresh="${2:-true}"
     if ! command_exists curl; then
         warn "curl not found; skipping Minecraft server shutdown."
         return
@@ -237,7 +361,14 @@ stop_minecraft_servers_individual() {
     fi
     if echo "$server_json" | grep -qi "invalid api key\|unauthorized\|forbidden"; then
         warn "Invalid API key; skipping Minecraft server shutdown."
-        warn "Run Reconfigure and choose Reset API key to update .env."
+        if [ "$allow_refresh" = "true" ]; then
+            if refresh_api_key_from_db >/dev/null 2>&1; then
+                info "Refreshed API key from local database. Retrying..."
+                stop_minecraft_servers_individual "$force_mode" "false"
+                return
+            fi
+        fi
+        warn "Update .env with MINEOS_API_KEY (from Admin > Settings > API Keys) and retry."
         return
     fi
 
@@ -276,6 +407,7 @@ stop_minecraft_servers_individual() {
 
 stop_minecraft_servers() {
     local force_mode="${1:-false}"
+    local allow_refresh="${2:-true}"
     if ! command_exists curl; then
         warn "curl not found; skipping Minecraft server shutdown."
         return
@@ -291,7 +423,7 @@ stop_minecraft_servers() {
     local api_base
     api_base=$(get_api_base_url)
     if [ "$force_mode" = "true" ]; then
-        stop_minecraft_servers_individual true
+        stop_minecraft_servers_individual true "$allow_refresh"
         return
     fi
 
@@ -309,7 +441,14 @@ stop_minecraft_servers() {
     fi
     if echo "$response" | grep -qi "invalid api key\|unauthorized\|forbidden"; then
         warn "Invalid API key; skipping Minecraft server shutdown."
-        warn "Run Reconfigure and choose Reset API key to update .env."
+        if [ "$allow_refresh" = "true" ]; then
+            if refresh_api_key_from_db >/dev/null 2>&1; then
+                info "Refreshed API key from local database. Retrying..."
+                stop_minecraft_servers "$force_mode" "false"
+                return
+            fi
+        fi
+        warn "Update .env with MINEOS_API_KEY (from Admin > Settings > API Keys) and retry."
         return
     fi
 
@@ -726,6 +865,7 @@ Auth__JwtExpiryHours=24
 
 # API Configuration
 ApiKey__SeedKey=${API_KEY}
+MINEOS_API_KEY=${API_KEY}
 
 # Host Configuration
 HOST_BASE_DIRECTORY=${host_base_dir}
@@ -1192,6 +1332,7 @@ pull_latest_images() {
     echo -e "${CYAN}Pull Latest Images${NC}"
     echo ""
 
+    info "Pulling newer images without restarting services."
     pull_services_force
 
     success "Image pull complete"
@@ -1297,6 +1438,7 @@ reconfigure() {
     local network_mode_current
     local build_from_source_current
     local image_tag_current
+    local management_key_current
 
     admin_user_current=$(get_env_value Auth__SeedUsername 2>/dev/null || echo "admin")
     admin_pass_current=$(get_env_value Auth__SeedPassword 2>/dev/null || echo "")
@@ -1312,6 +1454,7 @@ reconfigure() {
     network_mode_current=$(get_env_value MINEOS_NETWORK_MODE 2>/dev/null || echo "$DEFAULT_NETWORK_MODE")
     build_from_source_current=$(get_env_value MINEOS_BUILD_FROM_SOURCE 2>/dev/null || echo "false")
     image_tag_current=$(get_env_value MINEOS_IMAGE_TAG 2>/dev/null || echo "latest")
+    management_key_current=$(get_env_value MINEOS_API_KEY 2>/dev/null || echo "")
 
     read -p "Admin username (default: ${admin_user_current}): " admin_user
     admin_user=${admin_user:-$admin_user_current}
@@ -1320,6 +1463,11 @@ reconfigure() {
     echo ""
     if [ -z "$admin_pass" ]; then
         admin_pass="$admin_pass_current"
+    fi
+
+    read -p "Management API key for this script (optional, leave blank to keep current): " management_api_key
+    if [ -z "$management_api_key" ]; then
+        management_api_key="$management_key_current"
     fi
 
     read -p "Local storage directory (default: ${host_base_dir_current}): " host_base_dir_input
@@ -1396,6 +1544,9 @@ reconfigure() {
     if [ -n "$admin_pass" ]; then
         set_env_file_value ".env" "Auth__SeedPassword" "$admin_pass"
     fi
+    if [ -n "$management_api_key" ]; then
+        set_env_file_value ".env" "MINEOS_API_KEY" "$management_api_key"
+    fi
     set_env_file_value ".env" "HOST_BASE_DIRECTORY" "$host_base_dir"
     set_env_file_value ".env" "Data__Directory" "$data_dir"
     set_env_file_value ".env" "API_PORT" "$api_port"
@@ -1446,8 +1597,8 @@ show_menu_installed() {
     echo "    [D] Dev Mode (API only + web dev env)"
     echo ""
     echo "  Maintenance"
-    echo "    [6] Pull Latest Images"
-    echo "    [7] Recreate (pull images)"
+    echo "    [6] Pull Latest Images (no restart)"
+    echo "    [7] Recreate (pull + restart)"
     echo "    [8] Rebuild From Source"
     echo "    [9] Update Source (git pull + rebuild)"
     echo "    [F] Fresh Install (reset everything)"

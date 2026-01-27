@@ -13,6 +13,11 @@ if ($PSVersionTable.PSVersion.Major -ge 7) {
     $global:PSNativeCommandUseErrorActionPreference = $false
 }
 
+$script:ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+if (-not [string]::IsNullOrWhiteSpace($script:ScriptDir)) {
+    Set-Location $script:ScriptDir
+}
+
 $script:BuildOverride = $null
 
 # Colors
@@ -505,7 +510,91 @@ function Get-ApiBaseUrl {
 }
 
 function Get-ApiKey {
+    $override = Get-EnvValue "MINEOS_API_KEY"
+    if (-not [string]::IsNullOrWhiteSpace($override)) { return $override }
+    $override = Get-EnvValue "ApiKey__StaticKey"
+    if (-not [string]::IsNullOrWhiteSpace($override)) { return $override }
     return Get-EnvValue "ApiKey__SeedKey"
+}
+
+function Get-DataDirectoryPath {
+    $dataDir = Get-EnvValue "Data__Directory"
+    if ([string]::IsNullOrWhiteSpace($dataDir)) { $dataDir = ".\\data" }
+    if ([System.IO.Path]::IsPathRooted($dataDir)) { return $dataDir }
+    if ([string]::IsNullOrWhiteSpace($script:ScriptDir)) { return $dataDir }
+    return (Join-Path $script:ScriptDir $dataDir)
+}
+
+function Get-SqliteDbPath {
+    $dbType = Get-EnvValue "DB_TYPE"
+    if (-not [string]::IsNullOrWhiteSpace($dbType) -and $dbType -ne "sqlite") { return $null }
+
+    $dataDir = Get-DataDirectoryPath
+    $conn = Get-EnvValue "ConnectionStrings__DefaultConnection"
+    $dbPath = Join-Path $dataDir "mineos.db"
+
+    if ($conn -match 'Data Source=([^;]+)') {
+        $raw = $Matches[1]
+        if ($raw -like "/app/data/*") {
+            $dbPath = Join-Path $dataDir (Split-Path $raw -Leaf)
+        } elseif ([System.IO.Path]::IsPathRooted($raw)) {
+            $dbPath = $raw
+        } else {
+            $dbPath = Join-Path $dataDir $raw
+        }
+    }
+
+    return $dbPath
+}
+
+function Get-LiveApiKeyFromDb {
+    $dbPath = Get-SqliteDbPath
+    if ([string]::IsNullOrWhiteSpace($dbPath) -or -not (Test-Path $dbPath)) { return $null }
+
+    $py = Get-Command python3 -ErrorAction SilentlyContinue
+    if (-not $py) { $py = Get-Command python -ErrorAction SilentlyContinue }
+    if ($py) {
+        $code = @'
+import sqlite3, sys
+db = sys.argv[1]
+con = sqlite3.connect(db)
+try:
+    cur = con.cursor()
+    cur.execute("SELECT Key FROM ApiKeys WHERE Revoked=0 ORDER BY CreatedAt DESC LIMIT 1")
+    row = cur.fetchone()
+    if row and row[0]:
+        print(row[0])
+finally:
+    con.close()
+'@
+        try {
+            $out = & $py.Path -c $code $dbPath 2>$null
+            $key = ($out | Out-String).Trim()
+            if (-not [string]::IsNullOrWhiteSpace($key)) { return $key }
+        } catch {
+        }
+    }
+
+    $sqlite = Get-Command sqlite3 -ErrorAction SilentlyContinue
+    if ($sqlite) {
+        try {
+            $out = & $sqlite.Path $dbPath "SELECT Key FROM ApiKeys WHERE Revoked=0 ORDER BY CreatedAt DESC LIMIT 1;" 2>$null
+            $key = ($out | Out-String).Trim()
+            if (-not [string]::IsNullOrWhiteSpace($key)) { return $key }
+        } catch {
+        }
+    }
+
+    return $null
+}
+
+function Try-RefreshApiKeyFromDb {
+    $key = Get-LiveApiKeyFromDb
+    if ([string]::IsNullOrWhiteSpace($key)) { return $false }
+    Set-EnvValue -Key "MINEOS_API_KEY" -Value $key
+    $script:apiKey = $key
+    Write-Info "Refreshed management API key from local database."
+    return $true
 }
 
 function Get-ShutdownTimeout {
@@ -516,7 +605,7 @@ function Get-ShutdownTimeout {
 }
 
 function Stop-MinecraftServersIndividually {
-    param([int]$TimeoutSec = 30, [switch]$Force)
+    param([int]$TimeoutSec = 30, [switch]$Force, [switch]$AllowRefresh = $true)
 
     $apiKey = Get-ApiKey
     if ([string]::IsNullOrWhiteSpace($apiKey)) {
@@ -535,7 +624,12 @@ function Stop-MinecraftServersIndividually {
         }
         if ($status -eq 401 -or $status -eq 403) {
             Write-Warn "Invalid API key; skipping Minecraft server shutdown."
-            Write-Warn "Run Reconfigure and choose Reset API key to update .env."
+            if ($AllowRefresh -and (Try-RefreshApiKeyFromDb)) {
+                Write-Info "Retrying with refreshed API key..."
+                Stop-MinecraftServersIndividually -TimeoutSec $TimeoutSec -Force:$Force -AllowRefresh:$false
+                return
+            }
+            Write-Warn "Update .env with MINEOS_API_KEY (Admin > Settings > API Keys) and retry."
             return
         }
         Write-Warn "Unable to fetch server list; skipping Minecraft server shutdown."
@@ -571,7 +665,7 @@ function Stop-MinecraftServersIndividually {
 }
 
 function Stop-MinecraftServers {
-    param([int]$TimeoutSec = 30, [switch]$Force)
+    param([int]$TimeoutSec = 30, [switch]$Force, [switch]$AllowRefresh = $true)
 
     $apiKey = Get-ApiKey
     if ([string]::IsNullOrWhiteSpace($apiKey)) {
@@ -581,7 +675,7 @@ function Stop-MinecraftServers {
 
     $baseUrl = Get-ApiBaseUrl
     if ($Force) {
-        Stop-MinecraftServersIndividually -TimeoutSec 0 -Force
+        Stop-MinecraftServersIndividually -TimeoutSec 0 -Force -AllowRefresh:$AllowRefresh
         return
     }
     $response = $null
@@ -595,7 +689,12 @@ function Stop-MinecraftServers {
         }
         if ($status -eq 401 -or $status -eq 403) {
             Write-Warn "Invalid API key; skipping Minecraft server shutdown."
-            Write-Warn "Run Reconfigure and choose Reset API key to update .env."
+            if ($AllowRefresh -and (Try-RefreshApiKeyFromDb)) {
+                Write-Info "Retrying with refreshed API key..."
+                Stop-MinecraftServers -TimeoutSec $TimeoutSec -Force:$Force -AllowRefresh:$false
+                return
+            }
+            Write-Warn "Update .env with MINEOS_API_KEY (Admin > Settings > API Keys) and retry."
             return
         }
         Write-Warn "Stop-all endpoint failed; falling back to per-server shutdown."
@@ -698,7 +797,8 @@ function Load-ExistingConfig {
     $script:adminUser = Get-EnvValue "Auth__SeedUsername"
     if ([string]::IsNullOrWhiteSpace($script:adminUser)) { $script:adminUser = "admin" }
     $script:adminPass = Get-EnvValue "Auth__SeedPassword"
-    $script:apiKey = Get-EnvValue "ApiKey__SeedKey"
+    $script:apiKey = Get-ApiKey
+    $script:managementApiKey = Get-EnvValue "MINEOS_API_KEY"
     $script:apiPort = Get-EnvValue "API_PORT"
     if ([string]::IsNullOrWhiteSpace($script:apiPort)) { $script:apiPort = "5078" }
     $script:webPort = Get-EnvValue "WEB_PORT"
@@ -811,7 +911,7 @@ function Write-WebDevEnv {
     $apiPortValue = $script:apiPort
     if ([string]::IsNullOrWhiteSpace($apiPortValue)) { $apiPortValue = "5078" }
     $apiKeyValue = $script:apiKey
-    if ([string]::IsNullOrWhiteSpace($apiKeyValue)) { $apiKeyValue = Get-EnvValue "ApiKey__SeedKey" }
+    if ([string]::IsNullOrWhiteSpace($apiKeyValue)) { $apiKeyValue = Get-ApiKey }
     $mcHostValue = $script:mcPublicHost
     if ([string]::IsNullOrWhiteSpace($mcHostValue)) { $mcHostValue = Get-EnvValue "PUBLIC_MINECRAFT_HOST" }
     if ([string]::IsNullOrWhiteSpace($mcHostValue)) { $mcHostValue = "localhost" }
@@ -1208,6 +1308,7 @@ Auth__JwtExpiryHours=24
 
 # API Configuration
 ApiKey__SeedKey=$apiKey
+MINEOS_API_KEY=$apiKey
 
 # Host Configuration
 HOST_BASE_DIRECTORY=$($baseDir -replace '\\', '/')
@@ -1579,7 +1680,7 @@ function Do-PullImages {
 
     $script:BuildOverride = $false
     try {
-        Write-Info "Pulling Docker images..."
+        Write-Info "Pulling Docker images (no restart)..."
         $pull = Invoke-Compose -Args @("pull") -StreamOutput
         if ($pull.ExitCode -ne 0) {
             Write-Warn "Image pull failed; continuing with existing images."
@@ -1675,6 +1776,10 @@ function Do-Reconfigure {
     )
     if (-not [string]::IsNullOrWhiteSpace($adminPassCandidate)) { $newAdminPass = $adminPassCandidate }
 
+    $managementKeyCurrent = Get-EnvValue "MINEOS_API_KEY"
+    $newManagementKey = Read-Host "Management API key for this script (leave blank to keep current)"
+    if ([string]::IsNullOrWhiteSpace($newManagementKey)) { $newManagementKey = $managementKeyCurrent }
+
     $newBaseDir = Read-Host "Local storage directory (default: $baseDir)"
     if ([string]::IsNullOrWhiteSpace($newBaseDir)) { $newBaseDir = $baseDir }
 
@@ -1741,6 +1846,9 @@ function Do-Reconfigure {
 
     Set-EnvValue -Key "Auth__SeedUsername" -Value $newAdminUser
     if ($newAdminPass) { Set-EnvValue -Key "Auth__SeedPassword" -Value $newAdminPass }
+    if (-not [string]::IsNullOrWhiteSpace($newManagementKey)) {
+        Set-EnvValue -Key "MINEOS_API_KEY" -Value $newManagementKey
+    }
     Set-EnvValue -Key "HOST_BASE_DIRECTORY" -Value $newBaseDir
     Set-EnvValue -Key "Data__Directory" -Value $newDataDir
     Set-EnvValue -Key "API_PORT" -Value $newApiPort
@@ -1807,8 +1915,8 @@ function Show-Menu {
         Write-Host "  [D] Dev Mode (API only + web dev env)" -ForegroundColor Yellow
         Write-Host ""
         Write-Host " Maintenance" -ForegroundColor DarkGray
-        Write-Host "  [6] Pull Latest Images" -ForegroundColor Yellow
-        Write-Host "  [7] Recreate (pull images)" -ForegroundColor Yellow
+        Write-Host "  [6] Pull Latest Images (no restart)" -ForegroundColor Yellow
+        Write-Host "  [7] Recreate (pull + restart)" -ForegroundColor Yellow
         Write-Host "  [8] Rebuild From Source" -ForegroundColor Yellow
         Write-Host "  [9] Update Source (git pull + rebuild)" -ForegroundColor Yellow
         Write-Host "  [F] Fresh Install (reset everything)" -ForegroundColor Red
