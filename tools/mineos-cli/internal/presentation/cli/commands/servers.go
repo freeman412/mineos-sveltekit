@@ -8,6 +8,8 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/freemancraft/mineos-sveltekit/tools/mineos-cli/internal/application/usecases"
+	"github.com/freemancraft/mineos-sveltekit/tools/mineos-cli/internal/domain/config"
+	"github.com/freemancraft/mineos-sveltekit/tools/mineos-cli/internal/domain/ports"
 	"github.com/freemancraft/mineos-sveltekit/tools/mineos-cli/internal/infrastructure/api"
 )
 
@@ -33,13 +35,16 @@ func NewServersListCommand(loadConfig *usecases.LoadConfigUseCase) *cobra.Comman
 		Short: "List servers",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			ctx := context.Background()
-			cfg, err := loadConfig.Execute(ctx)
-			if err != nil {
-				return err
-			}
-			client := api.NewClientFromConfig(cfg)
-			uc := usecases.NewListServersUseCase(client)
-			servers, err := uc.Execute(ctx)
+			var servers []ports.Server
+			_, err := withApiKeyRetry(ctx, loadConfig, cmd.OutOrStdout(), func(_ config.Config, client *api.Client) error {
+				uc := usecases.NewListServersUseCase(client)
+				list, err := uc.Execute(ctx)
+				if err != nil {
+					return err
+				}
+				servers = list
+				return nil
+			})
 			if err != nil {
 				return err
 			}
@@ -64,13 +69,16 @@ func NewServersStopAllCommand(loadConfig *usecases.LoadConfigUseCase) *cobra.Com
 		Short: "Stop all running servers",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			ctx := context.Background()
-			cfg, err := loadConfig.Execute(ctx)
-			if err != nil {
-				return err
-			}
-			client := api.NewClientFromConfig(cfg)
-			uc := usecases.NewStopAllServersUseCase(client)
-			result, err := uc.Execute(ctx, timeout)
+			var result ports.StopAllResult
+			_, err := withApiKeyRetry(ctx, loadConfig, cmd.OutOrStdout(), func(_ config.Config, client *api.Client) error {
+				uc := usecases.NewStopAllServersUseCase(client)
+				stopResult, err := uc.Execute(ctx, timeout)
+				if err != nil {
+					return err
+				}
+				result = stopResult
+				return nil
+			})
 			if err != nil {
 				return err
 			}
@@ -98,13 +106,11 @@ func NewServerActionCommand(loadConfig *usecases.LoadConfigUseCase, action strin
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := context.Background()
-			cfg, err := loadConfig.Execute(ctx)
+			_, err := withApiKeyRetry(ctx, loadConfig, cmd.OutOrStdout(), func(_ config.Config, client *api.Client) error {
+				uc := usecases.NewServerActionUseCase(client)
+				return uc.Execute(ctx, args[0], action)
+			})
 			if err != nil {
-				return err
-			}
-			client := api.NewClientFromConfig(cfg)
-			uc := usecases.NewServerActionUseCase(client)
-			if err := uc.Execute(ctx, args[0], action); err != nil {
 				return err
 			}
 			cmd.Printf("%s: %s\n", action, args[0])

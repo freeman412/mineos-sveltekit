@@ -17,7 +17,11 @@ type App struct {
 }
 
 func New() (*App, error) {
-	logger, _ := zap.NewProduction()
+	logger, err := zap.NewProduction()
+	if err != nil {
+		// Fallback to no-op logger if production logger fails
+		logger = zap.NewNop()
+	}
 	configRepo := env.NewDotenvRepository(".env")
 	loadConfig := usecases.NewLoadConfigUseCase(configRepo)
 

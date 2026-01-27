@@ -24,6 +24,11 @@ type Client struct {
 	httpClient *http.Client
 }
 
+var (
+	ErrApiKeyMissing = errors.New("api key missing; set MINEOS_API_KEY in .env or provide ApiKey__StaticKey")
+	ErrApiKeyInvalid = errors.New("invalid API key")
+)
+
 type LogEntry struct {
 	Timestamp time.Time `json:"timestamp"`
 	Message   string    `json:"message"`
@@ -49,7 +54,7 @@ func NewClientFromConfig(cfg config.Config) *Client {
 }
 
 func (c *Client) Health(ctx context.Context) error {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/health", nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.apiBaseURL+"/health", nil)
 	if err != nil {
 		return err
 	}
@@ -66,7 +71,7 @@ func (c *Client) Health(ctx context.Context) error {
 
 func (c *Client) ListServers(ctx context.Context) ([]ports.Server, error) {
 	if strings.TrimSpace(c.apiKey) == "" {
-		return nil, errors.New("API key missing; set MINEOS_API_KEY in .env or provide ApiKey__StaticKey")
+		return nil, ErrApiKeyMissing
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.apiBaseURL+"/servers/list", nil)
@@ -82,7 +87,7 @@ func (c *Client) ListServers(ctx context.Context) ([]ports.Server, error) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode == http.StatusForbidden || resp.StatusCode == http.StatusUnauthorized {
-		return nil, errors.New("invalid API key")
+		return nil, ErrApiKeyInvalid
 	}
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
@@ -99,7 +104,7 @@ func (c *Client) ListServers(ctx context.Context) ([]ports.Server, error) {
 
 func (c *Client) StopAll(ctx context.Context, timeoutSeconds int) (ports.StopAllResult, error) {
 	if strings.TrimSpace(c.apiKey) == "" {
-		return ports.StopAllResult{}, errors.New("API key missing; set MINEOS_API_KEY in .env or provide ApiKey__StaticKey")
+		return ports.StopAllResult{}, ErrApiKeyMissing
 	}
 	url := fmt.Sprintf("%s/servers/actions/stop-all?timeoutSeconds=%d", c.apiBaseURL, timeoutSeconds)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, nil)
@@ -115,7 +120,7 @@ func (c *Client) StopAll(ctx context.Context, timeoutSeconds int) (ports.StopAll
 	defer resp.Body.Close()
 
 	if resp.StatusCode == http.StatusForbidden || resp.StatusCode == http.StatusUnauthorized {
-		return ports.StopAllResult{}, errors.New("invalid API key")
+		return ports.StopAllResult{}, ErrApiKeyInvalid
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return ports.StopAllResult{}, fmt.Errorf("stop-all failed: %s", readBody(resp.Body))
@@ -130,7 +135,7 @@ func (c *Client) StopAll(ctx context.Context, timeoutSeconds int) (ports.StopAll
 
 func (c *Client) ServerAction(ctx context.Context, name, action string) error {
 	if strings.TrimSpace(c.apiKey) == "" {
-		return errors.New("API key missing; set MINEOS_API_KEY in .env or provide ApiKey__StaticKey")
+		return ErrApiKeyMissing
 	}
 	if strings.TrimSpace(name) == "" {
 		return errors.New("server name is required")
@@ -153,7 +158,7 @@ func (c *Client) ServerAction(ctx context.Context, name, action string) error {
 	defer resp.Body.Close()
 
 	if resp.StatusCode == http.StatusForbidden || resp.StatusCode == http.StatusUnauthorized {
-		return errors.New("invalid API key")
+		return ErrApiKeyInvalid
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return fmt.Errorf("server action failed: %s", readBody(resp.Body))
@@ -164,7 +169,7 @@ func (c *Client) ServerAction(ctx context.Context, name, action string) error {
 
 func (c *Client) SendConsoleCommand(ctx context.Context, name, command string) error {
 	if strings.TrimSpace(c.apiKey) == "" {
-		return errors.New("API key missing; set MINEOS_API_KEY in .env or provide ApiKey__StaticKey")
+		return ErrApiKeyMissing
 	}
 	if strings.TrimSpace(name) == "" {
 		return errors.New("server name is required")
@@ -193,7 +198,7 @@ func (c *Client) SendConsoleCommand(ctx context.Context, name, command string) e
 	defer resp.Body.Close()
 
 	if resp.StatusCode == http.StatusForbidden || resp.StatusCode == http.StatusUnauthorized {
-		return errors.New("invalid API key")
+		return ErrApiKeyInvalid
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return fmt.Errorf("console command failed: %s", readBody(resp.Body))
@@ -211,7 +216,7 @@ func (c *Client) StreamConsoleLogs(ctx context.Context, name, source string) (<-
 		defer close(errs)
 
 		if strings.TrimSpace(c.apiKey) == "" {
-			errs <- errors.New("API key missing; set MINEOS_API_KEY in .env or provide ApiKey__StaticKey")
+			errs <- ErrApiKeyMissing
 			return
 		}
 		if strings.TrimSpace(name) == "" {
@@ -244,7 +249,7 @@ func (c *Client) StreamConsoleLogs(ctx context.Context, name, source string) (<-
 		defer resp.Body.Close()
 
 		if resp.StatusCode == http.StatusForbidden || resp.StatusCode == http.StatusUnauthorized {
-			errs <- errors.New("invalid API key")
+			errs <- ErrApiKeyInvalid
 			return
 		}
 		if resp.StatusCode < 200 || resp.StatusCode >= 300 {

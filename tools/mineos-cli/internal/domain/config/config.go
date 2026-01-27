@@ -14,6 +14,8 @@ type Config struct {
 	BodySizeLimit     string
 	DatabaseType      string
 	DatabaseConnection string
+	DataDirectory      string
+	ShutdownTimeout    string
 }
 
 func (c Config) EffectiveApiKey() string {

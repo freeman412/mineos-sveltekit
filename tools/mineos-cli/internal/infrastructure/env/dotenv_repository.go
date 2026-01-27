@@ -43,6 +43,8 @@ func (r *DotenvRepository) Load(_ context.Context) (config.Config, error) {
 	cfg.BodySizeLimit = values["BODY_SIZE_LIMIT"]
 	cfg.DatabaseType = values["DB_TYPE"]
 	cfg.DatabaseConnection = values["ConnectionStrings__DefaultConnection"]
+	cfg.DataDirectory = values["Data__Directory"]
+	cfg.ShutdownTimeout = values["MINEOS_SHUTDOWN_TIMEOUT"]
 
 	return cfg, nil
 }

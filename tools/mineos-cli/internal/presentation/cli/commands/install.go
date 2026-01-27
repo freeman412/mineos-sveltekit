@@ -79,7 +79,7 @@ func NewInstallCommand() *cobra.Command {
 
 func runInstall(cmd *cobra.Command, opts installOptions) error {
 	out := cmd.OutOrStdout()
-	reader := bufio.NewReader(cmd.InOrStdin())
+	var reader *bufio.Reader // kept for function signature compatibility
 
 	if err := ensureDockerAvailable(); err != nil {
 		return err
@@ -456,17 +456,22 @@ func chownRecursive(path string, uid, gid int) error {
 	})
 }
 
-func promptString(reader *bufio.Reader, out io.Writer, label, defaultValue string) (string, error) {
+func promptString(_ *bufio.Reader, _ io.Writer, label, defaultValue string) (string, error) {
 	if defaultValue != "" {
-		fmt.Fprintf(out, "%s (default: %s): ", label, defaultValue)
+		fmt.Printf("%s (default: %s): ", label, defaultValue)
 	} else {
-		fmt.Fprintf(out, "%s: ", label)
+		fmt.Printf("%s: ", label)
 	}
-	line, err := reader.ReadString('\n')
-	if err != nil && !errors.Is(err, io.EOF) {
-		return "", err
+
+	scanner := bufio.NewScanner(os.Stdin)
+	if !scanner.Scan() {
+		if err := scanner.Err(); err != nil {
+			return "", err
+		}
+		// EOF with no error - return default
+		return defaultValue, nil
 	}
-	line = strings.TrimSpace(line)
+	line := strings.TrimSpace(scanner.Text())
 	if line == "" {
 		return defaultValue, nil
 	}
@@ -499,17 +504,21 @@ func promptInt(reader *bufio.Reader, out io.Writer, label string, defaultValue i
 	return parsed, nil
 }
 
-func promptYesNo(reader *bufio.Reader, out io.Writer, label string, defaultValue bool) (bool, error) {
+func promptYesNo(_ *bufio.Reader, _ io.Writer, label string, defaultValue bool) (bool, error) {
 	defaultLabel := "y/N"
 	if defaultValue {
 		defaultLabel = "Y/n"
 	}
-	fmt.Fprintf(out, "%s (%s): ", label, defaultLabel)
-	line, err := reader.ReadString('\n')
-	if err != nil && !errors.Is(err, io.EOF) {
-		return false, err
+	fmt.Printf("%s (%s): ", label, defaultLabel)
+
+	scanner := bufio.NewScanner(os.Stdin)
+	if !scanner.Scan() {
+		if err := scanner.Err(); err != nil {
+			return false, err
+		}
+		return defaultValue, nil
 	}
-	line = strings.TrimSpace(line)
+	line := strings.TrimSpace(scanner.Text())
 	if line == "" {
 		return defaultValue, nil
 	}
@@ -535,7 +544,7 @@ func promptRelativePath(reader *bufio.Reader, out io.Writer, label, defaultValue
 			}
 			return value, nil
 		}
-		fmt.Fprintln(out, "Path must be relative to the current directory (no leading /, ~, or ..).")
+		fmt.Println("Path must be relative to the current directory (no leading /, ~, or ..).")
 	}
 }
 

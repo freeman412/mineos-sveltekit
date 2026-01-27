@@ -15,6 +15,8 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/freemancraft/mineos-sveltekit/tools/mineos-cli/internal/application/usecases"
+	"github.com/freemancraft/mineos-sveltekit/tools/mineos-cli/internal/domain/config"
+	"github.com/freemancraft/mineos-sveltekit/tools/mineos-cli/internal/domain/ports"
 	"github.com/freemancraft/mineos-sveltekit/tools/mineos-cli/internal/infrastructure/api"
 )
 
@@ -45,20 +47,20 @@ func NewInteractiveCommand(loadConfig *usecases.LoadConfigUseCase) *cobra.Comman
 	}
 }
 
-func (s *interactiveSession) Run(ctx context.Context, in io.Reader) error {
-	fmt.Fprintln(s.out, "MineOS interactive shell")
-	fmt.Fprintln(s.out, "Type 'help' for commands. Ctrl+C exits logs; 'quit' exits the shell.")
+func (s *interactiveSession) Run(ctx context.Context, _ io.Reader) error {
+	fmt.Println("MineOS interactive shell")
+	fmt.Println("Type 'help' for commands. Ctrl+C exits logs; 'quit' exits the shell.")
 
-	scanner := bufio.NewScanner(in)
+	scanner := bufio.NewScanner(os.Stdin)
 	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 
 	for {
-		fmt.Fprint(s.out, s.prompt())
+		fmt.Print(s.prompt())
 		if !scanner.Scan() {
 			if err := scanner.Err(); err != nil {
 				return err
 			}
-			fmt.Fprintln(s.out, "\nGoodbye.")
+			fmt.Println("\nGoodbye.")
 			return nil
 		}
 
@@ -68,7 +70,7 @@ func (s *interactiveSession) Run(ctx context.Context, in io.Reader) error {
 		}
 		quit, err := s.handleLine(ctx, line)
 		if err != nil {
-			fmt.Fprintf(s.out, "error: %v\n", err)
+			fmt.Printf("error: %v\n", err)
 		}
 		if quit {
 			return nil
@@ -150,13 +152,11 @@ func (s *interactiveSession) handleServerAction(ctx context.Context, action stri
 		return err
 	}
 
-	cfg, err := s.loadConfig.Execute(ctx)
+	_, err = withApiKeyRetry(ctx, s.loadConfig, s.out, func(_ config.Config, client *api.Client) error {
+		uc := usecases.NewServerActionUseCase(client)
+		return uc.Execute(ctx, server, action)
+	})
 	if err != nil {
-		return err
-	}
-	client := api.NewClientFromConfig(cfg)
-	uc := usecases.NewServerActionUseCase(client)
-	if err := uc.Execute(ctx, server, action); err != nil {
 		return err
 	}
 	fmt.Fprintf(s.out, "%s: %s\n", action, server)
@@ -181,6 +181,13 @@ func (s *interactiveSession) handleLogs(ctx context.Context, fields []string) er
 	}
 	s.logSource = source
 
+	_, err := withApiKeyRetry(ctx, s.loadConfig, s.out, func(_ config.Config, client *api.Client) error {
+		_, err := client.ListServers(ctx)
+		return err
+	})
+	if err != nil {
+		return err
+	}
 	cfg, err := s.loadConfig.Execute(ctx)
 	if err != nil {
 		return err
@@ -221,12 +228,10 @@ func (s *interactiveSession) handleConsoleCommand(ctx context.Context, line, pre
 		return fmt.Errorf("select a server with 'use <name>' before sending console commands")
 	}
 
-	cfg, err := s.loadConfig.Execute(ctx)
+	_, err := withApiKeyRetry(ctx, s.loadConfig, s.out, func(_ config.Config, client *api.Client) error {
+		return client.SendConsoleCommand(ctx, server, command)
+	})
 	if err != nil {
-		return err
-	}
-	client := api.NewClientFromConfig(cfg)
-	if err := client.SendConsoleCommand(ctx, server, command); err != nil {
 		return err
 	}
 	fmt.Fprintf(s.out, "sent to %s: %s\n", server, command)
@@ -234,13 +239,16 @@ func (s *interactiveSession) handleConsoleCommand(ctx context.Context, line, pre
 }
 
 func (s *interactiveSession) listServers(ctx context.Context) error {
-	cfg, err := s.loadConfig.Execute(ctx)
-	if err != nil {
-		return err
-	}
-	client := api.NewClientFromConfig(cfg)
-	uc := usecases.NewListServersUseCase(client)
-	servers, err := uc.Execute(ctx)
+	var servers []ports.Server
+	_, err := withApiKeyRetry(ctx, s.loadConfig, s.out, func(_ config.Config, client *api.Client) error {
+		uc := usecases.NewListServersUseCase(client)
+		list, err := uc.Execute(ctx)
+		if err != nil {
+			return err
+		}
+		servers = list
+		return nil
+	})
 	if err != nil {
 		return err
 	}
@@ -260,13 +268,16 @@ func (s *interactiveSession) listServers(ctx context.Context) error {
 }
 
 func (s *interactiveSession) stopAll(ctx context.Context, timeout int) error {
-	cfg, err := s.loadConfig.Execute(ctx)
-	if err != nil {
-		return err
-	}
-	client := api.NewClientFromConfig(cfg)
-	uc := usecases.NewStopAllServersUseCase(client)
-	result, err := uc.Execute(ctx, timeout)
+	var result ports.StopAllResult
+	_, err := withApiKeyRetry(ctx, s.loadConfig, s.out, func(_ config.Config, client *api.Client) error {
+		uc := usecases.NewStopAllServersUseCase(client)
+		stopResult, err := uc.Execute(ctx, timeout)
+		if err != nil {
+			return err
+		}
+		result = stopResult
+		return nil
+	})
 	if err != nil {
 		return err
 	}
@@ -282,15 +293,23 @@ func (s *interactiveSession) stopAll(ctx context.Context, timeout int) error {
 }
 
 func (s *interactiveSession) showStatus(ctx context.Context) error {
+	var health string
+	_, err := withApiKeyRetry(ctx, s.loadConfig, s.out, func(_ config.Config, client *api.Client) error {
+		if err := client.Health(ctx); err != nil {
+			return err
+		}
+		health = "healthy"
+		return nil
+	})
+	if err != nil {
+		health = "unhealthy (" + err.Error() + ")"
+	}
+
 	cfg, err := s.loadConfig.Execute(ctx)
 	if err != nil {
 		return err
 	}
-	client := api.NewClientFromConfig(cfg)
-	health := "unhealthy"
-	if err := client.Health(ctx); err == nil {
-		health = "healthy"
-	}
+
 	fmt.Fprintf(s.out, "API: %s\n", health)
 	fmt.Fprintf(s.out, "Web origin: %s\n", fallback(cfg.WebOrigin, "http://localhost:3000"))
 	fmt.Fprintf(s.out, "Minecraft host: %s\n", fallback(cfg.MinecraftHost, "localhost"))
@@ -299,13 +318,11 @@ func (s *interactiveSession) showStatus(ctx context.Context) error {
 }
 
 func (s *interactiveSession) checkHealth(ctx context.Context) error {
-	cfg, err := s.loadConfig.Execute(ctx)
+	_, err := withApiKeyRetry(ctx, s.loadConfig, s.out, func(_ config.Config, client *api.Client) error {
+		uc := usecases.NewHealthCheckUseCase(client)
+		return uc.Execute(ctx)
+	})
 	if err != nil {
-		return err
-	}
-	client := api.NewClientFromConfig(cfg)
-	uc := usecases.NewHealthCheckUseCase(client)
-	if err := uc.Execute(ctx); err != nil {
 		return err
 	}
 	fmt.Fprintln(s.out, "API: healthy")

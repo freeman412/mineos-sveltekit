@@ -27,6 +27,8 @@ func NewConfigCommand(loadConfig *usecases.LoadConfigUseCase) *cobra.Command {
 			fmt.Printf("Build from source: %s\n", fallback(cfg.BuildFromSource, "false"))
 			fmt.Printf("Image tag: %s\n", fallback(cfg.ImageTag, "latest"))
 			fmt.Printf("Minecraft host: %s\n", fallback(cfg.MinecraftHost, "localhost"))
+			fmt.Printf("Data directory: %s\n", fallback(cfg.DataDirectory, "./data"))
+			fmt.Printf("Shutdown timeout: %s\n", fallback(cfg.ShutdownTimeout, "300"))
 			fmt.Printf("DB type: %s\n", fallback(cfg.DatabaseType, "sqlite"))
 			fmt.Printf("DB connection: %s\n", mask(cfg.DatabaseConnection))
 			fmt.Printf("Management API key: %s\n", mask(cfg.ManagementApiKey))

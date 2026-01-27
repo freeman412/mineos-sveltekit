@@ -130,20 +130,21 @@ func resolveUninstallMode(cmd *cobra.Command, mode string) (string, error) {
 }
 
 func promptUninstallMode(cmd *cobra.Command) (string, error) {
-	out := cmd.OutOrStdout()
-	fmt.Fprintln(out, "")
-	fmt.Fprintln(out, "Choose an uninstall option:")
-	fmt.Fprintln(out, "  1) Remove containers only (keep all data) [default]")
-	fmt.Fprintln(out, "  2) Backup data then remove containers and data")
-	fmt.Fprintln(out, "  3) Remove containers and data without backup")
-	fmt.Fprint(out, "Enter choice [1-3]: ")
+	fmt.Println("")
+	fmt.Println("Choose an uninstall option:")
+	fmt.Println("  1) Remove containers only (keep all data) [default]")
+	fmt.Println("  2) Backup data then remove containers and data")
+	fmt.Println("  3) Remove containers and data without backup")
+	fmt.Print("Enter choice [1-3]: ")
 
-	reader := bufio.NewReader(cmd.InOrStdin())
-	line, err := reader.ReadString('\n')
-	if err != nil && !errors.Is(err, io.EOF) {
-		return "", err
+	scanner := bufio.NewScanner(os.Stdin)
+	if !scanner.Scan() {
+		if err := scanner.Err(); err != nil {
+			return "", err
+		}
+		return resolveUninstallMode(cmd, "1")
 	}
-	choice := strings.TrimSpace(line)
+	choice := strings.TrimSpace(scanner.Text())
 	if choice == "" {
 		choice = "1"
 	}
@@ -154,17 +155,19 @@ func confirmDestructive(cmd *cobra.Command, skip bool) error {
 	if skip {
 		return nil
 	}
-	out := cmd.OutOrStdout()
-	fmt.Fprintln(out, "This will permanently delete database files and local data.")
-	fmt.Fprint(out, "Type DELETE to continue: ")
+	fmt.Println("This will permanently delete database files and local data.")
+	fmt.Print("Type DELETE to continue: ")
 
-	reader := bufio.NewReader(cmd.InOrStdin())
-	line, err := reader.ReadString('\n')
-	if err != nil && !errors.Is(err, io.EOF) {
-		return err
+	scanner := bufio.NewScanner(os.Stdin)
+	if !scanner.Scan() {
+		if err := scanner.Err(); err != nil {
+			return err
+		}
+		fmt.Println("Uninstall cancelled.")
+		return errUninstallCancelled
 	}
-	if strings.TrimSpace(line) != "DELETE" {
-		fmt.Fprintln(out, "Uninstall cancelled.")
+	if strings.TrimSpace(scanner.Text()) != "DELETE" {
+		fmt.Println("Uninstall cancelled.")
 		return errUninstallCancelled
 	}
 	return nil
