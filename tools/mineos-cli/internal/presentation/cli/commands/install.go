@@ -33,8 +33,6 @@ type installOptions struct {
 	networkMode     string
 	buildFromSource bool
 	imageTag        string
-	curseforgeKey   string
-	discordWebhook  string
 }
 
 const (
@@ -45,6 +43,14 @@ const (
 	defaultWebPort       = 3000
 	defaultBodySizeLimit = "Infinity"
 	containerBaseDir     = "/var/games/minecraft"
+
+	installBanner = `  __  __ _             ___  ____
+ |  \/  (_)_ __   ___ / _ \/ ___|
+ | |\/| | | '_ \ / _ \ | | \___ \
+ | |  | | | | | |  __/ |_| |___) |
+ |_|  |_|_|_| |_|\___|\___/|____/ `
+
+	installBannerTagline = "Minecraft Server Management"
 )
 
 func NewInstallCommand() *cobra.Command {
@@ -71,8 +77,6 @@ func NewInstallCommand() *cobra.Command {
 	cmd.Flags().StringVar(&opts.networkMode, "network-mode", "", "Docker network mode (bridge|host)")
 	cmd.Flags().BoolVar(&opts.buildFromSource, "build", false, "Build images from source instead of pulling")
 	cmd.Flags().StringVar(&opts.imageTag, "image-tag", "", "Image tag to pull when not building from source")
-	cmd.Flags().StringVar(&opts.curseforgeKey, "curseforge-key", "", "CurseForge API key (optional)")
-	cmd.Flags().StringVar(&opts.discordWebhook, "discord-webhook", "", "Discord webhook URL (optional)")
 
 	return cmd
 }
@@ -100,8 +104,13 @@ func runInstall(cmd *cobra.Command, opts installOptions) error {
 		}
 	}
 
-	fmt.Fprintln(out, "MineOS installer")
-	fmt.Fprintln(out, "Press Enter to accept defaults.")
+	fmt.Fprintln(out, installBanner)
+	fmt.Fprintln(out, installBannerTagline)
+	fmt.Fprintln(out, "")
+	fmt.Fprintln(out, "Welcome to the MineOS installer!")
+	fmt.Fprintln(out, "This will set up everything you need to manage Minecraft servers.")
+	fmt.Fprintln(out, "Press Enter to accept the default values shown in parentheses.")
+	fmt.Fprintln(out, "")
 
 	if opts.adminUser == "" {
 		value, err := promptString(reader, out, "Admin username", "admin")
@@ -147,6 +156,8 @@ func runInstall(cmd *cobra.Command, opts installOptions) error {
 	}
 
 	if opts.apiPort == 0 {
+		fmt.Fprintln(out, "")
+		fmt.Fprintln(out, "Backend API port - Used internally by the server (usually keep default)")
 		value, err := promptInt(reader, out, "API port", defaultApiPort)
 		if err != nil {
 			return err
@@ -155,6 +166,9 @@ func runInstall(cmd *cobra.Command, opts installOptions) error {
 	}
 
 	if opts.webPort == 0 {
+		fmt.Fprintln(out, "")
+		fmt.Fprintln(out, "Web interface port - This is the port you'll type in your browser")
+		fmt.Fprintln(out, "Example: http://localhost:3000 - You can change this if 3000 is already in use")
 		value, err := promptInt(reader, out, "Web UI port", defaultWebPort)
 		if err != nil {
 			return err
@@ -164,6 +178,10 @@ func runInstall(cmd *cobra.Command, opts installOptions) error {
 
 	if opts.webOrigin == "" {
 		defaultOrigin := fmt.Sprintf("http://localhost:%d", opts.webPort)
+		fmt.Fprintln(out, "")
+		fmt.Fprintln(out, "Web interface URL - This is the full address you'll use in your browser")
+		fmt.Fprintln(out, "If running on this computer, use 'localhost'. If accessing from other devices,")
+		fmt.Fprintln(out, "replace 'localhost' with this computer's IP address (e.g., http://192.168.1.100:3000)")
 		value, err := promptString(reader, out, "Web UI origin", defaultOrigin)
 		if err != nil {
 			return err
@@ -172,6 +190,11 @@ func runInstall(cmd *cobra.Command, opts installOptions) error {
 	}
 
 	if opts.minecraftHost == "" {
+		fmt.Fprintln(out, "")
+		fmt.Fprintln(out, "Minecraft server address - What players will connect to in Minecraft")
+		fmt.Fprintln(out, "For local play: use 'localhost'")
+		fmt.Fprintln(out, "For LAN/friends: use this computer's local IP (e.g., 192.168.1.100)")
+		fmt.Fprintln(out, "For internet: use your public IP or domain name (e.g., mc.example.com)")
 		value, err := promptString(reader, out, "Public Minecraft host", "localhost")
 		if err != nil {
 			return err
@@ -180,7 +203,11 @@ func runInstall(cmd *cobra.Command, opts installOptions) error {
 	}
 
 	if opts.bodySizeLimit == "" {
-		value, err := promptString(reader, out, "Web UI upload body size limit", defaultBodySizeLimit)
+		fmt.Fprintln(out, "")
+		fmt.Fprintln(out, "Upload file size limit - Maximum size for files uploaded through the web interface")
+		fmt.Fprintln(out, "'Infinity' = no limit, or specify a size like '500MB' or '1GB'")
+		fmt.Fprintln(out, "(Modpacks and world backups can be large, so 'Infinity' is recommended)")
+		value, err := promptString(reader, out, "Web UI upload size limit", defaultBodySizeLimit)
 		if err != nil {
 			return err
 		}
@@ -218,7 +245,11 @@ func runInstall(cmd *cobra.Command, opts installOptions) error {
 
 	buildChanged := cmd.Flags().Changed("build")
 	if !buildChanged {
-		value, err := promptYesNo(reader, out, "Build images from source instead of pulling", false)
+		fmt.Fprintln(out, "")
+		fmt.Fprintln(out, "Installation method:")
+		fmt.Fprintln(out, "- Pull images (recommended): Download pre-built software - faster and easier")
+		fmt.Fprintln(out, "- Build from source: Compile the software yourself - for developers only")
+		value, err := promptYesNo(reader, out, "Build from source instead of pulling pre-built images", false)
 		if err != nil {
 			return err
 		}
@@ -227,7 +258,11 @@ func runInstall(cmd *cobra.Command, opts installOptions) error {
 
 	if !opts.buildFromSource {
 		if opts.imageTag == "" {
-			value, err := promptString(reader, out, "Image tag to pull", "latest")
+			fmt.Fprintln(out, "")
+			fmt.Fprintln(out, "Version to install:")
+			fmt.Fprintln(out, "- 'latest': Most recent stable version (recommended)")
+			fmt.Fprintln(out, "- Or specify a version tag like 'v1.0.0' for a specific release")
+			value, err := promptString(reader, out, "Version tag", "latest")
 			if err != nil {
 				return err
 			}
@@ -235,22 +270,6 @@ func runInstall(cmd *cobra.Command, opts installOptions) error {
 		}
 	} else if !dirExists("apps") {
 		return errors.New("source files not found (./apps missing); use the installer with --build after cloning the repo")
-	}
-
-	if opts.curseforgeKey == "" {
-		value, err := promptString(reader, out, "CurseForge API key (optional)", "")
-		if err != nil {
-			return err
-		}
-		opts.curseforgeKey = value
-	}
-
-	if opts.discordWebhook == "" {
-		value, err := promptString(reader, out, "Discord webhook URL (optional)", "")
-		if err != nil {
-			return err
-		}
-		opts.discordWebhook = value
 	}
 
 	jwtSecret, err := randomToken(32)
@@ -284,8 +303,6 @@ func runInstall(cmd *cobra.Command, opts installOptions) error {
 		caddySite:       caddySite,
 		minecraftHost:   opts.minecraftHost,
 		bodySizeLimit:   opts.bodySizeLimit,
-		curseforgeKey:   opts.curseforgeKey,
-		discordWebhook:  opts.discordWebhook,
 	})
 
 	if err := os.WriteFile(".env", []byte(envContents), 0o644); err != nil {
@@ -322,13 +339,39 @@ func runInstall(cmd *cobra.Command, opts installOptions) error {
 		return err
 	}
 
-	fmt.Fprintln(out, "Install complete.")
-	fmt.Fprintf(out, "Web UI: %s\n", opts.webOrigin)
-	fmt.Fprintf(out, "API: http://localhost:%d\n", opts.apiPort)
-	fmt.Fprintf(out, "API Docs: http://localhost:%d/swagger\n", opts.apiPort)
-	fmt.Fprintln(out, "Admin username:", opts.adminUser)
-	fmt.Fprintln(out, "Admin password:", opts.adminPass)
-	fmt.Fprintln(out, "API key:", apiKey)
+	fmt.Fprintln(out, "")
+	fmt.Fprintln(out, "========================================")
+	fmt.Fprintln(out, "Installation Complete! 🎉")
+	fmt.Fprintln(out, "========================================")
+	fmt.Fprintln(out, "")
+	fmt.Fprintln(out, "Your MineOS server is now running!")
+	fmt.Fprintln(out, "")
+	fmt.Fprintln(out, "Web Interface:")
+	fmt.Fprintf(out, "  Open your browser and go to: %s\n", opts.webOrigin)
+	fmt.Fprintln(out, "")
+	fmt.Fprintln(out, "Login Credentials:")
+	fmt.Fprintln(out, "  Username:", opts.adminUser)
+	fmt.Fprintln(out, "  Password:", opts.adminPass)
+	fmt.Fprintln(out, "")
+	fmt.Fprintln(out, "API Information (for advanced users):")
+	fmt.Fprintf(out, "  API endpoint: http://localhost:%d\n", opts.apiPort)
+	fmt.Fprintf(out, "  API docs: http://localhost:%d/swagger\n", opts.apiPort)
+	fmt.Fprintln(out, "  API key:", apiKey)
+	fmt.Fprintln(out, "")
+	fmt.Fprintln(out, "Next Steps:")
+	fmt.Fprintln(out, "  1. Open the web interface in your browser")
+	fmt.Fprintln(out, "  2. Log in with your admin credentials")
+	fmt.Fprintln(out, "  3. Create your first Minecraft server!")
+	fmt.Fprintln(out, "")
+	fmt.Fprintln(out, "Manage your installation:")
+	fmt.Fprintln(out, "  - Run 'mineos tui' for a terminal management interface")
+	fmt.Fprintln(out, "  - Run 'mineos --help' to see all available commands")
+	fmt.Fprintln(out, "")
+
+	fmt.Fprintln(out, "To manage your servers from the terminal, run:")
+	fmt.Fprintln(out, "  mineos tui")
+	fmt.Fprintln(out, "")
+	fmt.Fprintln(out, "Happy Minecrafting! 🎮")
 
 	return nil
 }
@@ -349,19 +392,12 @@ type envConfig struct {
 	caddySite       string
 	minecraftHost   string
 	bodySizeLimit   string
-	curseforgeKey   string
-	discordWebhook  string
 }
 
 func renderEnv(cfg envConfig) string {
+	// Optional integrations are configured via web UI settings
 	curseforgeLine := "# CurseForge__ApiKey="
-	if strings.TrimSpace(cfg.curseforgeKey) != "" {
-		curseforgeLine = "CurseForge__ApiKey=" + cfg.curseforgeKey
-	}
 	discordLine := "# Discord__WebhookUrl="
-	if strings.TrimSpace(cfg.discordWebhook) != "" {
-		discordLine = "Discord__WebhookUrl=" + cfg.discordWebhook
-	}
 
 	builder := &strings.Builder{}
 	builder.WriteString("# Database Configuration\n")

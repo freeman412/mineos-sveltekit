@@ -162,7 +162,7 @@ if ($Build) {
     $forwardArgs = @("install", "--build") + $forwardArgs
     Push-Location $InstallDir
     try {
-        & $cliPath @forwardArgs
+        & ".\mineos.exe" @forwardArgs
     } finally {
         Pop-Location
     }
@@ -203,7 +203,7 @@ if (-not $cliPath) {
 $forwardArgs = @("install") + $forwardArgs
 Push-Location $InstallDir
 try {
-    & $cliPath @forwardArgs
+    & ".\mineos.exe" @forwardArgs
 } finally {
     Pop-Location
 }
