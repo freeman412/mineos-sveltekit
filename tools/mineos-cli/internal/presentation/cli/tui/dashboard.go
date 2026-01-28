@@ -19,15 +19,25 @@ func (m TuiModel) RenderDashboardMain(width, height int) []string {
 
 	// API Status - based on config ready and server list loaded
 	lines = append(lines, StyleHeader.Render("API Status"))
-	health := StyleError.Render("not connected")
-	if m.ConfigReady && len(m.Servers) >= 0 && m.Client != nil {
+	var health string
+	if m.ContainersStopped {
+		health = StyleSubtle.Render("stopped (containers down)")
+	} else if m.ConfigReady && m.Client != nil && m.ErrMsg == "" {
 		health = StyleRunning.Render("connected")
-	} else if !m.ConfigReady {
+	} else if !m.ConfigReady && m.ErrMsg == "" {
 		health = StyleSubtle.Render("loading...")
+	} else {
+		health = StyleError.Render("not connected")
 	}
 	lines = append(lines, "  "+health)
-	if m.ErrMsg != "" {
-		lines = append(lines, "  "+StyleError.Render(m.ErrMsg))
+	// Only show error message if not connected and not intentionally stopped
+	if m.ErrMsg != "" && !m.ContainersStopped {
+		// Truncate long error messages
+		errDisplay := m.ErrMsg
+		if len(errDisplay) > width-4 {
+			errDisplay = errDisplay[:width-7] + "..."
+		}
+		lines = append(lines, "  "+StyleError.Render(errDisplay))
 	}
 	lines = append(lines, "")
 

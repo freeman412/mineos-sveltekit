@@ -1,11 +1,14 @@
 ﻿package tui
 
 import (
+	"bufio"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"strings"
+	"sync"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/freemancraft/mineos-sveltekit/tools/mineos-cli/internal/application/usecases"
@@ -135,47 +138,28 @@ func (m TuiModel) StartStreamingCmd(exe string, args []string, label string) tea
 
 		// Create output channel and start readers
 		outputChan := make(chan string, 100)
+		var wg sync.WaitGroup
 
-		// Read stdout
-		go func() {
-			buf := make([]byte, 1024)
-			for {
-				n, err := stdout.Read(buf)
-				if n > 0 {
-					lines := strings.Split(string(buf[:n]), "\n")
-					for _, line := range lines {
-						if line != "" {
-							outputChan <- line
-						}
-					}
-				}
-				if err != nil {
-					break
+		// Helper to read a stream line by line
+		readStream := func(reader io.Reader, name string) {
+			defer wg.Done()
+			scanner := bufio.NewScanner(reader)
+			scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+			for scanner.Scan() {
+				line := scanner.Text()
+				if line != "" {
+					outputChan <- line
 				}
 			}
-		}()
+		}
 
-		// Read stderr
-		go func() {
-			buf := make([]byte, 1024)
-			for {
-				n, err := stderr.Read(buf)
-				if n > 0 {
-					lines := strings.Split(string(buf[:n]), "\n")
-					for _, line := range lines {
-						if line != "" {
-							outputChan <- line
-						}
-					}
-				}
-				if err != nil {
-					break
-				}
-			}
-		}()
+		wg.Add(2)
+		go readStream(stdout, "stdout")
+		go readStream(stderr, "stderr")
 
-		// Wait for command to finish in background
+		// Wait for readers to finish, then close channel
 		go func() {
+			wg.Wait()
 			cmd.Wait()
 			close(outputChan)
 		}()
