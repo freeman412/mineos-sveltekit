@@ -9,6 +9,7 @@ BUILD=false
 BUNDLE_URL=""
 CLI_URL=""
 INSTALL_CLI=true
+VERSION=""
 FORWARD_ARGS=()
 
 usage() {
@@ -18,12 +19,14 @@ MineOS installer
 Usage:
   curl -fsSL https://mineos.net/install.sh | bash
   curl -fsSL https://mineos.net/install.sh | bash -s -- --build
+  curl -fsSL https://mineos.net/install.sh | bash -s -- --version v1.0.0
 
 Options:
   --build           Clone repo and build from source
   --ref <ref>       Git ref for --build (default: main)
   --dir <path>      Install directory (default: ./mineos)
   --repo <url>      Git repo for --build
+  --version <tag>   Download specific release version (e.g., v1.0.0)
   --bundle-url <u>  Override bundle download URL
   --cli-url <u>     Override mineos-cli download URL
   --no-cli          Skip mineos-cli download
@@ -37,7 +40,13 @@ command_exists() {
 
 get_latest_bundle_url() {
     local asset_name="$1"
-    local api="https://api.github.com/repos/freeman412/mineos-sveltekit/releases/latest"
+    local version="${2:-}"
+    local api
+    if [ -n "$version" ]; then
+        api="https://api.github.com/repos/freeman412/mineos-sveltekit/releases/tags/$version"
+    else
+        api="https://api.github.com/repos/freeman412/mineos-sveltekit/releases/latest"
+    fi
 
     if command_exists python3; then
         python3 - <<'PY' "$api" "$asset_name"
@@ -151,7 +160,7 @@ install_cli() {
         cp "$local_bundle_zip" "$cli_zip"
     else
         if [ -z "$CLI_URL" ]; then
-            CLI_URL=$(get_latest_bundle_url "$asset")
+            CLI_URL=$(get_latest_bundle_url "$asset" "$VERSION")
         fi
         if [ -z "$CLI_URL" ]; then
             echo "[WARN] Unable to locate mineos-cli asset for ${os}/${arch}. Skipping."
@@ -194,6 +203,7 @@ while [ $# -gt 0 ]; do
         --ref) REF="${2:-}"; shift ;;
         --dir) INSTALL_DIR="${2:-}"; shift ;;
         --repo) REPO_URL="${2:-}"; shift ;;
+        --version) VERSION="${2:-}"; shift ;;
         --bundle-url) BUNDLE_URL="${2:-}"; shift ;;
         --cli-url) CLI_URL="${2:-}"; shift ;;
         --no-cli) INSTALL_CLI=false ;;
@@ -241,7 +251,7 @@ if ! command_exists tar; then
 fi
 
 if [ -z "$BUNDLE_URL" ]; then
-    BUNDLE_URL=$(get_latest_bundle_url "mineos-install-bundle.tar.gz")
+    BUNDLE_URL=$(get_latest_bundle_url "mineos-install-bundle.tar.gz" "$VERSION")
 fi
 
 if [ -z "$BUNDLE_URL" ]; then

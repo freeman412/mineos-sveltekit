@@ -2,6 +2,7 @@ param(
     [switch]$Build,
     [string]$Ref = "main",
     [string]$InstallDir = "mineos",
+    [string]$Version = "",
     [string]$BundleUrl = "",
     [string]$CliUrl = "",
     [switch]$NoCli,
@@ -16,8 +17,15 @@ function Write-Info { Write-Host "[INFO] $($args -join ' ')" -ForegroundColor Cy
 function Write-Error-Custom { Write-Host "[ERR] $($args -join ' ')" -ForegroundColor Red }
 
 function Get-LatestBundleUrl {
-    param([string]$AssetName)
-    $api = "https://api.github.com/repos/freeman412/mineos-sveltekit/releases/latest"
+    param(
+        [string]$AssetName,
+        [string]$Version = ""
+    )
+    if ([string]::IsNullOrWhiteSpace($Version)) {
+        $api = "https://api.github.com/repos/freeman412/mineos-sveltekit/releases/latest"
+    } else {
+        $api = "https://api.github.com/repos/freeman412/mineos-sveltekit/releases/tags/$Version"
+    }
     $release = Invoke-RestMethod -Uri $api -UseBasicParsing
     $asset = $release.assets | Where-Object { $_.name -eq $AssetName } | Select-Object -First 1
     return $asset.browser_download_url
@@ -28,6 +36,7 @@ function Install-Cli {
         [string]$InstallDir,
         [string]$TmpDir,
         [string]$CliUrl,
+        [string]$Version,
         [switch]$NoCli
     )
 
@@ -50,7 +59,7 @@ function Install-Cli {
         Copy-Item $bundleZip $cliZip -Force
     } else {
         if ([string]::IsNullOrWhiteSpace($CliUrl)) {
-            $CliUrl = Get-LatestBundleUrl -AssetName $assetName
+            $CliUrl = Get-LatestBundleUrl -AssetName $assetName -Version $Version
         }
 
         if ([string]::IsNullOrWhiteSpace($CliUrl)) {
@@ -144,7 +153,7 @@ if ($Build) {
 
     $tmpDir = Join-Path $env:TEMP ("mineos-" + [Guid]::NewGuid().ToString("n"))
     New-Item -ItemType Directory -Force -Path $tmpDir | Out-Null
-    Install-Cli -InstallDir $InstallDir -TmpDir $tmpDir -CliUrl $CliUrl -NoCli:$NoCli | Out-Null
+    Install-Cli -InstallDir $InstallDir -TmpDir $tmpDir -CliUrl $CliUrl -Version $Version -NoCli:$NoCli | Out-Null
     $cliPath = Resolve-CliPath -InstallDir $InstallDir
     if (-not $cliPath) {
         Write-Error-Custom "mineos-cli not found. Re-run without -NoCli."
@@ -161,7 +170,7 @@ if ($Build) {
 }
 
 if ([string]::IsNullOrWhiteSpace($BundleUrl)) {
-    $BundleUrl = Get-LatestBundleUrl -AssetName "mineos-install-bundle.zip"
+    $BundleUrl = Get-LatestBundleUrl -AssetName "mineos-install-bundle.zip" -Version $Version
 }
 
 if ([string]::IsNullOrWhiteSpace($BundleUrl)) {
@@ -180,7 +189,7 @@ New-Item -ItemType Directory -Force -Path $InstallDir | Out-Null
 Expand-Archive -Path $zipPath -DestinationPath $InstallDir -Force
 
 try {
-    Install-Cli -InstallDir $InstallDir -TmpDir $tmpDir -CliUrl $CliUrl -NoCli:$NoCli | Out-Null
+    Install-Cli -InstallDir $InstallDir -TmpDir $tmpDir -CliUrl $CliUrl -Version $Version -NoCli:$NoCli | Out-Null
 } catch {
     Write-Info "mineos-cli install failed: $($_.Exception.Message)"
 }
