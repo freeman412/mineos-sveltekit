@@ -33,6 +33,8 @@ type installOptions struct {
 	networkMode     string
 	buildFromSource bool
 	imageTag        string
+	quiet           bool
+	skipPathInstall bool
 }
 
 const (
@@ -77,6 +79,8 @@ func NewInstallCommand() *cobra.Command {
 	cmd.Flags().StringVar(&opts.networkMode, "network-mode", "", "Docker network mode (bridge|host)")
 	cmd.Flags().BoolVar(&opts.buildFromSource, "build", false, "Build images from source instead of pulling")
 	cmd.Flags().StringVar(&opts.imageTag, "image-tag", "", "Image tag to pull when not building from source")
+	cmd.Flags().BoolVarP(&opts.quiet, "quiet", "q", false, "Non-interactive mode (requires --admin, --password)")
+	cmd.Flags().BoolVar(&opts.skipPathInstall, "skip-path-install", false, "Skip prompting to install CLI to PATH")
 
 	return cmd
 }
@@ -89,30 +93,80 @@ func runInstall(cmd *cobra.Command, opts installOptions) error {
 		return err
 	}
 
+	// Validate Docker is actually running (not just installed)
+	if err := ensureDockerRunning(); err != nil {
+		return err
+	}
+
 	compose, err := detectCompose()
 	if err != nil {
 		return err
 	}
 
-	if _, err := os.Stat(".env"); err == nil {
-		overwrite, err := promptYesNo(reader, out, ".env already exists. Overwrite", false)
-		if err != nil {
-			return err
+	// In quiet mode, validate required fields
+	if opts.quiet {
+		if opts.adminUser == "" {
+			return errors.New("--admin is required in quiet mode")
 		}
-		if !overwrite {
-			return errors.New("install cancelled")
+		if opts.adminPass == "" {
+			return errors.New("--password is required in quiet mode")
+		}
+		// Apply defaults for optional fields
+		if opts.hostBaseDir == "" {
+			opts.hostBaseDir = defaultHostBaseDir
+		}
+		if opts.dataDir == "" {
+			opts.dataDir = defaultDataDir
+		}
+		if opts.apiPort == 0 {
+			opts.apiPort = defaultApiPort
+		}
+		if opts.webPort == 0 {
+			opts.webPort = defaultWebPort
+		}
+		if opts.webOrigin == "" {
+			opts.webOrigin = fmt.Sprintf("http://localhost:%d", opts.webPort)
+		}
+		if opts.minecraftHost == "" {
+			opts.minecraftHost = "localhost"
+		}
+		if opts.bodySizeLimit == "" {
+			opts.bodySizeLimit = defaultBodySizeLimit
+		}
+		if opts.networkMode == "" {
+			opts.networkMode = defaultNetworkMode
+		}
+		if !opts.buildFromSource && opts.imageTag == "" {
+			opts.imageTag = "latest"
 		}
 	}
 
-	fmt.Fprintln(out, installBanner)
-	fmt.Fprintln(out, installBannerTagline)
-	fmt.Fprintln(out, "")
-	fmt.Fprintln(out, "Welcome to the MineOS installer!")
-	fmt.Fprintln(out, "This will set up everything you need to manage Minecraft servers.")
-	fmt.Fprintln(out, "Press Enter to accept the default values shown in parentheses.")
-	fmt.Fprintln(out, "")
+	if _, err := os.Stat(".env"); err == nil {
+		if opts.quiet {
+			// In quiet mode, overwrite without prompting
+			fmt.Fprintln(out, "Overwriting existing .env file...")
+		} else {
+			overwrite, err := promptYesNo(reader, out, ".env already exists. Overwrite", false)
+			if err != nil {
+				return err
+			}
+			if !overwrite {
+				return errors.New("install cancelled")
+			}
+		}
+	}
 
-	if opts.adminUser == "" {
+	if !opts.quiet {
+		fmt.Fprintln(out, installBanner)
+		fmt.Fprintln(out, installBannerTagline)
+		fmt.Fprintln(out, "")
+		fmt.Fprintln(out, "Welcome to the MineOS installer!")
+		fmt.Fprintln(out, "This will set up everything you need to manage Minecraft servers.")
+		fmt.Fprintln(out, "Press Enter to accept the default values shown in parentheses.")
+		fmt.Fprintln(out, "")
+	}
+
+	if opts.adminUser == "" && !opts.quiet {
 		value, err := promptString(reader, out, "Admin username", "admin")
 		if err != nil {
 			return err
@@ -120,7 +174,7 @@ func runInstall(cmd *cobra.Command, opts installOptions) error {
 		opts.adminUser = value
 	}
 
-	if opts.adminPass == "" {
+	if opts.adminPass == "" && !opts.quiet {
 		for {
 			value, err := promptPassword(out, "Admin password: ")
 			if err != nil {
@@ -135,27 +189,27 @@ func runInstall(cmd *cobra.Command, opts installOptions) error {
 		}
 	}
 
-	if opts.hostBaseDir == "" {
+	if opts.hostBaseDir == "" && !opts.quiet {
 		value, err := promptRelativePath(reader, out, "Local storage directory for Minecraft servers (relative)", defaultHostBaseDir)
 		if err != nil {
 			return err
 		}
 		opts.hostBaseDir = value
-	} else if !isValidRelativePath(opts.hostBaseDir) {
+	} else if opts.hostBaseDir != "" && !isValidRelativePath(opts.hostBaseDir) {
 		return fmt.Errorf("host-dir must be relative (no leading /, ~, or ..)")
 	}
 
-	if opts.dataDir == "" {
+	if opts.dataDir == "" && !opts.quiet {
 		value, err := promptRelativePath(reader, out, "Database directory (relative)", defaultDataDir)
 		if err != nil {
 			return err
 		}
 		opts.dataDir = value
-	} else if !isValidRelativePath(opts.dataDir) {
+	} else if opts.dataDir != "" && !isValidRelativePath(opts.dataDir) {
 		return fmt.Errorf("data-dir must be relative (no leading /, ~, or ..)")
 	}
 
-	if opts.apiPort == 0 {
+	if opts.apiPort == 0 && !opts.quiet {
 		fmt.Fprintln(out, "")
 		fmt.Fprintln(out, "Backend API port - Used internally by the server (usually keep default)")
 		value, err := promptInt(reader, out, "API port", defaultApiPort)
@@ -165,7 +219,7 @@ func runInstall(cmd *cobra.Command, opts installOptions) error {
 		opts.apiPort = value
 	}
 
-	if opts.webPort == 0 {
+	if opts.webPort == 0 && !opts.quiet {
 		fmt.Fprintln(out, "")
 		fmt.Fprintln(out, "Web interface port - This is the port you'll type in your browser")
 		fmt.Fprintln(out, "Example: http://localhost:3000 - You can change this if 3000 is already in use")
@@ -176,7 +230,7 @@ func runInstall(cmd *cobra.Command, opts installOptions) error {
 		opts.webPort = value
 	}
 
-	if opts.webOrigin == "" {
+	if opts.webOrigin == "" && !opts.quiet {
 		defaultOrigin := fmt.Sprintf("http://localhost:%d", opts.webPort)
 		fmt.Fprintln(out, "")
 		fmt.Fprintln(out, "Web interface URL - This is the full address you'll use in your browser")
@@ -189,7 +243,7 @@ func runInstall(cmd *cobra.Command, opts installOptions) error {
 		opts.webOrigin = value
 	}
 
-	if opts.minecraftHost == "" {
+	if opts.minecraftHost == "" && !opts.quiet {
 		fmt.Fprintln(out, "")
 		fmt.Fprintln(out, "Minecraft server address - What players will connect to in Minecraft")
 		fmt.Fprintln(out, "For local play: use 'localhost'")
@@ -202,7 +256,7 @@ func runInstall(cmd *cobra.Command, opts installOptions) error {
 		opts.minecraftHost = value
 	}
 
-	if opts.bodySizeLimit == "" {
+	if opts.bodySizeLimit == "" && !opts.quiet {
 		fmt.Fprintln(out, "")
 		fmt.Fprintln(out, "Upload file size limit - Maximum size for files uploaded through the web interface")
 		fmt.Fprintln(out, "'Infinity' = no limit, or specify a size like '500MB' or '1GB'")
@@ -215,7 +269,7 @@ func runInstall(cmd *cobra.Command, opts installOptions) error {
 	}
 
 	networkModeChanged := cmd.Flags().Changed("network-mode")
-	if !networkModeChanged {
+	if !networkModeChanged && !opts.quiet {
 		if runtime.GOOS != "linux" {
 			opts.networkMode = defaultNetworkMode
 		} else {
@@ -231,7 +285,7 @@ func runInstall(cmd *cobra.Command, opts installOptions) error {
 				opts.networkMode = defaultNetworkMode
 			}
 		}
-	} else {
+	} else if networkModeChanged {
 		mode := strings.ToLower(strings.TrimSpace(opts.networkMode))
 		if mode != "bridge" && mode != "host" {
 			return fmt.Errorf("invalid network-mode: %s", opts.networkMode)
@@ -244,7 +298,7 @@ func runInstall(cmd *cobra.Command, opts installOptions) error {
 	}
 
 	buildChanged := cmd.Flags().Changed("build")
-	if !buildChanged {
+	if !buildChanged && !opts.quiet {
 		fmt.Fprintln(out, "")
 		fmt.Fprintln(out, "Installation method:")
 		fmt.Fprintln(out, "- Pull images (recommended): Download pre-built software - faster and easier")
@@ -257,7 +311,7 @@ func runInstall(cmd *cobra.Command, opts installOptions) error {
 	}
 
 	if !opts.buildFromSource {
-		if opts.imageTag == "" {
+		if opts.imageTag == "" && !opts.quiet {
 			fmt.Fprintln(out, "")
 			fmt.Fprintln(out, "Version to install:")
 			fmt.Fprintln(out, "- 'latest': Most recent stable version (recommended)")
@@ -364,14 +418,44 @@ func runInstall(cmd *cobra.Command, opts installOptions) error {
 	fmt.Fprintln(out, "  3. Create your first Minecraft server!")
 	fmt.Fprintln(out, "")
 	fmt.Fprintln(out, "Manage your installation:")
-	fmt.Fprintln(out, "  - Run 'mineos tui' for a terminal management interface")
-	fmt.Fprintln(out, "  - Run 'mineos --help' to see all available commands")
+	fmt.Fprintln(out, "  - Use the terminal interface for advanced management")
+	fmt.Fprintln(out, "  - Use 'mineos --help' to see all available commands")
 	fmt.Fprintln(out, "")
 
-	fmt.Fprintln(out, "To manage your servers from the terminal, run:")
-	fmt.Fprintln(out, "  mineos tui")
-	fmt.Fprintln(out, "")
-	fmt.Fprintln(out, "Happy Minecrafting! 🎮")
+	// Prompt to install CLI to PATH (skip in quiet mode or if explicitly skipped)
+	if !opts.quiet && !opts.skipPathInstall {
+		installToPath, err := promptYesNo(reader, out, "Install the 'mineos' command to your system PATH for easy access", true)
+		if err != nil {
+			return err
+		}
+
+		if installToPath {
+			if err := installCLIToPath(out); err != nil {
+				fmt.Fprintf(out, "Warning: Could not install to PATH: %v\n", err)
+				fmt.Fprintln(out, "You can still use the CLI from this directory.")
+				printLocalCLIInstructions(out)
+			} else {
+				fmt.Fprintln(out, "")
+				fmt.Fprintln(out, "CLI installed to system PATH!")
+				fmt.Fprintln(out, "")
+				fmt.Fprintln(out, "To manage your servers from the terminal, run:")
+				fmt.Fprintln(out, "  mineos tui")
+				fmt.Fprintln(out, "")
+				fmt.Fprintln(out, "(You can run this command from any directory)")
+			}
+		} else {
+			printLocalCLIInstructions(out)
+		}
+	} else if !opts.quiet {
+		printLocalCLIInstructions(out)
+	}
+
+	if !opts.quiet {
+		fmt.Fprintln(out, "")
+		fmt.Fprintln(out, "Happy Minecrafting!")
+	} else {
+		fmt.Fprintln(out, "Installation complete.")
+	}
 
 	return nil
 }
@@ -650,6 +734,14 @@ func ensureDockerAvailable() error {
 	return nil
 }
 
+func ensureDockerRunning() error {
+	cmd := exec.Command("docker", "info")
+	if err := cmd.Run(); err != nil {
+		return errors.New("docker is not running - please start Docker Desktop or the Docker daemon")
+	}
+	return nil
+}
+
 func dirExists(path string) bool {
 	info, err := os.Stat(path)
 	return err == nil && info.IsDir()
@@ -671,4 +763,144 @@ func (c composeRunner) runWithEnv(args []string, env []string) error {
 	cmd.Stdin = os.Stdin
 	cmd.Env = append(os.Environ(), env...)
 	return cmd.Run()
+}
+
+func printLocalCLIInstructions(out io.Writer) {
+	fmt.Fprintln(out, "")
+	fmt.Fprintln(out, "To manage your servers from the terminal:")
+
+	if runtime.GOOS == "windows" {
+		pwd, _ := os.Getwd()
+		fmt.Fprintf(out, "  cd \"%s\"\n", pwd)
+		fmt.Fprintln(out, "  .\\mineos.exe tui")
+	} else {
+		pwd, _ := os.Getwd()
+		fmt.Fprintf(out, "  cd \"%s\"\n", pwd)
+		fmt.Fprintln(out, "  ./mineos tui")
+	}
+
+	fmt.Fprintln(out, "")
+	fmt.Fprintln(out, "(Or run the installer again and choose to install to PATH)")
+}
+
+func installCLIToPath(out io.Writer) error {
+	// Get current executable path
+	exePath, err := os.Executable()
+	if err != nil {
+		return fmt.Errorf("failed to get executable path: %w", err)
+	}
+
+	if runtime.GOOS == "windows" {
+		return installCLIToPathWindows(out, exePath)
+	}
+	return installCLIToPathUnix(out, exePath)
+}
+
+func installCLIToPathWindows(out io.Writer, exePath string) error {
+	// Install to %LOCALAPPDATA%\Programs\MineOS\mineos.exe
+	localAppData := os.Getenv("LOCALAPPDATA")
+	if localAppData == "" {
+		return errors.New("LOCALAPPDATA environment variable not set")
+	}
+
+	installDir := filepath.Join(localAppData, "Programs", "MineOS")
+	if err := os.MkdirAll(installDir, 0o755); err != nil {
+		return fmt.Errorf("failed to create install directory: %w", err)
+	}
+
+	destPath := filepath.Join(installDir, "mineos.exe")
+
+	// Copy executable
+	if err := copyFile(exePath, destPath); err != nil {
+		return fmt.Errorf("failed to copy executable: %w", err)
+	}
+
+	fmt.Fprintf(out, "Installed to: %s\n", destPath)
+
+	// Check if directory is in PATH
+	pathEnv := os.Getenv("PATH")
+	if !strings.Contains(strings.ToLower(pathEnv), strings.ToLower(installDir)) {
+		fmt.Fprintln(out, "")
+		fmt.Fprintln(out, "⚠️  Almost done! The installation directory is not in your PATH.")
+		fmt.Fprintln(out, "")
+		fmt.Fprintln(out, "To complete the installation, add this directory to your PATH:")
+		fmt.Fprintf(out, "  %s\n", installDir)
+		fmt.Fprintln(out, "")
+		fmt.Fprintln(out, "How to add to PATH:")
+		fmt.Fprintln(out, "  1. Press Win+R, type 'sysdm.cpl', press Enter")
+		fmt.Fprintln(out, "  2. Go to 'Advanced' tab → 'Environment Variables'")
+		fmt.Fprintln(out, "  3. Under 'User variables', select 'Path' → 'Edit'")
+		fmt.Fprintln(out, "  4. Click 'New' and paste the directory path above")
+		fmt.Fprintln(out, "  5. Click 'OK' on all windows")
+		fmt.Fprintln(out, "  6. Restart your terminal")
+		fmt.Fprintln(out, "")
+		fmt.Fprintln(out, "Alternatively, use PowerShell (run as user, not admin):")
+		fmt.Fprintln(out, "  $env:Path += ';"+installDir+"'")
+		fmt.Fprintf(out, "  [Environment]::SetEnvironmentVariable('Path', $env:Path, 'User')\n")
+	}
+
+	return nil
+}
+
+func installCLIToPathUnix(out io.Writer, exePath string) error {
+	// Try to install to /usr/local/bin (requires sudo) or ~/.local/bin
+	var destPath string
+	var installDir string
+
+	// Check if we have write access to /usr/local/bin
+	if runtime.GOOS == "linux" || runtime.GOOS == "darwin" {
+		systemBin := "/usr/local/bin/mineos"
+		if err := testWriteAccess("/usr/local/bin"); err == nil {
+			destPath = systemBin
+			installDir = "/usr/local/bin"
+		}
+	}
+
+	// Fall back to user's local bin
+	if destPath == "" {
+		homeDir, err := os.UserHomeDir()
+		if err != nil {
+			return fmt.Errorf("failed to get home directory: %w", err)
+		}
+		installDir = filepath.Join(homeDir, ".local", "bin")
+		if err := os.MkdirAll(installDir, 0o755); err != nil {
+			return fmt.Errorf("failed to create install directory: %w", err)
+		}
+		destPath = filepath.Join(installDir, "mineos")
+	}
+
+	// Copy and make executable
+	if err := copyFile(exePath, destPath); err != nil {
+		return fmt.Errorf("failed to copy executable: %w", err)
+	}
+	if err := os.Chmod(destPath, 0o755); err != nil {
+		return fmt.Errorf("failed to make executable: %w", err)
+	}
+
+	fmt.Fprintf(out, "Installed to: %s\n", destPath)
+
+	// Check if directory is in PATH
+	pathEnv := os.Getenv("PATH")
+	if !strings.Contains(pathEnv, installDir) {
+		fmt.Fprintln(out, "")
+		fmt.Fprintln(out, "⚠️  Almost done! The installation directory is not in your PATH.")
+		fmt.Fprintln(out, "")
+		fmt.Fprintln(out, "Add this line to your shell profile (~/.bashrc, ~/.zshrc, or ~/.profile):")
+		fmt.Fprintf(out, "  export PATH=\"%s:$PATH\"\n", installDir)
+		fmt.Fprintln(out, "")
+		fmt.Fprintln(out, "Then reload your shell:")
+		fmt.Fprintln(out, "  source ~/.bashrc  # or ~/.zshrc")
+	}
+
+	return nil
+}
+
+func testWriteAccess(dir string) error {
+	testFile := filepath.Join(dir, ".write_test_"+strconv.FormatInt(time.Now().UnixNano(), 10))
+	f, err := os.Create(testFile)
+	if err != nil {
+		return err
+	}
+	f.Close()
+	return os.Remove(testFile)
 }
