@@ -1,7 +1,5 @@
 #!/usr/bin/env bash
 
-set -euo pipefail
-
 REPO_URL="https://github.com/freeman412/mineos-sveltekit.git"
 INSTALL_DIR="${MINEOS_INSTALL_DIR:-mineos}"
 REF="main"
@@ -11,6 +9,8 @@ CLI_URL=""
 INSTALL_CLI=true
 VERSION=""
 FORWARD_ARGS=()
+
+set -euo pipefail
 
 usage() {
     cat <<'EOF'

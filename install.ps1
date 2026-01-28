@@ -8,7 +8,7 @@ param(
     [switch]$NoCli,
     [string]$RepoUrl = "https://github.com/freeman412/mineos-sveltekit.git",
     [Parameter(ValueFromRemainingArguments = $true)]
-    [string[]]$Args
+    [string[]]$ForwardArgs
 )
 
 $ErrorActionPreference = "Stop"
@@ -133,7 +133,7 @@ if ([string]::IsNullOrWhiteSpace($InstallDir)) {
 }
 
 $forwardArgs = @()
-if ($Args) { $forwardArgs += $Args }
+if ($ForwardArgs) { $forwardArgs += $ForwardArgs }
 
 if ($Build) {
     if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
