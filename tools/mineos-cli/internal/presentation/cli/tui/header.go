@@ -15,8 +15,8 @@ func (m TuiModel) RenderHeader() string {
 		health = StyleRunning.Render("● HEALTHY")
 	}
 
-	// Logo/Title
-	logo := StyleHeader.Render(" MineOS ")
+	// Logo/Title with ALPHA warning
+	logo := StyleHeader.Render(" MineOS ") + " " + StyleError.Render("[ALPHA - EXPERIMENTAL]")
 
 	// Persistent Info (Top Left Box)
 	infoLines := []string{

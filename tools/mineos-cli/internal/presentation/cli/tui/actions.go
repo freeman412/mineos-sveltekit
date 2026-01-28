@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -117,46 +118,62 @@ func (m TuiModel) StartStreamingCmd(exe string, args []string, label string) tea
 	return func() tea.Msg {
 		cmd := exec.Command(exe, args...)
 
-		// Use CombinedOutput pipe to capture both stdout and stderr
-		combinedPipe, err := cmd.StdoutPipe()
+		// Use combined output (stdout + stderr together)
+		stdoutPipe, err := cmd.StdoutPipe()
 		if err != nil {
 			return StreamingStartedMsg{
-				Output: makeErrorChan("Failed to create stdout pipe: " + err.Error()),
+				Output: makeErrorChan("Failed to create pipe: " + err.Error()),
 				Label:  label,
 			}
 		}
 
-		// Redirect stderr to stdout so we get both in one stream
+		// Combine stderr into stdout
 		cmd.Stderr = cmd.Stdout
 
 		if err := cmd.Start(); err != nil {
-			combinedPipe.Close()
+			stdoutPipe.Close()
 			return StreamingStartedMsg{
-				Output: makeErrorChan("Failed to start command: " + err.Error()),
+				Output: makeErrorChan("Failed to start: " + err.Error()),
 				Label:  label,
 			}
 		}
 
 		// Create output channel
-		outputChan := make(chan string, 100)
+		outputChan := make(chan string, StreamingBufferSize)
 
-		// Send initial status
-		outputChan <- fmt.Sprintf("Running: %s %s", exe, strings.Join(args, " "))
-
-		// Read output in a goroutine
+		// Single goroutine to read and manage the stream
 		go func() {
-			scanner := bufio.NewScanner(combinedPipe)
-			scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+			defer close(outputChan)
+
+			// Send initial status
+			cmdStr := fmt.Sprintf("%s %s", filepath.Base(exe), strings.Join(args, " "))
+			outputChan <- "Running: " + cmdStr
+			outputChan <- "" // Blank line
+
+			// Read output line by line
+			scanner := bufio.NewScanner(stdoutPipe)
+			scanner.Buffer(make([]byte, 0, 64*1024), ScannerMaxBuffer)
+
+			lineCount := 0
 			for scanner.Scan() {
 				line := scanner.Text()
 				outputChan <- line
+				lineCount++
 			}
 
-			// Wait for command to complete and capture exit error
-			if err := cmd.Wait(); err != nil {
-				outputChan <- "Command error: " + err.Error()
+			if err := scanner.Err(); err != nil {
+				outputChan <- ""
+				outputChan <- "Error reading output: " + err.Error()
 			}
-			close(outputChan)
+
+			// Wait for process to finish
+			waitErr := cmd.Wait()
+			outputChan <- ""
+			if waitErr != nil {
+				outputChan <- fmt.Sprintf("✗ Command failed (%d lines): %s", lineCount, waitErr.Error())
+			} else {
+				outputChan <- fmt.Sprintf("✓ Command completed (%d lines)", lineCount)
+			}
 		}()
 
 		return StreamingStartedMsg{

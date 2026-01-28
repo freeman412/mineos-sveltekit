@@ -169,8 +169,14 @@ func (m TuiModel) RenderOutputMain(width, height int) []string {
 	}
 
 	if len(m.OutputLines) == 0 {
-		lines = append(lines, StyleSubtle.Render("  No output yet."))
-		if !m.InteractiveRunning && !m.StreamingRunning {
+		if m.StreamingRunning {
+			lines = append(lines, StyleStatus.Render("  Streaming output..."))
+			lines = append(lines, "")
+			lines = append(lines, StyleSubtle.Render("  Waiting for command output..."))
+		} else if m.InteractiveRunning {
+			lines = append(lines, StyleSubtle.Render("  No output yet."))
+		} else {
+			lines = append(lines, StyleSubtle.Render("  No output."))
 			lines = append(lines, "")
 			lines = append(lines, StyleSubtle.Render("  Press Esc to go back."))
 		}

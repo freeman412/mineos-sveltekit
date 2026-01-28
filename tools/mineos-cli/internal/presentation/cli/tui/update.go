@@ -553,7 +553,7 @@ func (m TuiModel) handleStreamingStarted(msg StreamingStartedMsg) (tea.Model, te
 	m.PreviousView = m.CurrentView
 	m.CurrentView = ViewOutput
 	m.OutputTitle = msg.Label
-	m.OutputLines = []string{"Executing " + msg.Label + "..."}
+	m.OutputLines = nil // Clear and let streaming populate
 
 	return m, m.ListenStreamingCmd()
 }

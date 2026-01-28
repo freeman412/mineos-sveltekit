@@ -66,7 +66,7 @@ func (m TuiModel) RenderServiceLogsMain(width, height int) []string {
 		start = len(m.Logs) - logHeight
 	}
 	for _, line := range m.Logs[start:] {
-		lines = append(lines, TrimToWidth(line, width))
+		lines = append(lines, TrimToWidth("  "+line, width))
 	}
 
 	return PadLines(lines, height)
