@@ -22,8 +22,11 @@ func (m TuiModel) RenderFooter() string {
 	}
 	b.WriteString("\n")
 
-	// Keyboard shortcuts line - unified for all views
+	// Keyboard shortcuts line - context-sensitive
 	help := " [Up/Down] Navigate  [Enter] Select  [Esc] Back  [q] Quit"
+	if m.CurrentView == ViewServiceLogs && len(m.ComposeServices) > 1 {
+		help = " [Up/Down] Navigate  [Left/Right] Switch Service  [Esc] Back  [q] Quit"
+	}
 
 	footerStyle := lipgloss.NewStyle().
 		Background(lipgloss.Color("235")).

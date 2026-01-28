@@ -4,11 +4,9 @@ import (
 	"bufio"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"strings"
-	"sync"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/freemancraft/mineos-sveltekit/tools/mineos-cli/internal/application/usecases"
@@ -119,48 +117,45 @@ func (m TuiModel) StartStreamingCmd(exe string, args []string, label string) tea
 	return func() tea.Msg {
 		cmd := exec.Command(exe, args...)
 
-		stdout, err := cmd.StdoutPipe()
+		// Use CombinedOutput pipe to capture both stdout and stderr
+		combinedPipe, err := cmd.StdoutPipe()
 		if err != nil {
-			return ExecFinishedMsg{Action: label, Err: err}
-		}
-
-		stderr, err := cmd.StderrPipe()
-		if err != nil {
-			stdout.Close()
-			return ExecFinishedMsg{Action: label, Err: err}
-		}
-
-		if err := cmd.Start(); err != nil {
-			stdout.Close()
-			stderr.Close()
-			return ExecFinishedMsg{Action: label, Err: err}
-		}
-
-		// Create output channel and start readers
-		outputChan := make(chan string, 100)
-		var wg sync.WaitGroup
-
-		// Helper to read a stream line by line
-		readStream := func(reader io.Reader, name string) {
-			defer wg.Done()
-			scanner := bufio.NewScanner(reader)
-			scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
-			for scanner.Scan() {
-				line := scanner.Text()
-				if line != "" {
-					outputChan <- line
-				}
+			return StreamingStartedMsg{
+				Output: makeErrorChan("Failed to create stdout pipe: " + err.Error()),
+				Label:  label,
 			}
 		}
 
-		wg.Add(2)
-		go readStream(stdout, "stdout")
-		go readStream(stderr, "stderr")
+		// Redirect stderr to stdout so we get both in one stream
+		cmd.Stderr = cmd.Stdout
 
-		// Wait for readers to finish, then close channel
+		if err := cmd.Start(); err != nil {
+			combinedPipe.Close()
+			return StreamingStartedMsg{
+				Output: makeErrorChan("Failed to start command: " + err.Error()),
+				Label:  label,
+			}
+		}
+
+		// Create output channel
+		outputChan := make(chan string, 100)
+
+		// Send initial status
+		outputChan <- fmt.Sprintf("Running: %s %s", exe, strings.Join(args, " "))
+
+		// Read output in a goroutine
 		go func() {
-			wg.Wait()
-			cmd.Wait()
+			scanner := bufio.NewScanner(combinedPipe)
+			scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+			for scanner.Scan() {
+				line := scanner.Text()
+				outputChan <- line
+			}
+
+			// Wait for command to complete and capture exit error
+			if err := cmd.Wait(); err != nil {
+				outputChan <- "Command error: " + err.Error()
+			}
 			close(outputChan)
 		}()
 
@@ -169,6 +164,14 @@ func (m TuiModel) StartStreamingCmd(exe string, args []string, label string) tea
 			Label:  label,
 		}
 	}
+}
+
+// makeErrorChan creates a channel with a single error message then closes
+func makeErrorChan(errMsg string) <-chan string {
+	ch := make(chan string, 1)
+	ch <- errMsg
+	close(ch)
+	return ch
 }
 
 // StartInteractiveCmd starts an interactive command with piped I/O

@@ -19,7 +19,7 @@ func BuildNavItems() []NavItem {
 		{Label: "Start Containers", ItemType: NavAction, Action: &MenuItem{Label: "Start Containers", Args: []string{"stack", "up"}, Streaming: true}},
 		{Label: "Stop Containers", ItemType: NavAction, Action: &MenuItem{Label: "Stop Containers", Args: []string{"stack", "stop"}, Streaming: true}},
 		{Label: "Restart Containers", ItemType: NavAction, Action: &MenuItem{Label: "Restart Containers", Args: []string{"stack", "restart"}, Streaming: true}},
-		{Label: "Remove Containers", ItemType: NavAction, Action: &MenuItem{Label: "Remove Containers", Args: []string{"stack", "down"}, Destructive: true, Streaming: true}},
+		{Label: "Remove Containers", ItemType: NavAction, Action: &MenuItem{Label: "Remove Containers", Args: []string{"stack", "down"}, Destructive: true, Streaming: true}, Destructive: true},
 		{Label: "Update Images", ItemType: NavAction, Action: &MenuItem{Label: "Update Images", Args: []string{"stack", "update"}, Streaming: true}},
 	}
 
@@ -37,7 +37,7 @@ func BuildNavItems() []NavItem {
 		NavItem{Label: "Reconfigure", ItemType: NavAction, Action: &MenuItem{Label: "Reconfigure", Args: []string{"reconfigure"}, Interactive: true}},
 		NavItem{Label: "Refresh API Key", ItemType: NavAction, Action: &MenuItem{Label: "Refresh API Key", Args: []string{"api-key", "refresh"}}},
 		NavItem{Label: "Install", ItemType: NavAction, Action: &MenuItem{Label: "Install", Args: []string{"install"}, Interactive: true}},
-		NavItem{Label: "Uninstall", ItemType: NavAction, Action: &MenuItem{Label: "Uninstall", Args: []string{"uninstall"}, Interactive: true}},
+		NavItem{Label: "Uninstall", ItemType: NavAction, Action: &MenuItem{Label: "Uninstall", Args: []string{"uninstall"}, Interactive: true, Destructive: true}, Destructive: true},
 	)
 
 	return items

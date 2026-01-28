@@ -50,7 +50,15 @@ const (
 	MaxLogLines          = 700
 	DefaultDockerLogTail = 200
 	LogRetryDelay        = 2 * time.Second
+	ConnectionRetryDelay = 6 * time.Second
 	MaxLogRetries        = 3
+	MaxRetryAttempts     = 3
+)
+
+// Streaming constants
+const (
+	StreamingBufferSize = 100
+	ScannerMaxBuffer    = 1024 * 1024 // 1MB
 )
 
 // Timeout constants

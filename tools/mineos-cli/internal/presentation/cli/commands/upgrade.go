@@ -118,6 +118,22 @@ func runUpgrade(cmd *cobra.Command, currentVersion string, force, checkOnly bool
 	}
 
 	if downloadURL == "" {
+		// Try case-insensitive match
+		assetLower := strings.ToLower(assetName)
+		for _, asset := range release.Assets {
+			if strings.ToLower(asset.Name) == assetLower {
+				downloadURL = asset.BrowserDownloadURL
+				assetName = asset.Name
+				break
+			}
+		}
+	}
+
+	if downloadURL == "" {
+		fmt.Fprintf(out, "\nAvailable assets in release %s:\n", latestVersion)
+		for _, asset := range release.Assets {
+			fmt.Fprintf(out, "  - %s\n", asset.Name)
+		}
 		return fmt.Errorf("no release found for %s/%s (looking for %s)", runtime.GOOS, runtime.GOARCH, assetName)
 	}
 
@@ -200,37 +216,9 @@ func fetchLatestRelease() (*githubRelease, error) {
 }
 
 func getAssetName() string {
-	os := runtime.GOOS
-	arch := runtime.GOARCH
-
-	// Map to release asset naming convention
-	switch arch {
-	case "amd64":
-		arch = "x86_64"
-	case "386":
-		arch = "i386"
-	}
-
-	ext := ".tar.gz"
-	if os == "windows" {
-		ext = ".zip"
-		return fmt.Sprintf("mineos_%s_%s%s", capitalizeOS(os), arch, ext)
-	}
-
-	return fmt.Sprintf("mineos_%s_%s%s", capitalizeOS(os), arch, ext)
-}
-
-func capitalizeOS(os string) string {
-	switch os {
-	case "darwin":
-		return "Darwin"
-	case "linux":
-		return "Linux"
-	case "windows":
-		return "Windows"
-	default:
-		return os
-	}
+	// Asset naming convention: mineos-cli_{os}_{arch}.zip
+	// Examples: mineos-cli_linux_amd64.zip, mineos-cli_darwin_arm64.zip
+	return fmt.Sprintf("mineos-cli_%s_%s.zip", runtime.GOOS, runtime.GOARCH)
 }
 
 func extractBinary(archivePath, assetName string) (string, error) {
@@ -253,6 +241,12 @@ func extractTarGz(archivePath string) (string, error) {
 	}
 	defer gzr.Close()
 
+	// Look for any of these binary names
+	validNames := map[string]bool{
+		"mineos":     true,
+		"mineos-cli": true,
+	}
+
 	tr := tar.NewReader(gzr)
 	for {
 		header, err := tr.Next()
@@ -264,7 +258,8 @@ func extractTarGz(archivePath string) (string, error) {
 		}
 
 		// Look for the mineos binary
-		if header.Typeflag == tar.TypeReg && (header.Name == "mineos" || filepath.Base(header.Name) == "mineos") {
+		name := filepath.Base(header.Name)
+		if header.Typeflag == tar.TypeReg && validNames[name] {
 			tmpFile, err := os.CreateTemp("", "mineos-binary-*")
 			if err != nil {
 				return "", err
@@ -290,9 +285,19 @@ func extractZip(archivePath string) (string, error) {
 	}
 	defer r.Close()
 
+	// Look for mineos binary - could be named:
+	// mineos, mineos.exe, mineos-cli, mineos-cli.exe, or mineos-{os}-{arch}[.exe]
+	isMineosExe := func(name string) bool {
+		if strings.HasPrefix(name, "mineos") {
+			// Accept: mineos, mineos.exe, mineos-cli, mineos-cli.exe, mineos-windows-amd64.exe, etc.
+			return true
+		}
+		return false
+	}
+
 	for _, f := range r.File {
 		name := filepath.Base(f.Name)
-		if name == "mineos.exe" || name == "mineos" {
+		if isMineosExe(name) {
 			rc, err := f.Open()
 			if err != nil {
 				return "", err
@@ -314,7 +319,12 @@ func extractZip(archivePath string) (string, error) {
 		}
 	}
 
-	return "", errors.New("mineos binary not found in archive")
+	// List files in archive for debugging
+	var files []string
+	for _, f := range r.File {
+		files = append(files, f.Name)
+	}
+	return "", fmt.Errorf("mineos binary not found in archive. Files: %v", files)
 }
 
 func replaceBinary(oldPath, newPath string) error {

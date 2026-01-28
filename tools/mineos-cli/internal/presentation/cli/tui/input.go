@@ -21,6 +21,12 @@ func (m TuiModel) HandleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case tea.KeyDown:
 		return m.navDown()
 
+	case tea.KeyLeft:
+		return m.navLeft()
+
+	case tea.KeyRight:
+		return m.navRight()
+
 	case tea.KeyEnter:
 		return m.navSelect()
 
@@ -38,8 +44,49 @@ func (m TuiModel) HandleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.navDown()
 	case "k":
 		return m.navUp()
+	case "h":
+		return m.navLeft()
+	case "l":
+		return m.navRight()
 	}
 
+	return m, nil
+}
+
+// navLeft handles left arrow - switches log source in service logs view
+func (m TuiModel) navLeft() (tea.Model, tea.Cmd) {
+	if m.CurrentView == ViewServiceLogs && len(m.ComposeServices) > 1 {
+		// Find current index and go to previous
+		sources := m.ComposeServices
+		for i, svc := range sources {
+			if svc == m.LogSource {
+				prevIdx := i - 1
+				if prevIdx < 0 {
+					prevIdx = len(sources) - 1
+				}
+				m.LogSource = sources[prevIdx]
+				m.Logs = nil
+				return m, m.StartLogStreamCmd()
+			}
+		}
+	}
+	return m, nil
+}
+
+// navRight handles right arrow - switches log source in service logs view
+func (m TuiModel) navRight() (tea.Model, tea.Cmd) {
+	if m.CurrentView == ViewServiceLogs && len(m.ComposeServices) > 1 {
+		// Find current index and go to next
+		sources := m.ComposeServices
+		for i, svc := range sources {
+			if svc == m.LogSource {
+				nextIdx := (i + 1) % len(sources)
+				m.LogSource = sources[nextIdx]
+				m.Logs = nil
+				return m, m.StartLogStreamCmd()
+			}
+		}
+	}
 	return m, nil
 }
 
