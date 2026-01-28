@@ -9,7 +9,9 @@ import (
 func (m TuiModel) RenderHeader() string {
 	// API Health
 	health := StyleError.Render("● UNHEALTHY")
-	if m.ConfigReady && m.ErrMsg == "" {
+	if m.ContainersStopped {
+		health = StyleSubtle.Render("● STOPPED")
+	} else if m.ConfigReady && m.ErrMsg == "" {
 		health = StyleRunning.Render("● HEALTHY")
 	}
 

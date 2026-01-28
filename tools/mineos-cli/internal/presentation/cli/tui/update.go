@@ -114,18 +114,33 @@ func (m TuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.Err != nil {
 			errStr := msg.Err.Error()
 			// Log stream errors are transient - don't mark API as unhealthy
-			// Ignore: context canceled, stream closed, signal killed, etc.
+			// Ignore: context canceled, stream closed, signal killed, connection refused, etc.
 			isTransientError := strings.Contains(errStr, "log stream") ||
 				strings.Contains(errStr, "stream closed") ||
 				strings.Contains(errStr, "context canceled") ||
 				strings.Contains(errStr, "signal: killed") ||
-				strings.Contains(errStr, "broken pipe")
+				strings.Contains(errStr, "broken pipe") ||
+				strings.Contains(errStr, "connection refused") ||
+				strings.Contains(errStr, "connect: connection refused") ||
+				strings.Contains(errStr, "no such host") ||
+				strings.Contains(errStr, "i/o timeout")
 			if !isTransientError {
 				m.ErrMsg = errStr
 			}
-			// Retry streaming if active and not quitting
+
+			// Don't retry if containers were intentionally stopped
+			if m.ContainersStopped {
+				return m, nil
+			}
+
+			// Retry streaming if active and not quitting (with longer delay for connection errors)
 			if m.LogsActive && !m.Quitting && !strings.Contains(errStr, "context canceled") {
-				return m, tea.Tick(LogRetryDelay, func(time.Time) tea.Msg {
+				// Use longer delay for connection errors to reduce flickering
+				delay := LogRetryDelay
+				if strings.Contains(errStr, "connection refused") || strings.Contains(errStr, "no such host") {
+					delay = LogRetryDelay * 3 // 6 seconds for connection errors
+				}
+				return m, tea.Tick(delay, func(time.Time) tea.Msg {
 					return LogRetryMsg{}
 				})
 			}
@@ -152,6 +167,15 @@ func (m TuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case InteractiveFinishedMsg:
 		return m.handleInteractiveFinished(msg)
+
+	case StreamingStartedMsg:
+		return m.handleStreamingStarted(msg)
+
+	case StreamingOutputMsg:
+		return m.handleStreamingOutput(msg)
+
+	case StreamingFinishedMsg:
+		return m.handleStreamingFinished(msg)
 	}
 
 	return m, nil
@@ -201,7 +225,14 @@ func (m TuiModel) handleComposeServices(msg ComposeServicesMsg) (tea.Model, tea.
 
 func (m TuiModel) handleServersLoaded(msg ServersLoadedMsg) (tea.Model, tea.Cmd) {
 	if msg.Err != nil {
-		m.ErrMsg = msg.Err.Error()
+		errStr := msg.Err.Error()
+		// Don't show transient connection errors in status
+		isTransient := strings.Contains(errStr, "connection refused") ||
+			strings.Contains(errStr, "no such host") ||
+			strings.Contains(errStr, "i/o timeout")
+		if !isTransient {
+			m.ErrMsg = errStr
+		}
 		return m, nil
 	}
 	if msg.Cfg.EnvPath != "" {
@@ -510,4 +541,84 @@ func (m *TuiModel) RequestConfirmation(action *MenuItem, message string) {
 	m.Mode = ModeConfirm
 	m.ConfirmAction = action
 	m.ConfirmMessage = message
+}
+
+// handleStreamingStarted handles the start of a streaming command
+func (m TuiModel) handleStreamingStarted(msg StreamingStartedMsg) (tea.Model, tea.Cmd) {
+	m.StreamingOutput = msg.Output
+	m.StreamingRunning = true
+	m.StreamingLabel = msg.Label
+
+	// Switch to output view
+	m.PreviousView = m.CurrentView
+	m.CurrentView = ViewOutput
+	m.OutputTitle = msg.Label
+	m.OutputLines = []string{"Executing " + msg.Label + "..."}
+
+	return m, m.ListenStreamingCmd()
+}
+
+// handleStreamingOutput handles a line of streaming output
+func (m TuiModel) handleStreamingOutput(msg StreamingOutputMsg) (tea.Model, tea.Cmd) {
+	m.OutputLines = append(m.OutputLines, msg.Line)
+	// Limit output buffer
+	if len(m.OutputLines) > MaxLogLines {
+		m.OutputLines = m.OutputLines[len(m.OutputLines)-MaxLogLines:]
+	}
+	return m, m.ListenStreamingCmd()
+}
+
+// handleStreamingFinished handles the completion of a streaming command
+func (m TuiModel) handleStreamingFinished(msg StreamingFinishedMsg) (tea.Model, tea.Cmd) {
+	m.StreamingRunning = false
+	m.StreamingOutput = nil
+
+	// Detect if containers were intentionally stopped
+	isStopAction := strings.Contains(msg.Label, "Stop") || strings.Contains(msg.Label, "Remove")
+	isStartAction := strings.Contains(msg.Label, "Start") || strings.Contains(msg.Label, "Restart")
+
+	if msg.Err != nil {
+		m.OutputLines = append(m.OutputLines, "", "Error: "+msg.Err.Error())
+		m.ErrMsg = msg.Err.Error()
+	} else {
+		m.OutputLines = append(m.OutputLines, "", "✓ "+msg.Label+" complete")
+		m.StatusMsg = msg.Label + " complete"
+		m.ErrMsg = ""
+
+		// Track container state
+		if isStopAction {
+			m.ContainersStopped = true
+			m.ConfigReady = false // API is no longer available
+			m.Servers = nil
+		} else if isStartAction {
+			m.ContainersStopped = false
+		}
+	}
+	m.OutputLines = append(m.OutputLines, "", "Press Esc to go back.")
+
+	// Don't try to load servers if we just stopped containers
+	if m.ContainersStopped {
+		return m, m.LoadComposeCmd() // Only reload compose status
+	}
+
+	return m, tea.Batch(m.LoadConfigCmd(), m.LoadComposeCmd(), m.LoadServersCmd())
+}
+
+// ListenStreamingCmd creates a command to listen for streaming output
+func (m TuiModel) ListenStreamingCmd() tea.Cmd {
+	outputChan := m.StreamingOutput
+	label := m.StreamingLabel
+
+	if outputChan == nil {
+		return nil
+	}
+
+	return func() tea.Msg {
+		line, ok := <-outputChan
+		if !ok {
+			// Channel closed - command finished
+			return StreamingFinishedMsg{Label: label}
+		}
+		return StreamingOutputMsg{Line: line}
+	}
 }

@@ -120,8 +120,16 @@ type TuiModel struct {
 	InteractiveOutput  <-chan string
 	InteractiveRunning bool
 
+	// Streaming command state (output-only, no input)
+	StreamingOutput  <-chan string
+	StreamingRunning bool
+	StreamingLabel   string
+
 	// Retry state for error recovery
 	RetryCount int
+
+	// Container state tracking
+	ContainersStopped bool // True when user intentionally stopped containers
 }
 
 // MenuItem represents an item in the command menu
@@ -217,4 +225,21 @@ type InteractiveOutputMsg struct {
 // InteractiveFinishedMsg is sent when an interactive command completes
 type InteractiveFinishedMsg struct {
 	Err error
+}
+
+// StreamingStartedMsg is sent when a streaming (output-only) command starts
+type StreamingStartedMsg struct {
+	Output <-chan string
+	Label  string
+}
+
+// StreamingOutputMsg is sent for each line of streaming command output
+type StreamingOutputMsg struct {
+	Line string
+}
+
+// StreamingFinishedMsg is sent when a streaming command completes
+type StreamingFinishedMsg struct {
+	Label string
+	Err   error
 }

@@ -77,12 +77,35 @@ func (m TuiModel) View() string {
 func (m TuiModel) RenderNavSidebar(width, height int) []string {
 	lines := make([]string, 0, height)
 
-	// Calculate visible range with scrolling
-	visibleItems := height - 1 // Reserve 1 line for scroll indicator if needed
+	// Check if scrolling is needed
+	needsScrolling := len(m.NavItems) > height
+	hasItemsAbove := m.NavScroll > 0
+	hasItemsBelow := false
+
+	// Reserve lines for scroll indicators
+	reservedLines := 0
+	if needsScrolling {
+		reservedLines = 1 // Bottom indicator always shows position
+		if hasItemsAbove {
+			reservedLines++ // Top indicator
+		}
+	}
+
+	visibleItems := height - reservedLines
+	if visibleItems < 3 {
+		visibleItems = 3
+	}
+
 	startIdx := m.NavScroll
 	endIdx := startIdx + visibleItems
 	if endIdx > len(m.NavItems) {
 		endIdx = len(m.NavItems)
+	}
+	hasItemsBelow = endIdx < len(m.NavItems)
+
+	// Show "more above" indicator
+	if hasItemsAbove {
+		lines = append(lines, StyleSubtle.Render(" ↑ more above"))
 	}
 
 	for i := startIdx; i < endIdx; i++ {
@@ -91,10 +114,15 @@ func (m TuiModel) RenderNavSidebar(width, height int) []string {
 		lines = append(lines, line)
 	}
 
-	// Show scroll indicator if needed
-	if len(m.NavItems) > visibleItems {
-		scrollInfo := fmt.Sprintf(" [%d/%d]", m.NavIndex+1, len(m.NavItems))
-		lines = append(lines, StyleSubtle.Render(scrollInfo))
+	// Show scroll position/indicator at bottom
+	if needsScrolling {
+		if hasItemsBelow {
+			scrollInfo := fmt.Sprintf(" ↓ [%d/%d]", m.NavIndex+1, len(m.NavItems))
+			lines = append(lines, StyleSubtle.Render(scrollInfo))
+		} else {
+			scrollInfo := fmt.Sprintf(" [%d/%d]", m.NavIndex+1, len(m.NavItems))
+			lines = append(lines, StyleSubtle.Render(scrollInfo))
+		}
 	}
 
 	return PadLines(lines, height)
@@ -142,7 +170,7 @@ func (m TuiModel) RenderOutputMain(width, height int) []string {
 
 	if len(m.OutputLines) == 0 {
 		lines = append(lines, StyleSubtle.Render("  No output yet."))
-		if !m.InteractiveRunning {
+		if !m.InteractiveRunning && !m.StreamingRunning {
 			lines = append(lines, "")
 			lines = append(lines, StyleSubtle.Render("  Press Esc to go back."))
 		}

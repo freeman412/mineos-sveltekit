@@ -295,6 +295,7 @@ func (m TuiModel) executeNavAction(item NavItem) (tea.Model, tea.Cmd) {
 		Label:       item.Label,
 		Args:        args,
 		Interactive: item.Action.Interactive,
+		Streaming:   item.Action.Streaming,
 	}
 	return m, m.ExecMenuItem(menuItem)
 }

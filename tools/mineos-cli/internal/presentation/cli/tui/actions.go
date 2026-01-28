@@ -180,10 +180,9 @@ func (m TuiModel) StartStreamingCmd(exe string, args []string, label string) tea
 			close(outputChan)
 		}()
 
-		// Use InteractiveStartedMsg but without stdin
-		return InteractiveStartedMsg{
-			Stdin:  nil,
+		return StreamingStartedMsg{
 			Output: outputChan,
+			Label:  label,
 		}
 	}
 }
