@@ -20,7 +20,7 @@ import (
 func NewStackCommand(loadConfig *usecases.LoadConfigUseCase) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "stack",
-		Short: "Manage the MineOS Docker stack",
+		Short: "Manage MineOS Docker containers (not the CLI - use 'upgrade' for CLI updates)",
 	}
 
 	cmd.AddCommand(NewStackUpCommand(loadConfig))
@@ -47,7 +47,7 @@ func NewStackUpCommand(loadConfig *usecases.LoadConfigUseCase) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:     "up",
 		Aliases: []string{"start"},
-		Short:   "Start MineOS services",
+		Short:   "Start MineOS Docker containers",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			ctx := cmd.Context()
 			out := cmd.OutOrStdout()
@@ -81,7 +81,7 @@ func NewStackStopCommand(loadConfig *usecases.LoadConfigUseCase) *cobra.Command 
 
 	cmd := &cobra.Command{
 		Use:   "stop",
-		Short: "Stop MineOS services",
+		Short: "Stop MineOS Docker containers",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			ctx := cmd.Context()
 			out := cmd.OutOrStdout()
@@ -108,7 +108,7 @@ func NewStackRestartCommand(loadConfig *usecases.LoadConfigUseCase) *cobra.Comma
 
 	cmd := &cobra.Command{
 		Use:   "restart",
-		Short: "Restart MineOS services",
+		Short: "Restart MineOS Docker containers",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			ctx := cmd.Context()
 			out := cmd.OutOrStdout()
@@ -359,7 +359,7 @@ func NewStackUpdateCommand(loadConfig *usecases.LoadConfigUseCase) *cobra.Comman
 
 	cmd := &cobra.Command{
 		Use:   "update",
-		Short: "Pull latest images and restart services",
+		Short: "Pull latest Docker images and recreate containers (does NOT update CLI)",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			ctx := cmd.Context()
 			out := cmd.OutOrStdout()

@@ -48,6 +48,7 @@ func NewRootCommand(deps RootDeps) *cobra.Command {
 	cmd.AddCommand(NewServersCommand(deps.LoadConfig))
 	cmd.AddCommand(NewStatusCommand(deps.LoadConfig))
 	cmd.AddCommand(NewUninstallCommand())
+	cmd.AddCommand(NewUpgradeCommand(deps.Version))
 	cmd.AddCommand(NewVersionCommand(deps.Version))
 
 	return cmd

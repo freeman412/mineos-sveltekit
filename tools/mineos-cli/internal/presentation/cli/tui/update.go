@@ -113,13 +113,18 @@ func (m TuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case LogErrorMsg:
 		if msg.Err != nil {
 			errStr := msg.Err.Error()
-			// Log stream errors are transient reconnection events - don't mark API as unhealthy
-			isStreamError := strings.Contains(errStr, "log stream") || strings.Contains(errStr, "stream closed")
-			if !isStreamError {
+			// Log stream errors are transient - don't mark API as unhealthy
+			// Ignore: context canceled, stream closed, signal killed, etc.
+			isTransientError := strings.Contains(errStr, "log stream") ||
+				strings.Contains(errStr, "stream closed") ||
+				strings.Contains(errStr, "context canceled") ||
+				strings.Contains(errStr, "signal: killed") ||
+				strings.Contains(errStr, "broken pipe")
+			if !isTransientError {
 				m.ErrMsg = errStr
 			}
-			// Retry streaming if active
-			if m.LogsActive && !m.Quitting {
+			// Retry streaming if active and not quitting
+			if m.LogsActive && !m.Quitting && !strings.Contains(errStr, "context canceled") {
 				return m, tea.Tick(LogRetryDelay, func(time.Time) tea.Msg {
 					return LogRetryMsg{}
 				})

@@ -15,17 +15,17 @@ func BuildNavItems() []NavItem {
 		{Label: "", ItemType: NavSeparator},
 
 		// Docker services (containers)
-		{Label: "SERVICES", ItemType: NavHeader},
-		{Label: "Start Services", ItemType: NavAction, Action: &MenuItem{Label: "Start Services", Args: []string{"stack", "up"}}},
-		{Label: "Stop Services", ItemType: NavAction, Action: &MenuItem{Label: "Stop Services", Args: []string{"stack", "stop"}}},
-		{Label: "Restart Services", ItemType: NavAction, Action: &MenuItem{Label: "Restart Services", Args: []string{"stack", "restart"}}},
-		{Label: "Stop & Remove", ItemType: NavAction, Action: &MenuItem{Label: "Stop & Remove", Args: []string{"stack", "down"}}, Destructive: true},
-		{Label: "Update", ItemType: NavAction, Action: &MenuItem{Label: "Update", Args: []string{"stack", "update"}}},
+		{Label: "DOCKER", ItemType: NavHeader},
+		{Label: "Start Containers", ItemType: NavAction, Action: &MenuItem{Label: "Start Containers", Args: []string{"stack", "up"}}},
+		{Label: "Stop Containers", ItemType: NavAction, Action: &MenuItem{Label: "Stop Containers", Args: []string{"stack", "stop"}}},
+		{Label: "Restart Containers", ItemType: NavAction, Action: &MenuItem{Label: "Restart Containers", Args: []string{"stack", "restart"}}},
+		{Label: "Remove Containers", ItemType: NavAction, Action: &MenuItem{Label: "Remove Containers", Args: []string{"stack", "down"}}, Destructive: true},
+		{Label: "Pull & Update Images", ItemType: NavAction, Action: &MenuItem{Label: "Pull & Update Images", Args: []string{"stack", "update"}}},
 	}
 
 	// Only show Rebuild if source code is available (apps directory exists)
 	if hasSourceCode() {
-		items = append(items, NavItem{Label: "Rebuild", ItemType: NavAction, Action: &MenuItem{Label: "Rebuild", Args: []string{"stack", "rebuild"}}})
+		items = append(items, NavItem{Label: "Rebuild from Source", ItemType: NavAction, Action: &MenuItem{Label: "Rebuild from Source", Args: []string{"stack", "rebuild"}}})
 	}
 
 	items = append(items,
@@ -33,6 +33,7 @@ func BuildNavItems() []NavItem {
 
 		// System actions
 		NavItem{Label: "SYSTEM", ItemType: NavHeader},
+		NavItem{Label: "Upgrade CLI", ItemType: NavAction, Action: &MenuItem{Label: "Upgrade CLI", Args: []string{"upgrade"}}},
 		NavItem{Label: "Reconfigure", ItemType: NavAction, Action: &MenuItem{Label: "Reconfigure", Args: []string{"reconfigure"}, Interactive: true}},
 		NavItem{Label: "Refresh API Key", ItemType: NavAction, Action: &MenuItem{Label: "Refresh API Key", Args: []string{"api-key", "refresh"}}},
 		NavItem{Label: "Install", ItemType: NavAction, Action: &MenuItem{Label: "Install", Args: []string{"install"}, Interactive: true}},

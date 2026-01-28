@@ -233,23 +233,25 @@ func runReconfigure(cmd *cobra.Command, loadConfig *usecases.LoadConfigUseCase) 
 	}
 
 	if restartServices {
-		fmt.Println("Restarting services...")
+		fmt.Println("Recreating services to apply new configuration...")
 		compose, composeErr := detectCompose()
 		if composeErr != nil {
-			fmt.Println("Warning: Could not detect docker compose. Please restart services manually.")
+			fmt.Println("Warning: Could not detect docker compose. Please restart services manually:")
+			fmt.Println("  docker compose up -d")
 			return nil
 		}
 
-		// Run docker compose restart
+		// Run docker compose up -d to recreate containers with new env vars
+		// (restart doesn't reload environment variables)
 		args := append([]string{}, compose.baseArgs...)
-		args = append(args, "restart")
+		args = append(args, "up", "-d")
 		restartCmd := exec.Command(compose.exe, args...)
 		restartCmd.Stdout = os.Stdout
 		restartCmd.Stderr = os.Stderr
 		if err := restartCmd.Run(); err != nil {
-			return fmt.Errorf("failed to restart services: %w", err)
+			return fmt.Errorf("failed to recreate services: %w", err)
 		}
-		fmt.Println("Services restarted successfully.")
+		fmt.Println("Services recreated successfully with new configuration.")
 	}
 
 	return nil

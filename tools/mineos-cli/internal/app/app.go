@@ -1,6 +1,10 @@
 package app
 
 import (
+	"fmt"
+	"os"
+	"time"
+
 	"github.com/spf13/cobra"
 	"go.uber.org/zap"
 
@@ -12,8 +16,9 @@ import (
 var Version = "dev"
 
 type App struct {
-	rootCmd *cobra.Command
-	logger  *zap.Logger
+	rootCmd      *cobra.Command
+	logger       *zap.Logger
+	updateNotice chan string
 }
 
 func New() (*App, error) {
@@ -32,12 +37,49 @@ func New() (*App, error) {
 		Version:    Version,
 	})
 
-	return &App{rootCmd: rootCmd, logger: logger}, nil
+	app := &App{
+		rootCmd:      rootCmd,
+		logger:       logger,
+		updateNotice: make(chan string, 1),
+	}
+
+	// Start background version check (non-blocking)
+	go app.checkForUpdates()
+
+	return app, nil
 }
 
 func (a *App) Run() error {
 	defer func() {
 		_ = a.logger.Sync()
+		// Print update notice if available (after command completes)
+		a.printUpdateNotice()
 	}()
 	return a.rootCmd.Execute()
+}
+
+func (a *App) checkForUpdates() {
+	// Only check for non-dev versions
+	if Version == "dev" || Version == "" {
+		return
+	}
+
+	notice := commands.CheckForUpdates(Version)
+	if notice != "" {
+		a.updateNotice <- notice
+	}
+	close(a.updateNotice)
+}
+
+func (a *App) printUpdateNotice() {
+	// Wait briefly for the version check to complete
+	select {
+	case notice := <-a.updateNotice:
+		if notice != "" {
+			fmt.Fprintln(os.Stderr, "")
+			fmt.Fprintln(os.Stderr, notice)
+		}
+	case <-time.After(100 * time.Millisecond):
+		// Don't wait too long, just skip if check is slow
+	}
 }
