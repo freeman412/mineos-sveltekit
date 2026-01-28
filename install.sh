@@ -194,7 +194,9 @@ run_cli_installer() {
         fi
     fi
 
-    "$cli" install "$@"
+    # Redirect stdin from /dev/tty so CLI can read interactive input
+    # even when this script is piped (curl | bash)
+    "$cli" install "$@" < /dev/tty
 }
 
 while [ $# -gt 0 ]; do
