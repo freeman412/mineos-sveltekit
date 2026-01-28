@@ -130,6 +130,7 @@ type MenuItem struct {
 	Args        []string
 	Destructive bool // If true, requires confirmation
 	Interactive bool // If true, requires user input (use tea.ExecProcess)
+	Streaming   bool // If true, stream output in real-time (for long-running commands)
 }
 
 // Message types for Bubble Tea event handling

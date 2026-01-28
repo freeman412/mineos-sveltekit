@@ -18,7 +18,7 @@ import (
 )
 
 const (
-	githubRepo    = "freemancraft/mineos-sveltekit"
+	githubRepo    = "freeman412/mineos-sveltekit"
 	githubAPIBase = "https://api.github.com"
 	releasesURL   = githubAPIBase + "/repos/" + githubRepo + "/releases/latest"
 )
@@ -60,6 +60,8 @@ Examples:
 	return cmd
 }
 
+var errNoReleases = errors.New("no releases found")
+
 func runUpgrade(cmd *cobra.Command, currentVersion string, force, checkOnly bool) error {
 	out := cmd.OutOrStdout()
 
@@ -67,6 +69,11 @@ func runUpgrade(cmd *cobra.Command, currentVersion string, force, checkOnly bool
 
 	release, err := fetchLatestRelease()
 	if err != nil {
+		if errors.Is(err, errNoReleases) {
+			fmt.Fprintf(out, "Current version: %s\n", currentVersion)
+			fmt.Fprintln(out, "No releases available yet. You are running the latest code.")
+			return nil
+		}
 		return fmt.Errorf("failed to check for updates: %w", err)
 	}
 
@@ -178,7 +185,7 @@ func fetchLatestRelease() (*githubRelease, error) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode == http.StatusNotFound {
-		return nil, errors.New("no releases found")
+		return nil, errNoReleases
 	}
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("GitHub API returned status: %s", resp.Status)

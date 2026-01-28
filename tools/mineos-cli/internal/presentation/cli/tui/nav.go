@@ -16,16 +16,16 @@ func BuildNavItems() []NavItem {
 
 		// Docker services (containers)
 		{Label: "DOCKER", ItemType: NavHeader},
-		{Label: "Start Containers", ItemType: NavAction, Action: &MenuItem{Label: "Start Containers", Args: []string{"stack", "up"}}},
-		{Label: "Stop Containers", ItemType: NavAction, Action: &MenuItem{Label: "Stop Containers", Args: []string{"stack", "stop"}}},
-		{Label: "Restart Containers", ItemType: NavAction, Action: &MenuItem{Label: "Restart Containers", Args: []string{"stack", "restart"}}},
-		{Label: "Remove Containers", ItemType: NavAction, Action: &MenuItem{Label: "Remove Containers", Args: []string{"stack", "down"}}, Destructive: true},
-		{Label: "Pull & Update Images", ItemType: NavAction, Action: &MenuItem{Label: "Pull & Update Images", Args: []string{"stack", "update"}}},
+		{Label: "Start Containers", ItemType: NavAction, Action: &MenuItem{Label: "Start Containers", Args: []string{"stack", "up"}, Streaming: true}},
+		{Label: "Stop Containers", ItemType: NavAction, Action: &MenuItem{Label: "Stop Containers", Args: []string{"stack", "stop"}, Streaming: true}},
+		{Label: "Restart Containers", ItemType: NavAction, Action: &MenuItem{Label: "Restart Containers", Args: []string{"stack", "restart"}, Streaming: true}},
+		{Label: "Remove Containers", ItemType: NavAction, Action: &MenuItem{Label: "Remove Containers", Args: []string{"stack", "down"}, Destructive: true, Streaming: true}},
+		{Label: "Update Images", ItemType: NavAction, Action: &MenuItem{Label: "Update Images", Args: []string{"stack", "update"}, Streaming: true}},
 	}
 
 	// Only show Rebuild if source code is available (apps directory exists)
 	if hasSourceCode() {
-		items = append(items, NavItem{Label: "Rebuild from Source", ItemType: NavAction, Action: &MenuItem{Label: "Rebuild from Source", Args: []string{"stack", "rebuild"}}})
+		items = append(items, NavItem{Label: "Rebuild Source", ItemType: NavAction, Action: &MenuItem{Label: "Rebuild Source", Args: []string{"stack", "rebuild"}, Streaming: true}})
 	}
 
 	items = append(items,

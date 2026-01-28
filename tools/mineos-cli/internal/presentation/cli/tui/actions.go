@@ -90,6 +90,11 @@ func (m TuiModel) ExecMenuItem(item MenuItem) tea.Cmd {
 		})
 	}
 
+	// Streaming commands show output in real-time (for long-running docker operations)
+	if item.Streaming {
+		return m.StartStreamingCmd(exe, args, item.Label)
+	}
+
 	// Non-interactive commands capture output for display in TUI
 	return func() tea.Msg {
 		cmd := exec.Command(exe, args...)
@@ -103,6 +108,83 @@ func (m TuiModel) ExecMenuItem(item MenuItem) tea.Cmd {
 		}
 
 		return ExecFinishedMsg{Action: item.Label, Output: lines, Err: err}
+	}
+}
+
+// StartStreamingCmd starts a command that streams output without requiring stdin
+func (m TuiModel) StartStreamingCmd(exe string, args []string, label string) tea.Cmd {
+	return func() tea.Msg {
+		cmd := exec.Command(exe, args...)
+
+		stdout, err := cmd.StdoutPipe()
+		if err != nil {
+			return ExecFinishedMsg{Action: label, Err: err}
+		}
+
+		stderr, err := cmd.StderrPipe()
+		if err != nil {
+			stdout.Close()
+			return ExecFinishedMsg{Action: label, Err: err}
+		}
+
+		if err := cmd.Start(); err != nil {
+			stdout.Close()
+			stderr.Close()
+			return ExecFinishedMsg{Action: label, Err: err}
+		}
+
+		// Create output channel and start readers
+		outputChan := make(chan string, 100)
+
+		// Read stdout
+		go func() {
+			buf := make([]byte, 1024)
+			for {
+				n, err := stdout.Read(buf)
+				if n > 0 {
+					lines := strings.Split(string(buf[:n]), "\n")
+					for _, line := range lines {
+						if line != "" {
+							outputChan <- line
+						}
+					}
+				}
+				if err != nil {
+					break
+				}
+			}
+		}()
+
+		// Read stderr
+		go func() {
+			buf := make([]byte, 1024)
+			for {
+				n, err := stderr.Read(buf)
+				if n > 0 {
+					lines := strings.Split(string(buf[:n]), "\n")
+					for _, line := range lines {
+						if line != "" {
+							outputChan <- line
+						}
+					}
+				}
+				if err != nil {
+					break
+				}
+			}
+		}()
+
+		// Wait for command to finish in background
+		go func() {
+			cmd.Wait()
+			close(outputChan)
+		}()
+
+		// Use InteractiveStartedMsg but without stdin
+		return InteractiveStartedMsg{
+			Stdin:  nil,
+			Output: outputChan,
+		}
 	}
 }
 
