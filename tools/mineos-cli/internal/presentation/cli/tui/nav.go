@@ -36,7 +36,6 @@ func BuildNavItems() []NavItem {
 		NavItem{Label: "Upgrade CLI", ItemType: NavAction, Action: &MenuItem{Label: "Upgrade CLI", Args: []string{"upgrade"}}},
 		NavItem{Label: "Reconfigure", ItemType: NavAction, Action: &MenuItem{Label: "Reconfigure", Args: []string{"reconfigure"}, Interactive: true}},
 		NavItem{Label: "Refresh API Key", ItemType: NavAction, Action: &MenuItem{Label: "Refresh API Key", Args: []string{"api-key", "refresh"}}},
-		NavItem{Label: "Install", ItemType: NavAction, Action: &MenuItem{Label: "Install", Args: []string{"install"}, Interactive: true}},
 		NavItem{Label: "Uninstall", ItemType: NavAction, Action: &MenuItem{Label: "Uninstall", Args: []string{"uninstall"}, Interactive: true, Destructive: true}, Destructive: true},
 	)
 

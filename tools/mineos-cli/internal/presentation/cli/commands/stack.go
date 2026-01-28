@@ -479,15 +479,17 @@ func gracefulStop(ctx context.Context, loadConfig *usecases.LoadConfigUseCase, c
 
 func stopMinecraftServers(ctx context.Context, loadConfig *usecases.LoadConfigUseCase, out io.Writer, force bool, timeoutSeconds int) error {
 	_, err := withApiKeyRetry(ctx, loadConfig, out, func(_ config.Config, client *api.Client) error {
+		// Check if there are any servers first to avoid waiting on empty stop-all
+		servers, err := client.ListServers(ctx)
+		if err != nil {
+			return err
+		}
+		if len(servers) == 0 {
+			fmt.Fprintln(out, "No servers found.")
+			return nil
+		}
+
 		if force {
-			servers, err := client.ListServers(ctx)
-			if err != nil {
-				return err
-			}
-			if len(servers) == 0 {
-				fmt.Fprintln(out, "No servers found.")
-				return nil
-			}
 			for _, server := range servers {
 				fmt.Fprintf(out, "Killing server: %s\n", server.Name)
 				if err := client.ServerAction(ctx, server.Name, "kill"); err != nil {

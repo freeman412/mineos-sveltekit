@@ -435,13 +435,15 @@ func runInstall(cmd *cobra.Command, opts installOptions) error {
 				fmt.Fprintln(out, "You can still use the CLI from this directory.")
 				printLocalCLIInstructions(out)
 			} else {
+				pwd, _ := os.Getwd()
 				fmt.Fprintln(out, "")
 				fmt.Fprintln(out, "CLI installed to system PATH!")
 				fmt.Fprintln(out, "")
-				fmt.Fprintln(out, "To manage your servers from the terminal, run:")
+				fmt.Fprintln(out, "To manage your servers from the terminal:")
+				fmt.Fprintf(out, "  cd \"%s\"\n", pwd)
 				fmt.Fprintln(out, "  mineos tui")
 				fmt.Fprintln(out, "")
-				fmt.Fprintln(out, "(You can run this command from any directory)")
+				fmt.Fprintln(out, "Note: You must run commands from this directory (or use --env flag)")
 			}
 		} else {
 			printLocalCLIInstructions(out)
@@ -817,6 +819,16 @@ func installCLIToPathWindows(out io.Writer, exePath string) error {
 
 	fmt.Fprintf(out, "Installed to: %s\n", destPath)
 
+	// Show important note about .env location
+	pwd, _ := os.Getwd()
+	fmt.Fprintln(out, "")
+	fmt.Fprintln(out, "IMPORTANT: Your .env file is located at:")
+	fmt.Fprintf(out, "  %s\\.env\n", pwd)
+	fmt.Fprintln(out, "")
+	fmt.Fprintln(out, "You must either:")
+	fmt.Fprintln(out, "  1. cd to this directory before running mineos commands, OR")
+	fmt.Fprintf(out, "  2. Use the --env flag: mineos --env \"%s\\.env\" tui\n", pwd)
+
 	// Check if directory is in PATH
 	pathEnv := os.Getenv("PATH")
 	if !strings.Contains(strings.ToLower(pathEnv), strings.ToLower(installDir)) {
@@ -878,6 +890,16 @@ func installCLIToPathUnix(out io.Writer, exePath string) error {
 	}
 
 	fmt.Fprintf(out, "Installed to: %s\n", destPath)
+
+	// Show important note about .env location
+	pwd, _ := os.Getwd()
+	fmt.Fprintln(out, "")
+	fmt.Fprintln(out, "IMPORTANT: Your .env file is located at:")
+	fmt.Fprintf(out, "  %s/.env\n", pwd)
+	fmt.Fprintln(out, "")
+	fmt.Fprintln(out, "You must either:")
+	fmt.Fprintln(out, "  1. cd to this directory before running mineos commands, OR")
+	fmt.Fprintf(out, "  2. Use the --env flag: mineos --env \"%s/.env\" tui\n", pwd)
 
 	// Check if directory is in PATH
 	pathEnv := os.Getenv("PATH")

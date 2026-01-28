@@ -1,6 +1,9 @@
 package commands
 
 import (
+	"fmt"
+	"os"
+
 	"github.com/spf13/cobra"
 	"go.uber.org/zap"
 
@@ -30,6 +33,34 @@ func NewRootCommand(deps RootDeps) *cobra.Command {
 			if envPath != "" {
 				deps.ConfigRepo.SetPath(envPath)
 			}
+
+			// Skip .env check for commands that don't need it
+			skipEnvCheck := cmd.Name() == "install" || cmd.Name() == "upgrade" || cmd.Name() == "version" || cmd.Name() == "help"
+			if skipEnvCheck {
+				return nil
+			}
+
+			// Check if .env file exists
+			effectivePath := envPath
+			if effectivePath == "" {
+				effectivePath = ".env"
+			}
+			if _, err := os.Stat(effectivePath); os.IsNotExist(err) {
+				pwd, _ := os.Getwd()
+				fmt.Fprintf(os.Stderr, "\n⚠️  ERROR: .env file not found at: %s\n\n", effectivePath)
+				fmt.Fprintln(os.Stderr, "MineOS is not installed in this directory.")
+				fmt.Fprintln(os.Stderr, "")
+				fmt.Fprintln(os.Stderr, "To install MineOS, run:")
+				fmt.Fprintln(os.Stderr, "  mineos install")
+				fmt.Fprintln(os.Stderr, "")
+				fmt.Fprintln(os.Stderr, "If MineOS is installed elsewhere:")
+				fmt.Fprintln(os.Stderr, "  1. Navigate to the installation directory, OR")
+				fmt.Fprintf(os.Stderr, "  2. Use --env flag: mineos --env /path/to/.env %s\n", cmd.Name())
+				fmt.Fprintln(os.Stderr, "")
+				fmt.Fprintf(os.Stderr, "Current directory: %s\n\n", pwd)
+				os.Exit(1)
+			}
+
 			return nil
 		},
 	}

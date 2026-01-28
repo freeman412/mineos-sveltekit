@@ -41,3 +41,25 @@ func Mask(value string) string {
 	}
 	return value[:3] + "***" + value[len(value)-3:]
 }
+
+// SanitizeLogLine removes ANSI escape codes and control characters from log lines
+// to prevent rendering issues on Linux/bash terminals where they can cause cursor
+// movement and text overwrites
+func SanitizeLogLine(line string) string {
+	// Strip ANSI escape codes (colors, cursor movements, etc)
+	stripped := ansi.Strip(line)
+
+	// Remove carriage returns and other control characters
+	// Replace \r with nothing to prevent line overwrites
+	stripped = strings.ReplaceAll(stripped, "\r", "")
+
+	// Remove any remaining control characters (ASCII 0-31 except \t and \n)
+	var result strings.Builder
+	for _, r := range stripped {
+		if r >= 32 || r == '\t' || r == '\n' {
+			result.WriteRune(r)
+		}
+	}
+
+	return result.String()
+}
