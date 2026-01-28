@@ -17,7 +17,6 @@
 		{ href: '/dashboard', label: 'Dashboard', icon: '[D]' },
 		{ href: '/servers', label: 'Servers', icon: '[S]' },
 		{ href: '/profiles', label: 'Profiles', icon: '[P]' },
-		{ href: '/profiles/buildtools', label: 'BuildTools', icon: '[B]' },
 		{ href: '/mods', label: 'Mods', icon: '[M]' },
 		{ href: '/admin/access', label: 'Users', icon: '[U]', requiresAdmin: true },
 		{ href: '/admin/settings', label: 'Settings', icon: '[G]', requiresAdmin: true },
@@ -49,7 +48,6 @@
 			'P': '/profiles',
 			'M': '/mods',
 			'N': '/servers#new',
-			'B': '/profiles/buildtools',
 			'U': '/admin/access',
 			'G': '/admin/settings',
 			'T': '/admin/shell'

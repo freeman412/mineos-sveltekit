@@ -15,9 +15,42 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: tools/mineos-cli/go.mod
+
+      - name: Build mineos-cli binaries
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME}"
+          MODULE="github.com/freemancraft/mineos-sveltekit/tools/mineos-cli/internal/app"
+          OUT_DIR="dist/cli"
+          mkdir -p "$OUT_DIR"
+          for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 windows/arm64; do
+            GOOS="${target%/*}"
+            GOARCH="${target#*/}"
+            EXT=""
+            if [ "$GOOS" = "windows" ]; then
+              EXT=".exe"
+            fi
+            OUT_NAME="mineos-${GOOS}-${GOARCH}${EXT}"
+            echo "Building $OUT_NAME"
+            (cd tools/mineos-cli && CGO_ENABLED=0 GOOS="$GOOS" GOARCH="$GOARCH" \
+              go build -trimpath -ldflags "-s -w -X ${MODULE}.Version=${VERSION}" \
+              -o "../../${OUT_DIR}/${OUT_NAME}" ./cmd/mineos)
+            (cd "$OUT_DIR" && zip -j "mineos-cli_${GOOS}_${GOARCH}.zip" "$OUT_NAME")
+          done
+
       - name: Build bundle
+        shell: bash
         run: |
           mkdir -p dist/bundle
+          mkdir -p dist/bundle/cli
+          if ls dist/cli/*.zip >/dev/null 2>&1; then
+            cp dist/cli/*.zip dist/bundle/cli/
+          fi
           cp MineOS.sh MineOS.ps1 docker-compose.yml docker-compose.host.yml \
             docker-compose.build.yml docker-compose.dev.yml .env.template \
             uninstall.sh uninstall.ps1 README.md LICENSE.md dist/bundle/
@@ -27,6 +60,8 @@ jobs:
       - name: Publish release assets
         uses: softprops/action-gh-release@v2
         with:
+          prerelease: ${{ contains(github.ref_name, '-beta') || contains(github.ref_name, '-alpha') || contains(github.ref_name, '-rc') }}
           files: |
             dist/mineos-install-bundle.tar.gz
             dist/mineos-install-bundle.zip
+            dist/cli/*.zip

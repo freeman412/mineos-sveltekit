@@ -13,6 +13,13 @@ if ($PSVersionTable.PSVersion.Major -ge 7) {
     $global:PSNativeCommandUseErrorActionPreference = $false
 }
 
+$script:ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+if (-not [string]::IsNullOrWhiteSpace($script:ScriptDir)) {
+    Set-Location $script:ScriptDir
+}
+
+$script:BuildOverride = $null
+
 # Colors
 function Write-Info { Write-Host "[INFO] $($args -join ' ')" -ForegroundColor Cyan }
 function Write-Success { Write-Host "[OK] $($args -join ' ')" -ForegroundColor Green }
@@ -395,6 +402,7 @@ function Get-ComposeFileArgs {
 }
 
 function Get-BuildFromSource {
+    if ($null -ne $script:BuildOverride) { return [bool]$script:BuildOverride }
     if ($Build) { return $true }
     $value = Get-EnvValue "MINEOS_BUILD_FROM_SOURCE"
     if ([string]::IsNullOrWhiteSpace($value)) { return $false }
@@ -502,7 +510,91 @@ function Get-ApiBaseUrl {
 }
 
 function Get-ApiKey {
+    $override = Get-EnvValue "MINEOS_API_KEY"
+    if (-not [string]::IsNullOrWhiteSpace($override)) { return $override }
+    $override = Get-EnvValue "ApiKey__StaticKey"
+    if (-not [string]::IsNullOrWhiteSpace($override)) { return $override }
     return Get-EnvValue "ApiKey__SeedKey"
+}
+
+function Get-DataDirectoryPath {
+    $dataDir = Get-EnvValue "Data__Directory"
+    if ([string]::IsNullOrWhiteSpace($dataDir)) { $dataDir = ".\\data" }
+    if ([System.IO.Path]::IsPathRooted($dataDir)) { return $dataDir }
+    if ([string]::IsNullOrWhiteSpace($script:ScriptDir)) { return $dataDir }
+    return (Join-Path $script:ScriptDir $dataDir)
+}
+
+function Get-SqliteDbPath {
+    $dbType = Get-EnvValue "DB_TYPE"
+    if (-not [string]::IsNullOrWhiteSpace($dbType) -and $dbType -ne "sqlite") { return $null }
+
+    $dataDir = Get-DataDirectoryPath
+    $conn = Get-EnvValue "ConnectionStrings__DefaultConnection"
+    $dbPath = Join-Path $dataDir "mineos.db"
+
+    if ($conn -match 'Data Source=([^;]+)') {
+        $raw = $Matches[1]
+        if ($raw -like "/app/data/*") {
+            $dbPath = Join-Path $dataDir (Split-Path $raw -Leaf)
+        } elseif ([System.IO.Path]::IsPathRooted($raw)) {
+            $dbPath = $raw
+        } else {
+            $dbPath = Join-Path $dataDir $raw
+        }
+    }
+
+    return $dbPath
+}
+
+function Get-LiveApiKeyFromDb {
+    $dbPath = Get-SqliteDbPath
+    if ([string]::IsNullOrWhiteSpace($dbPath) -or -not (Test-Path $dbPath)) { return $null }
+
+    $py = Get-Command python3 -ErrorAction SilentlyContinue
+    if (-not $py) { $py = Get-Command python -ErrorAction SilentlyContinue }
+    if ($py) {
+        $code = @'
+import sqlite3, sys
+db = sys.argv[1]
+con = sqlite3.connect(db)
+try:
+    cur = con.cursor()
+    cur.execute("SELECT Key FROM ApiKeys WHERE Revoked=0 ORDER BY CreatedAt DESC LIMIT 1")
+    row = cur.fetchone()
+    if row and row[0]:
+        print(row[0])
+finally:
+    con.close()
+'@
+        try {
+            $out = & $py.Path -c $code $dbPath 2>$null
+            $key = ($out | Out-String).Trim()
+            if (-not [string]::IsNullOrWhiteSpace($key)) { return $key }
+        } catch {
+        }
+    }
+
+    $sqlite = Get-Command sqlite3 -ErrorAction SilentlyContinue
+    if ($sqlite) {
+        try {
+            $out = & $sqlite.Path $dbPath "SELECT Key FROM ApiKeys WHERE Revoked=0 ORDER BY CreatedAt DESC LIMIT 1;" 2>$null
+            $key = ($out | Out-String).Trim()
+            if (-not [string]::IsNullOrWhiteSpace($key)) { return $key }
+        } catch {
+        }
+    }
+
+    return $null
+}
+
+function Try-RefreshApiKeyFromDb {
+    $key = Get-LiveApiKeyFromDb
+    if ([string]::IsNullOrWhiteSpace($key)) { return $false }
+    Set-EnvValue -Key "MINEOS_API_KEY" -Value $key
+    $script:apiKey = $key
+    Write-Info "Refreshed management API key from local database."
+    return $true
 }
 
 function Get-ShutdownTimeout {
@@ -513,7 +605,7 @@ function Get-ShutdownTimeout {
 }
 
 function Stop-MinecraftServersIndividually {
-    param([int]$TimeoutSec = 30, [switch]$Force)
+    param([int]$TimeoutSec = 30, [switch]$Force, [switch]$AllowRefresh = $true)
 
     $apiKey = Get-ApiKey
     if ([string]::IsNullOrWhiteSpace($apiKey)) {
@@ -526,6 +618,20 @@ function Stop-MinecraftServersIndividually {
     try {
         $servers = Invoke-RestMethod -Uri "$baseUrl/servers/list" -Headers @{ "X-Api-Key" = $apiKey } -TimeoutSec 10
     } catch {
+        $status = $null
+        if ($_.Exception.Response) {
+            try { $status = [int]$_.Exception.Response.StatusCode } catch { }
+        }
+        if ($status -eq 401 -or $status -eq 403) {
+            Write-Warn "Invalid API key; skipping Minecraft server shutdown."
+            if ($AllowRefresh -and (Try-RefreshApiKeyFromDb)) {
+                Write-Info "Retrying with refreshed API key..."
+                Stop-MinecraftServersIndividually -TimeoutSec $TimeoutSec -Force:$Force -AllowRefresh:$false
+                return
+            }
+            Write-Warn "Update .env with MINEOS_API_KEY (Admin > Settings > API Keys) and retry."
+            return
+        }
         Write-Warn "Unable to fetch server list; skipping Minecraft server shutdown."
         return
     }
@@ -559,7 +665,7 @@ function Stop-MinecraftServersIndividually {
 }
 
 function Stop-MinecraftServers {
-    param([int]$TimeoutSec = 30, [switch]$Force)
+    param([int]$TimeoutSec = 30, [switch]$Force, [switch]$AllowRefresh = $true)
 
     $apiKey = Get-ApiKey
     if ([string]::IsNullOrWhiteSpace($apiKey)) {
@@ -569,7 +675,7 @@ function Stop-MinecraftServers {
 
     $baseUrl = Get-ApiBaseUrl
     if ($Force) {
-        Stop-MinecraftServersIndividually -TimeoutSec 0 -Force
+        Stop-MinecraftServersIndividually -TimeoutSec 0 -Force -AllowRefresh:$AllowRefresh
         return
     }
     $response = $null
@@ -577,6 +683,20 @@ function Stop-MinecraftServers {
         $response = Invoke-RestMethod -Method Post -Uri "$baseUrl/servers/actions/stop-all?timeoutSeconds=$TimeoutSec" `
             -Headers @{ "X-Api-Key" = $apiKey } -TimeoutSec $TimeoutSec
     } catch {
+        $status = $null
+        if ($_.Exception.Response) {
+            try { $status = [int]$_.Exception.Response.StatusCode } catch { }
+        }
+        if ($status -eq 401 -or $status -eq 403) {
+            Write-Warn "Invalid API key; skipping Minecraft server shutdown."
+            if ($AllowRefresh -and (Try-RefreshApiKeyFromDb)) {
+                Write-Info "Retrying with refreshed API key..."
+                Stop-MinecraftServers -TimeoutSec $TimeoutSec -Force:$Force -AllowRefresh:$false
+                return
+            }
+            Write-Warn "Update .env with MINEOS_API_KEY (Admin > Settings > API Keys) and retry."
+            return
+        }
         Write-Warn "Stop-all endpoint failed; falling back to per-server shutdown."
         Stop-MinecraftServersIndividually -TimeoutSec $TimeoutSec
         return
@@ -588,7 +708,24 @@ function Stop-MinecraftServers {
         return
     }
 
-    Write-Info "Stop-all request complete."
+    $total = if ($null -ne $response.total) { $response.total } else { 0 }
+    $running = if ($null -ne $response.running) { $response.running } else { 0 }
+    $stopped = if ($null -ne $response.stopped) { $response.stopped } else { 0 }
+    $skipped = if ($null -ne $response.skipped) { $response.skipped } else { 0 }
+
+    Write-Info "Stop-all request complete. Total: $total, running: $running, stopped: $stopped, skipped: $skipped"
+    if ($response.results) {
+        foreach ($result in $response.results) {
+            $name = $result.name
+            $status = $result.status
+            $err = $result.error
+            if ($err) {
+                Write-Warn "$name: $status ($err)"
+            } else {
+                Write-Success "$name: $status"
+            }
+        }
+    }
 }
 
 function Wait-MinecraftServerStop {
@@ -660,7 +797,8 @@ function Load-ExistingConfig {
     $script:adminUser = Get-EnvValue "Auth__SeedUsername"
     if ([string]::IsNullOrWhiteSpace($script:adminUser)) { $script:adminUser = "admin" }
     $script:adminPass = Get-EnvValue "Auth__SeedPassword"
-    $script:apiKey = Get-EnvValue "ApiKey__SeedKey"
+    $script:apiKey = Get-ApiKey
+    $script:managementApiKey = Get-EnvValue "MINEOS_API_KEY"
     $script:apiPort = Get-EnvValue "API_PORT"
     if ([string]::IsNullOrWhiteSpace($script:apiPort)) { $script:apiPort = "5078" }
     $script:webPort = Get-EnvValue "WEB_PORT"
@@ -773,7 +911,7 @@ function Write-WebDevEnv {
     $apiPortValue = $script:apiPort
     if ([string]::IsNullOrWhiteSpace($apiPortValue)) { $apiPortValue = "5078" }
     $apiKeyValue = $script:apiKey
-    if ([string]::IsNullOrWhiteSpace($apiKeyValue)) { $apiKeyValue = Get-EnvValue "ApiKey__SeedKey" }
+    if ([string]::IsNullOrWhiteSpace($apiKeyValue)) { $apiKeyValue = Get-ApiKey }
     $mcHostValue = $script:mcPublicHost
     if ([string]::IsNullOrWhiteSpace($mcHostValue)) { $mcHostValue = Get-EnvValue "PUBLIC_MINECRAFT_HOST" }
     if ([string]::IsNullOrWhiteSpace($mcHostValue)) { $mcHostValue = "localhost" }
@@ -1170,6 +1308,7 @@ Auth__JwtExpiryHours=24
 
 # API Configuration
 ApiKey__SeedKey=$apiKey
+MINEOS_API_KEY=$apiKey
 
 # Host Configuration
 HOST_BASE_DIRECTORY=$($baseDir -replace '\\', '/')
@@ -1528,15 +1667,85 @@ function Do-Rebuild {
     Write-Host "Web UI: $webOrigin" -ForegroundColor Green
 }
 
-function Do-Update {
-    Write-Header "Update"
+function Do-PullImages {
+    Write-Header "Pull Latest Images"
 
     if (-not (Test-Path ".env")) {
         Write-Error-Custom "No installation found. Run fresh install first."
         return
     }
 
-    Write-Info "Pulling latest code and rebuilding..."
+    Load-ExistingConfig
+    Ensure-DockerEngine
+
+    $script:BuildOverride = $false
+    try {
+        Write-Info "Pulling Docker images (no restart)..."
+        $pull = Invoke-Compose -Args @("pull") -StreamOutput
+        if ($pull.ExitCode -ne 0) {
+            Write-Warn "Image pull failed; continuing with existing images."
+            if ($pull.Output) { Write-Host $pull.Output }
+        } else {
+            Write-Success "Image pull complete."
+        }
+    } finally {
+        $script:BuildOverride = $null
+    }
+}
+
+function Do-RecreateFromImages {
+    Write-Header "Recreate (pull images)"
+
+    if (-not (Test-Path ".env")) {
+        Write-Error-Custom "No installation found. Run fresh install first."
+        return
+    }
+
+    Load-ExistingConfig
+    Stop-ServicesGraceful -Remove -Force:$Force
+
+    $script:BuildOverride = $false
+    try {
+        Start-Services -Rebuild
+    } finally {
+        $script:BuildOverride = $null
+    }
+
+    Write-Success "Recreate complete!"
+    Write-Host "Web UI: $webOrigin" -ForegroundColor Green
+}
+
+function Do-RebuildFromSource {
+    Write-Header "Rebuild From Source"
+
+    if (-not (Test-Path ".env")) {
+        Write-Error-Custom "No installation found. Run fresh install first."
+        return
+    }
+
+    Load-ExistingConfig
+    Stop-ServicesGraceful -Remove -Force:$Force
+
+    $script:BuildOverride = $true
+    try {
+        Start-Services -Rebuild
+    } finally {
+        $script:BuildOverride = $null
+    }
+
+    Write-Success "Source rebuild complete!"
+    Write-Host "Web UI: $webOrigin" -ForegroundColor Green
+}
+
+function Do-UpdateSource {
+    Write-Header "Update Source"
+
+    if (-not (Test-Path ".env")) {
+        Write-Error-Custom "No installation found. Run fresh install first."
+        return
+    }
+
+    Write-Info "Pulling latest code and rebuilding from source..."
 
     # Pull latest if in git repo
     if (Test-Path ".git") {
@@ -1544,12 +1753,7 @@ function Do-Update {
         git pull
     }
 
-    Load-ExistingConfig
-    Stop-ServicesGraceful -Remove -Force:$Force
-    Start-Services -Rebuild
-
-    Write-Success "Update complete!"
-    Write-Host "Web UI: $webOrigin" -ForegroundColor Green
+    Do-RebuildFromSource
 }
 
 function Do-Reconfigure {
@@ -1571,6 +1775,10 @@ function Do-Reconfigure {
         [Runtime.InteropServices.Marshal]::SecureStringToBSTR($adminPassSecure)
     )
     if (-not [string]::IsNullOrWhiteSpace($adminPassCandidate)) { $newAdminPass = $adminPassCandidate }
+
+    $managementKeyCurrent = Get-EnvValue "MINEOS_API_KEY"
+    $newManagementKey = Read-Host "Management API key for this script (leave blank to keep current)"
+    if ([string]::IsNullOrWhiteSpace($newManagementKey)) { $newManagementKey = $managementKeyCurrent }
 
     $newBaseDir = Read-Host "Local storage directory (default: $baseDir)"
     if ([string]::IsNullOrWhiteSpace($newBaseDir)) { $newBaseDir = $baseDir }
@@ -1638,6 +1846,9 @@ function Do-Reconfigure {
 
     Set-EnvValue -Key "Auth__SeedUsername" -Value $newAdminUser
     if ($newAdminPass) { Set-EnvValue -Key "Auth__SeedPassword" -Value $newAdminPass }
+    if (-not [string]::IsNullOrWhiteSpace($newManagementKey)) {
+        Set-EnvValue -Key "MINEOS_API_KEY" -Value $newManagementKey
+    }
     Set-EnvValue -Key "HOST_BASE_DIRECTORY" -Value $newBaseDir
     Set-EnvValue -Key "Data__Directory" -Value $newDataDir
     Set-EnvValue -Key "API_PORT" -Value $newApiPort
@@ -1691,18 +1902,24 @@ function Show-Menu {
         Write-Host ""
         Write-Host " [Q] Quit" -ForegroundColor DarkGray
     } else {
-        Write-Host " [1] Start Services" -ForegroundColor White
-        Write-Host " [2] Stop Services" -ForegroundColor White
-        Write-Host " [3] Restart Services" -ForegroundColor White
-        Write-Host " [4] View Logs" -ForegroundColor White
-        Write-Host " [5] Show Status" -ForegroundColor White
-        Write-Host " [R] Reconfigure (update .env)" -ForegroundColor Yellow
-        Write-Host " [W] Web Dev Container (Vite)" -ForegroundColor Yellow
+        Write-Host " Run" -ForegroundColor DarkGray
+        Write-Host "  [1] Start Services" -ForegroundColor White
+        Write-Host "  [2] Stop Services" -ForegroundColor White
+        Write-Host "  [3] Restart Services" -ForegroundColor White
+        Write-Host "  [4] View Logs" -ForegroundColor White
+        Write-Host "  [5] Show Status" -ForegroundColor White
         Write-Host ""
-        Write-Host " [6] Rebuild (keep config)" -ForegroundColor Yellow
-        Write-Host " [7] Update (git pull + rebuild)" -ForegroundColor Yellow
-        Write-Host " [8] Fresh Install (reset everything)" -ForegroundColor Red
-        Write-Host " [9] Dev Mode (API only + web dev env)" -ForegroundColor Yellow
+        Write-Host " Configure" -ForegroundColor DarkGray
+        Write-Host "  [R] Reconfigure (.env)" -ForegroundColor Yellow
+        Write-Host "  [W] Web Dev Container (Vite)" -ForegroundColor Yellow
+        Write-Host "  [D] Dev Mode (API only + web dev env)" -ForegroundColor Yellow
+        Write-Host ""
+        Write-Host " Maintenance" -ForegroundColor DarkGray
+        Write-Host "  [6] Pull Latest Images (no restart)" -ForegroundColor Yellow
+        Write-Host "  [7] Recreate (pull + restart)" -ForegroundColor Yellow
+        Write-Host "  [8] Rebuild From Source" -ForegroundColor Yellow
+        Write-Host "  [9] Update Source (git pull + rebuild)" -ForegroundColor Yellow
+        Write-Host "  [F] Fresh Install (reset everything)" -ForegroundColor Red
         Write-Host ""
         Write-Host " [Q] Quit" -ForegroundColor DarkGray
     }
@@ -1739,10 +1956,12 @@ function Main {
                 "5" { Show-Status; Read-Host "Press Enter to continue" }
                 "R" { Do-Reconfigure; Read-Host "Press Enter to continue" }
                 "W" { Start-WebDevContainer; Read-Host "Press Enter to continue" }
-                "6" { Do-Rebuild; Read-Host "Press Enter to continue" }
-                "7" { Do-Update; Read-Host "Press Enter to continue" }
-                "8" { Do-FreshInstall; Read-Host "Press Enter to continue" }
-                "9" { Start-DevMode -Pause }
+                "D" { Start-DevMode -Pause }
+                "6" { Do-PullImages; Read-Host "Press Enter to continue" }
+                "7" { Do-RecreateFromImages; Read-Host "Press Enter to continue" }
+                "8" { Do-RebuildFromSource; Read-Host "Press Enter to continue" }
+                "9" { Do-UpdateSource; Read-Host "Press Enter to continue" }
+                "F" { Do-FreshInstall; Read-Host "Press Enter to continue" }
                 "Q" { Write-Host "Goodbye!"; exit 0 }
                 default { Write-Warn "Invalid option" }
             }

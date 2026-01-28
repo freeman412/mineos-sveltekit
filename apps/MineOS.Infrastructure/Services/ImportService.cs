@@ -4,6 +4,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using MineOS.Application.Interfaces;
 using MineOS.Application.Options;
+using MineOS.Infrastructure.Utilities;
 
 namespace MineOS.Infrastructure.Services;
 
@@ -142,6 +143,13 @@ public sealed class ImportService : IImportService
                     Directory.Delete(tempDir, recursive: true);
                 }
             }
+
+            OwnershipHelper.TrySetOwnership(
+                serverPath,
+                _options.RunAsUid,
+                _options.RunAsGid,
+                _logger,
+                recursive: true);
 
             _logger.LogInformation("Imported server {ServerName} from {Filename}", serverName, filename);
             return serverPath;

@@ -18,6 +18,7 @@ services:
       PRIVATE_API_BASE_URL: http://api:5078
       PRIVATE_API_KEY: ${ApiKey__SeedKey}
       PUBLIC_MINECRAFT_HOST: ${PUBLIC_MINECRAFT_HOST:-}
+      PUBLIC_MC_PORT_RANGE: ${MC_PORT_RANGE:-25565-25570}
       ORIGIN: ${WEB_ORIGIN_DEV:-http://localhost:5174}
     volumes:
       - ./:/workspace

@@ -184,26 +184,25 @@ public static class ServerEndpoints
                 .Where(server => string.Equals(server.Status, "running", StringComparison.OrdinalIgnoreCase))
                 .ToList();
 
-            var results = new List<object>();
-            var stoppedCount = 0;
-
-            foreach (var server in runningServers)
+            var results = await Task.WhenAll(runningServers.Select(async server =>
             {
                 try
                 {
                     await serverService.StopServerAsync(server.Name, timeout, cancellationToken);
-                    stoppedCount += 1;
-                    results.Add(new { name = server.Name, status = "stopped" });
+                    return new { name = server.Name, status = "stopped", error = (string?)null };
                 }
                 catch (TimeoutException ex)
                 {
-                    results.Add(new { name = server.Name, status = "timeout", error = ex.Message });
+                    return new { name = server.Name, status = "timeout", error = ex.Message };
                 }
                 catch (Exception ex)
                 {
-                    results.Add(new { name = server.Name, status = "error", error = ex.Message });
+                    return new { name = server.Name, status = "error", error = ex.Message };
                 }
-            }
+            }));
+
+            var stoppedCount = results.Count(result =>
+                string.Equals(result.status, "stopped", StringComparison.OrdinalIgnoreCase));
 
             return Results.Ok(new
             {

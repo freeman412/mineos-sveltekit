@@ -7,6 +7,7 @@
 	import { modal } from '$lib/stores/modal';
 	import { formatBytes, formatDate } from '$lib/utils/formatting';
 	import { createEventStream, type EventStreamHandle } from '$lib/utils/eventStream';
+	import CopyButton from '$lib/components/CopyButton.svelte';
 	import ProgressBar from '$lib/components/ProgressBar.svelte';
 	import StatusBadge from '$lib/components/StatusBadge.svelte';
 	import type { PageData } from './$types';
@@ -18,6 +19,10 @@
 	const hostname = $derived.by(() => {
 		const envHost = env.PUBLIC_MINECRAFT_HOST as string | undefined;
 		return (envHost && envHost.trim()) || (browser ? window.location.hostname : 'localhost');
+	});
+	const portRange = $derived.by(() => {
+		const envRange = env.PUBLIC_MC_PORT_RANGE as string | undefined;
+		return (envRange && envRange.trim()) || '25565-25570';
 	});
 
 	let actionLoading = $state<Record<string, boolean>>({});
@@ -378,7 +383,10 @@
 <div class="page-header">
 	<div>
 		<h1>Servers</h1>
-		<p class="subtitle">Manage your Minecraft servers</p>
+		<p class="subtitle">
+			Manage your Minecraft servers
+			<span class="port-range">Ports: {portRange}</span>
+		</p>
 	</div>
 	<a href="/servers/new" class="btn-primary">
 		<span>+</span> Create Server
@@ -428,7 +436,16 @@
 						<span class="badge">Profile: {server.profile}</span>
 					{/if}
 					{#if server.port}
-						<span class="badge badge-muted">{hostname}:{server.port}</span>
+						<span class="badge badge-muted address-badge">
+							<span>{hostname}:{server.port}</span>
+							<CopyButton
+								value={`${hostname}:${server.port}`}
+								title="Copy server address"
+								variant="ghost"
+								size="sm"
+								showErrors={false}
+							/>
+						</span>
 					{/if}
 					{#if server.needsRestart}
 						<span class="badge badge-warning">Restart required</span>
@@ -674,6 +691,20 @@
 		margin: 0;
 		color: #aab2d3;
 		font-size: 15px;
+		display: flex;
+		align-items: center;
+		gap: 12px;
+		flex-wrap: wrap;
+	}
+
+	.port-range {
+		background: rgba(88, 101, 242, 0.1);
+		border: 1px solid rgba(88, 101, 242, 0.35);
+		color: #c7cbe0;
+		padding: 4px 10px;
+		border-radius: 999px;
+		font-size: 12px;
+		font-weight: 500;
 	}
 
 	.btn-primary {
@@ -800,6 +831,11 @@
 		font-size: 12px;
 		font-weight: 500;
 		border: 1px solid rgba(106, 176, 76, 0.3);
+	}
+
+	.address-badge {
+		gap: 8px;
+		padding-right: 6px;
 	}
 
 	.badge-muted {

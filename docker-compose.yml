@@ -71,6 +71,7 @@ services:
       # Browser API base - empty uses window.location.origin (recommended)
       PUBLIC_API_BASE_URL: ${PUBLIC_API_BASE_URL:-}
       PUBLIC_MINECRAFT_HOST: ${PUBLIC_MINECRAFT_HOST:-}
+      PUBLIC_MC_PORT_RANGE: ${MC_PORT_RANGE:-25565-25570}
 
       # SvelteKit CSRF/origin check must match exactly what you type in the browser
       ORIGIN: ${ORIGIN:-http://localhost:${WEB_PORT:-3000}}

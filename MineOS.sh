@@ -18,6 +18,12 @@ fi
 
 set -e
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [ -n "$SCRIPT_DIR" ]; then
+    cd "$SCRIPT_DIR"
+fi
+ENV_FILE="${SCRIPT_DIR}/.env"
+
 DEV_MODE=false
 FORCE_MODE=false
 BUILD_MODE=false
@@ -161,6 +167,27 @@ set_compose_files() {
     fi
 }
 
+set_compose_files_without_build() {
+    local mode
+    mode=$(get_env_value MINEOS_NETWORK_MODE 2>/dev/null || echo "$DEFAULT_NETWORK_MODE")
+
+    COMPOSE_FILES=(-f docker-compose.yml)
+    if [ "$mode" = "host" ]; then
+        COMPOSE_FILES+=(-f docker-compose.host.yml)
+    fi
+}
+
+set_compose_files_with_build() {
+    local mode
+    mode=$(get_env_value MINEOS_NETWORK_MODE 2>/dev/null || echo "$DEFAULT_NETWORK_MODE")
+
+    COMPOSE_FILES=(-f docker-compose.yml)
+    if [ "$mode" = "host" ]; then
+        COMPOSE_FILES+=(-f docker-compose.host.yml)
+    fi
+    COMPOSE_FILES+=(-f docker-compose.build.yml)
+}
+
 get_shutdown_timeout() {
     local value
     value=$(get_env_value MINEOS_SHUTDOWN_TIMEOUT 2>/dev/null || echo "$DEFAULT_SHUTDOWN_TIMEOUT")
@@ -177,7 +204,130 @@ get_api_base_url() {
 }
 
 get_api_key() {
+    local override
+    override=$(get_env_value MINEOS_API_KEY 2>/dev/null || echo "")
+    if [ -n "$override" ]; then
+        echo "$override"
+        return
+    fi
+    override=$(get_env_value ApiKey__StaticKey 2>/dev/null || echo "")
+    if [ -n "$override" ]; then
+        echo "$override"
+        return
+    fi
     get_env_value ApiKey__SeedKey 2>/dev/null || echo ""
+}
+
+get_data_dir_path() {
+    local data_dir
+    data_dir=$(get_env_value Data__Directory 2>/dev/null || echo "$DEFAULT_DATA_DIR")
+    if [ -z "$data_dir" ]; then
+        data_dir="$DEFAULT_DATA_DIR"
+    fi
+    if [[ "$data_dir" != /* ]]; then
+        data_dir="${SCRIPT_DIR}/${data_dir}"
+    fi
+    echo "$data_dir"
+}
+
+get_sqlite_db_path() {
+    local db_type
+    db_type=$(get_env_value DB_TYPE 2>/dev/null || echo "sqlite")
+    if [ -n "$db_type" ] && [ "$db_type" != "sqlite" ]; then
+        return 1
+    fi
+
+    local data_dir
+    data_dir=$(get_data_dir_path)
+    local conn
+    conn=$(get_env_value ConnectionStrings__DefaultConnection 2>/dev/null || echo "")
+    local db_path="${data_dir}/mineos.db"
+
+    if [[ "$conn" =~ Data\ Source=([^;]+) ]]; then
+        local raw="${BASH_REMATCH[1]}"
+        if [[ "$raw" == /app/data/* ]]; then
+            local fname="${raw##*/}"
+            db_path="${data_dir}/${fname}"
+        elif [[ "$raw" == /* ]]; then
+            db_path="$raw"
+        else
+            db_path="${data_dir}/${raw}"
+        fi
+    fi
+
+    echo "$db_path"
+}
+
+query_sqlite_for_key() {
+    local db_path="$1"
+    if [ -z "$db_path" ] || [ ! -f "$db_path" ]; then
+        return 1
+    fi
+
+    if command_exists python3; then
+        python3 - <<'PY' "$db_path"
+import sqlite3, sys
+db = sys.argv[1]
+try:
+    con = sqlite3.connect(db)
+    cur = con.cursor()
+    cur.execute("SELECT Key FROM ApiKeys WHERE Revoked=0 ORDER BY CreatedAt DESC LIMIT 1")
+    row = cur.fetchone()
+    if row and row[0]:
+        print(row[0])
+finally:
+    try:
+        con.close()
+    except Exception:
+        pass
+PY
+        return 0
+    fi
+
+    if command_exists python; then
+        python - <<'PY' "$db_path"
+import sqlite3, sys
+db = sys.argv[1]
+try:
+    con = sqlite3.connect(db)
+    cur = con.cursor()
+    cur.execute("SELECT Key FROM ApiKeys WHERE Revoked=0 ORDER BY CreatedAt DESC LIMIT 1")
+    row = cur.fetchone()
+    if row and row[0]:
+        print(row[0])
+finally:
+    try:
+        con.close()
+    except Exception:
+        pass
+PY
+        return 0
+    fi
+
+    if command_exists sqlite3; then
+        sqlite3 "$db_path" "SELECT Key FROM ApiKeys WHERE Revoked=0 ORDER BY CreatedAt DESC LIMIT 1;"
+        return 0
+    fi
+
+    return 1
+}
+
+refresh_api_key_from_db() {
+    local db_path
+    db_path=$(get_sqlite_db_path) || return 1
+    if [ -z "$db_path" ] || [ ! -f "$db_path" ]; then
+        return 1
+    fi
+
+    local key
+    key=$(query_sqlite_for_key "$db_path" | tr -d '\r\n')
+    if [ -z "$key" ]; then
+        return 1
+    fi
+
+    set_env_file_value "$ENV_FILE" "MINEOS_API_KEY" "$key"
+    echo "$key"
+    return 0
 }
 
 urlencode() {
@@ -201,6 +351,7 @@ PY
 
 stop_minecraft_servers_individual() {
     local force_mode="${1:-false}"
+    local allow_refresh="${2:-true}"
     if ! command_exists curl; then
         warn "curl not found; skipping Minecraft server shutdown."
         return
@@ -219,6 +370,18 @@ stop_minecraft_servers_individual() {
     server_json=$(curl -s -H "X-Api-Key: ${api_key}" "${api_base}/servers/list")
     if [ -z "$server_json" ]; then
         warn "Unable to fetch server list; skipping Minecraft server shutdown."
+        return
+    fi
+    if echo "$server_json" | grep -qi "invalid api key\|unauthorized\|forbidden"; then
+        warn "Invalid API key; skipping Minecraft server shutdown."
+        if [ "$allow_refresh" = "true" ]; then
+            if refresh_api_key_from_db >/dev/null 2>&1; then
+                info "Refreshed API key from local database. Retrying..."
+                stop_minecraft_servers_individual "$force_mode" "false"
+                return
+            fi
+        fi
+        warn "Update .env with MINEOS_API_KEY (from Admin > Settings > API Keys) and retry."
         return
     fi
 
@@ -257,6 +420,7 @@ stop_minecraft_servers_individual() {
 
 stop_minecraft_servers() {
     local force_mode="${1:-false}"
+    local allow_refresh="${2:-true}"
     if ! command_exists curl; then
         warn "curl not found; skipping Minecraft server shutdown."
         return
@@ -272,7 +436,7 @@ stop_minecraft_servers() {
     local api_base
     api_base=$(get_api_base_url)
     if [ "$force_mode" = "true" ]; then
-        stop_minecraft_servers_individual true
+        stop_minecraft_servers_individual true "$allow_refresh"
         return
     fi
 
@@ -288,8 +452,71 @@ stop_minecraft_servers() {
         stop_minecraft_servers_individual
         return
     fi
+    if echo "$response" | grep -qi "invalid api key\|unauthorized\|forbidden"; then
+        warn "Invalid API key; skipping Minecraft server shutdown."
+        if [ "$allow_refresh" = "true" ]; then
+            if refresh_api_key_from_db >/dev/null 2>&1; then
+                info "Refreshed API key from local database. Retrying..."
+                stop_minecraft_servers "$force_mode" "false"
+                return
+            fi
+        fi
+        warn "Update .env with MINEOS_API_KEY (from Admin > Settings > API Keys) and retry."
+        return
+    fi
 
-    info "Stop-all request complete."
+    if command_exists python3; then
+        python3 - <<'PY' "$response"
+import json, sys
+raw = sys.argv[1]
+try:
+    data = json.loads(raw)
+except Exception:
+    print("[WARN] Stop-all response was not valid JSON.")
+    print(raw)
+    sys.exit(0)
+total = data.get("total", 0)
+running = data.get("running", 0)
+stopped = data.get("stopped", 0)
+skipped = data.get("skipped", 0)
+print(f"[INFO] Stop-all request complete. Total: {total}, running: {running}, stopped: {stopped}, skipped: {skipped}")
+for item in data.get("results", []):
+    name = item.get("name", "unknown")
+    status = item.get("status", "unknown")
+    error = item.get("error")
+    if error:
+        print(f"[WARN] {name}: {status} ({error})")
+    else:
+        print(f"[OK] {name}: {status}")
+PY
+    elif command_exists python; then
+        python - <<'PY' "$response"
+import json, sys
+raw = sys.argv[1]
+try:
+    data = json.loads(raw)
+except Exception:
+    print("[WARN] Stop-all response was not valid JSON.")
+    print(raw)
+    sys.exit(0)
+total = data.get("total", 0)
+running = data.get("running", 0)
+stopped = data.get("stopped", 0)
+skipped = data.get("skipped", 0)
+print(f"[INFO] Stop-all request complete. Total: {total}, running: {running}, stopped: {stopped}, skipped: {skipped}")
+for item in data.get("results", []):
+    name = item.get("name", "unknown")
+    status = item.get("status", "unknown")
+    error = item.get("error")
+    if error:
+        print(f"[WARN] {name}: {status} ({error})")
+    else:
+        print(f"[OK] {name}: {status}")
+PY
+    else
+        info "Stop-all request complete."
+        echo "$response"
+    fi
 }
 
 wait_for_server_stop() {
@@ -459,12 +686,13 @@ check_dependencies() {
 
 get_env_value() {
     local key="$1"
-    if [ ! -f .env ]; then
+    local env_path="${ENV_FILE:-.env}"
+    if [ ! -f "$env_path" ]; then
         return 1
     fi
 
     local line
-    line=$(grep -E "^${key}=" .env | head -n 1)
+    line=$(grep -E "^${key}=" "$env_path" | head -n 1)
     if [ -z "$line" ]; then
         return 1
     fi
@@ -650,6 +878,7 @@ Auth__JwtExpiryHours=24
 
 # API Configuration
 ApiKey__SeedKey=${API_KEY}
+MINEOS_API_KEY=${API_KEY}
 
 # Host Configuration
 HOST_BASE_DIRECTORY=${host_base_dir}
@@ -757,6 +986,31 @@ build_services() {
     success "Build complete"
 }
 
+build_services_force() {
+    if [ ! -d "./apps" ]; then
+        error "Source files not found. Use the install script with --build or clone the repo."
+        exit 1
+    fi
+
+    if ! set_compose_cmd; then
+        error "Docker Compose not found"
+        exit 1
+    fi
+
+    set_compose_files_with_build
+    info "Building Docker images (this may take a few minutes)..."
+    PUBLIC_BUILD_ID=$(date +%Y%m%d%H%M%S)
+    export PUBLIC_BUILD_ID
+    info "Build ID: ${PUBLIC_BUILD_ID}"
+    if [ "${COMPOSE_CMD[0]}" = "docker" ]; then
+        "${COMPOSE_CMD[@]}" "${COMPOSE_FILES[@]}" build --progress plain
+    else
+        "${COMPOSE_CMD[@]}" "${COMPOSE_FILES[@]}" build
+    fi
+
+    success "Build complete"
+}
+
 pull_services() {
     if ! set_compose_cmd; then
         error "Docker Compose not found"
@@ -764,6 +1018,17 @@ pull_services() {
     fi
 
     set_compose_files
+    info "Pulling Docker images..."
+    "${COMPOSE_CMD[@]}" "${COMPOSE_FILES[@]}" pull || true
+}
+
+pull_services_force() {
+    if ! set_compose_cmd; then
+        error "Docker Compose not found"
+        exit 1
+    fi
+
+    set_compose_files_without_build
     info "Pulling Docker images..."
     "${COMPOSE_CMD[@]}" "${COMPOSE_FILES[@]}" pull || true
 }
@@ -1076,6 +1341,74 @@ rebuild() {
     read -p "Press Enter to continue..."
 }
 
+pull_latest_images() {
+    echo -e "${CYAN}Pull Latest Images${NC}"
+    echo ""
+
+    info "Pulling newer images without restarting services."
+    pull_services_force
+
+    success "Image pull complete"
+    echo ""
+    read -p "Press Enter to continue..."
+}
+
+recreate_from_images() {
+    echo -e "${CYAN}Recreate (pull images)${NC}"
+    echo ""
+
+    info "Recreating containers from the latest registry images..."
+    graceful_stop_services
+    if ! set_compose_cmd; then
+        error "Docker Compose not found"
+        exit 1
+    fi
+    set_compose_files_without_build
+    "${COMPOSE_CMD[@]}" "${COMPOSE_FILES[@]}" down
+    pull_services_force
+    "${COMPOSE_CMD[@]}" "${COMPOSE_FILES[@]}" up -d --force-recreate
+
+    success "Recreate complete"
+    echo ""
+    read -p "Press Enter to continue..."
+}
+
+rebuild_from_source() {
+    echo -e "${CYAN}Rebuild From Source${NC}"
+    echo ""
+
+    info "Rebuilding containers from local source..."
+    graceful_stop_services
+    if ! set_compose_cmd; then
+        error "Docker Compose not found"
+        exit 1
+    fi
+    set_compose_files_with_build
+    "${COMPOSE_CMD[@]}" "${COMPOSE_FILES[@]}" down
+    build_services_force
+    "${COMPOSE_CMD[@]}" "${COMPOSE_FILES[@]}" up -d --force-recreate
+
+    success "Source rebuild complete"
+    echo ""
+    read -p "Press Enter to continue..."
+}
+
+update_source() {
+    echo -e "${CYAN}Update Source${NC}"
+    echo ""
+
+    if ! command_exists git; then
+        error "Git is not installed"
+        read -p "Press Enter to continue..."
+        return
+    fi
+
+    info "Pulling latest changes..."
+    git pull
+
+    rebuild_from_source
+}
+
 # Update (git pull + rebuild)
 update() {
     echo -e "${CYAN}Update${NC}"
@@ -1118,6 +1451,7 @@ reconfigure() {
     local network_mode_current
     local build_from_source_current
     local image_tag_current
+    local management_key_current
 
     admin_user_current=$(get_env_value Auth__SeedUsername 2>/dev/null || echo "admin")
     admin_pass_current=$(get_env_value Auth__SeedPassword 2>/dev/null || echo "")
@@ -1133,6 +1467,7 @@ reconfigure() {
     network_mode_current=$(get_env_value MINEOS_NETWORK_MODE 2>/dev/null || echo "$DEFAULT_NETWORK_MODE")
     build_from_source_current=$(get_env_value MINEOS_BUILD_FROM_SOURCE 2>/dev/null || echo "false")
     image_tag_current=$(get_env_value MINEOS_IMAGE_TAG 2>/dev/null || echo "latest")
+    management_key_current=$(get_env_value MINEOS_API_KEY 2>/dev/null || echo "")
 
     read -p "Admin username (default: ${admin_user_current}): " admin_user
     admin_user=${admin_user:-$admin_user_current}
@@ -1141,6 +1476,11 @@ reconfigure() {
     echo ""
     if [ -z "$admin_pass" ]; then
         admin_pass="$admin_pass_current"
+    fi
+
+    read -p "Management API key for this script (optional, leave blank to keep current): " management_api_key
+    if [ -z "$management_api_key" ]; then
+        management_api_key="$management_key_current"
     fi
 
     read -p "Local storage directory (default: ${host_base_dir_current}): " host_base_dir_input
@@ -1217,6 +1557,9 @@ reconfigure() {
     if [ -n "$admin_pass" ]; then
         set_env_file_value ".env" "Auth__SeedPassword" "$admin_pass"
     fi
+    if [ -n "$management_api_key" ]; then
+        set_env_file_value ".env" "MINEOS_API_KEY" "$management_api_key"
+    fi
     set_env_file_value ".env" "HOST_BASE_DIRECTORY" "$host_base_dir"
     set_env_file_value ".env" "Data__Directory" "$data_dir"
     set_env_file_value ".env" "API_PORT" "$api_port"
@@ -1254,18 +1597,24 @@ show_menu_not_installed() {
 # Show menu for installed state
 show_menu_installed() {
     echo -e "${CYAN}Options:${NC}"
-    echo "  [1] Start Services"
-    echo "  [2] Stop Services"
-    echo "  [3] Restart Services"
-    echo "  [4] View Logs"
-    echo "  [5] Show Status"
-    echo "  [R] Reconfigure (update .env)"
-    echo "  [W] Web Dev Container (Vite)"
+    echo "  Run"
+    echo "    [1] Start Services"
+    echo "    [2] Stop Services"
+    echo "    [3] Restart Services"
+    echo "    [4] View Logs"
+    echo "    [5] Show Status"
     echo ""
-    echo "  [6] Rebuild (keep config)"
-    echo "  [7] Update (git pull + rebuild)"
-    echo "  [8] Fresh Install (reset everything)"
-    echo "  [9] Dev Mode (API only + web dev env)"
+    echo "  Configure"
+    echo "    [R] Reconfigure (.env)"
+    echo "    [W] Web Dev Container (Vite)"
+    echo "    [D] Dev Mode (API only + web dev env)"
+    echo ""
+    echo "  Maintenance"
+    echo "    [6] Pull Latest Images (no restart)"
+    echo "    [7] Recreate (pull + restart)"
+    echo "    [8] Rebuild From Source"
+    echo "    [9] Update Source (git pull + rebuild)"
+    echo "    [F] Fresh Install (reset everything)"
     echo ""
     echo "  [Q] Quit"
     echo ""
@@ -1294,10 +1643,12 @@ main() {
                 5) show_detailed_status ;;
                 [Rr]) reconfigure ;;
                 [Ww]) start_web_dev_container ;;
-                6) rebuild ;;
-                7) update ;;
-                8) fresh_install ;;
-                9) start_dev_mode; read -p "Press Enter to continue..." ;;
+                [Dd]) start_dev_mode; read -p "Press Enter to continue..." ;;
+                6) pull_latest_images ;;
+                7) recreate_from_images ;;
+                8) rebuild_from_source ;;
+                9) update_source ;;
+                [Ff]) fresh_install ;;
                 [Qq]) echo "Goodbye!"; exit 0 ;;
                 *) warn "Invalid option" ;;
             esac
