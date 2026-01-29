@@ -3,6 +3,7 @@
 	import { browser } from '$app/environment';
 	import { onMount } from 'svelte';
 	import NotificationMenu from './NotificationMenu.svelte';
+	import NetherPortalButton from './NetherPortalButton.svelte';
 	import type { Profile, ServerSummary, ServerDetail } from '$lib/api/types';
 	import * as api from '$lib/api/client';
 
@@ -487,6 +488,7 @@
 
 	<div class="topbar-actions">
 		<NotificationMenu />
+		<NetherPortalButton />
 		<a class="user-info" href="/profile">
 			<span class="user-icon" aria-hidden="true">
 				<svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">
