@@ -4,7 +4,7 @@ import { writable } from 'svelte/store';
 const sheepStorageKey = 'mineos_ui_sheep_enabled';
 const themeStorageKey = 'mineos_theme';
 
-export type Theme = 'overworld' | 'nether';
+export type Theme = 'overworld' | 'nether' | 'end';
 
 function createSheepEnabledStore() {
 	const { subscribe, set } = writable(true);
@@ -32,7 +32,7 @@ function createThemeStore() {
 
 	if (browser) {
 		const stored = localStorage.getItem(themeStorageKey);
-		if (stored === 'overworld' || stored === 'nether') {
+		if (stored === 'overworld' || stored === 'nether' || stored === 'end') {
 			set(stored);
 		}
 	}

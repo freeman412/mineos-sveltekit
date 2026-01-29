@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
+  <!-- End Stone Block - End Logo -->
+  <rect width="64" height="64" rx="12" fill="#0b0014"/>
+
+  <!-- End stone top (pale sandy yellow) -->
+  <rect x="8" y="12" width="48" height="18" fill="#d4c999"/>
+
+  <!-- End stone side (slightly darker) -->
+  <rect x="8" y="30" width="48" height="22" fill="#bfb584"/>
+
+  <!-- Bottom shadow -->
+  <rect x="8" y="52" width="48" height="4" fill="#8a7e5a"/>
+
+  <!-- End stone texture - pitted surface -->
+  <rect x="12" y="14" width="6" height="4" fill="#c9bc88"/>
+  <rect x="22" y="15" width="8" height="5" fill="#e0d4a8"/>
+  <rect x="36" y="13" width="5" height="4" fill="#cfc290"/>
+  <rect x="44" y="16" width="6" height="3" fill="#c2b67e"/>
+  <rect x="16" y="20" width="4" height="3" fill="#dbd0a0"/>
+
+  <!-- End stone side texture -->
+  <rect x="14" y="34" width="8" height="5" fill="#b3a87a"/>
+  <rect x="30" y="36" width="10" height="4" fill="#c5b98e"/>
+  <rect x="42" y="33" width="6" height="5" fill="#a89c72"/>
+
+  <!-- Subtle purple chorus shimmer -->
+  <rect x="18" y="42" width="4" height="3" fill="#9b59b6" opacity="0.3"/>
+  <rect x="40" y="38" width="3" height="3" fill="#8e44ad" opacity="0.25"/>
+</svg>

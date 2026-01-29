@@ -1,6 +1,16 @@
 <script lang="ts">
+	import { theme } from '$lib/stores/uiPreferences';
+
 	const version = '2.0.0-beta';
 	const buildId = import.meta.env.PUBLIC_BUILD_ID ?? 'dev';
+
+	function toggleEndTheme() {
+		if ($theme === 'end') {
+			theme.set('overworld');
+		} else {
+			theme.set('end');
+		}
+	}
 </script>
 
 <div class="about-page">
@@ -221,6 +231,11 @@
 				</div>
 			</div>
 		</section>
+	</div>
+
+	<!-- svelte-ignore a11y_no_static_element_interactions -->
+	<div class="ender-pearl" class:ender-pearl-active={$theme === 'end'} onclick={toggleEndTheme} onkeydown={(e) => { if (e.key === 'Enter') toggleEndTheme(); }} role="button" tabindex="-1" aria-hidden="true" title="">
+		<span class="pearl-core">●</span>
 	</div>
 
 	<footer class="about-footer">
@@ -709,6 +724,115 @@
 	.copyright {
 		font-size: 12px !important;
 		color: var(--mc-text-dim) !important;
+	}
+
+	/* Floating Ender Pearl easter egg */
+	@keyframes floatAround {
+		0% {
+			transform: translate(0, 0) rotate(0deg);
+		}
+		25% {
+			transform: translate(-100px, 60px) rotate(90deg);
+		}
+		50% {
+			transform: translate(80px, 40px) rotate(180deg);
+		}
+		75% {
+			transform: translate(-50px, -30px) rotate(270deg);
+		}
+		100% {
+			transform: translate(0, 0) rotate(360deg);
+		}
+	}
+
+	@keyframes pearlPulse {
+		0%, 100% {
+			box-shadow:
+				0 0 8px rgba(20, 184, 166, 0.4),
+				0 0 16px rgba(20, 184, 166, 0.2),
+				inset 0 0 8px rgba(94, 234, 212, 0.3);
+		}
+		50% {
+			box-shadow:
+				0 0 12px rgba(20, 184, 166, 0.6),
+				0 0 24px rgba(20, 184, 166, 0.3),
+				inset 0 0 12px rgba(94, 234, 212, 0.5);
+		}
+	}
+
+	.ender-pearl {
+		position: fixed;
+		top: 100px;
+		right: 150px;
+		width: 16px;
+		height: 16px;
+		background: radial-gradient(circle at 35% 35%, rgba(94, 234, 212, 0.9), rgba(20, 184, 166, 0.7), rgba(13, 148, 136, 0.5));
+		border-radius: 50%;
+		cursor: pointer;
+		user-select: none;
+		animation: floatAround 30s ease-in-out infinite, pearlPulse 2s ease-in-out infinite;
+		box-shadow:
+			0 0 8px rgba(20, 184, 166, 0.4),
+			0 0 16px rgba(20, 184, 166, 0.2),
+			inset 0 0 8px rgba(94, 234, 212, 0.3);
+		transition: transform 0.3s, width 0.3s, height 0.3s;
+		z-index: 1000;
+		opacity: 0.6;
+	}
+
+	.pearl-core {
+		position: absolute;
+		top: 3px;
+		left: 4px;
+		width: 4px;
+		height: 4px;
+		background: rgba(255, 255, 255, 0.9);
+		border-radius: 50%;
+		box-shadow: 0 0 4px rgba(255, 255, 255, 0.8);
+	}
+
+	.ender-pearl:hover {
+		opacity: 1;
+		animation: floatAround 30s ease-in-out infinite, pearlPulse 1s ease-in-out infinite;
+		transform: scale(1.4);
+		box-shadow:
+			0 0 16px rgba(20, 184, 166, 0.7),
+			0 0 32px rgba(20, 184, 166, 0.4),
+			inset 0 0 12px rgba(94, 234, 212, 0.5);
+	}
+
+	.ender-pearl-active {
+		width: 20px;
+		height: 20px;
+		opacity: 1;
+		background: radial-gradient(circle at 35% 35%, rgba(139, 92, 246, 0.95), rgba(124, 58, 237, 0.8), rgba(109, 40, 217, 0.6));
+		box-shadow:
+			0 0 16px rgba(139, 92, 246, 0.6),
+			0 0 32px rgba(139, 92, 246, 0.4),
+			inset 0 0 12px rgba(167, 139, 250, 0.5);
+		animation: floatAround 20s ease-in-out infinite, pearlPulse 1.5s ease-in-out infinite;
+	}
+
+	.ender-pearl-active .pearl-core {
+		background: rgba(196, 181, 253, 0.95);
+		box-shadow: 0 0 6px rgba(196, 181, 253, 0.9);
+	}
+
+	.ender-pearl-active:hover {
+		transform: scale(1.6);
+		box-shadow:
+			0 0 24px rgba(139, 92, 246, 0.8),
+			0 0 48px rgba(139, 92, 246, 0.5),
+			inset 0 0 16px rgba(167, 139, 250, 0.7);
+	}
+
+	@keyframes pearlActivated {
+		0%, 100% {
+			transform: scale(1);
+		}
+		50% {
+			transform: scale(1.8);
+		}
 	}
 
 	@media (max-width: 768px) {
