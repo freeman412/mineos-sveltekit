@@ -56,6 +56,17 @@ public sealed class ModrinthService : IModrinthService
         return await SearchAsync("plugin", query, index, pageSize, loader, gameVersion, cancellationToken);
     }
 
+    public async Task<ModrinthSearchResultDto> SearchResourcePacksAsync(
+        string query,
+        int index,
+        int pageSize,
+        string? gameVersion,
+        CancellationToken cancellationToken)
+    {
+        // Resource packs don't use loaders, so pass null for loader parameter
+        return await SearchAsync("resourcepack", query, index, pageSize, null, gameVersion, cancellationToken);
+    }
+
     public async Task<ModrinthProjectDto?> GetProjectAsync(string projectId, CancellationToken cancellationToken)
     {
         var response = await _httpClient.GetFromJsonAsync<ModrinthProjectResponse>(
