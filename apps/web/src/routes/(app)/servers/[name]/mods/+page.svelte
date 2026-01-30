@@ -478,13 +478,27 @@
 		</div>
 	{/if}
 
+	<!-- Client-Only Mods Info -->
+	<div class="mods-section info-section">
+		<h3>Client-Only Mods</h3>
+		<p class="muted">
+			You can create a <code>client-mods/mods</code> folder in your server directory to store mods that should only be packaged for clients and NOT run on the server.
+		</p>
+		<p class="muted">
+			These are useful for client-side mods like minimap, performance mods, or visual enhancements that don't need to be on the server.
+		</p>
+		<p class="muted">
+			When you generate a client package, these mods will be included automatically.
+		</p>
+	</div>
+
 	<!-- Standalone Mods -->
 	<div class="mods-section">
-		<h3>Standalone Mods</h3>
+		<h3>Server Mods</h3>
 		{#if loading}
 			<p class="muted">Loading mods...</p>
 		{:else if groupedMods.standalone.length === 0}
-			<p class="muted">No standalone mods installed.</p>
+			<p class="muted">No server mods installed.</p>
 		{:else}
 			<div class="mod-list">
 				<table>
@@ -537,7 +551,10 @@
 			<div>
 				<h3>Client Package</h3>
 				<p class="muted">
-					Generate a CurseForge-compatible zip for players to import.
+					Generate a modpack zip containing all mods, configs, resource packs, and other client assets from this server.
+				</p>
+				<p class="muted">
+					The package is CurseForge-compatible and can be imported into any launcher that supports CurseForge format.
 				</p>
 				<p class="muted">
 					CurseForge app: Create Custom Profile → Import → select the zip.
@@ -691,6 +708,20 @@
 		display: flex;
 		flex-direction: column;
 		gap: 16px;
+	}
+
+	.info-section {
+		background: rgba(106, 176, 76, 0.08);
+		border: 1px solid rgba(106, 176, 76, 0.2);
+	}
+
+	.info-section code {
+		background: rgba(0, 0, 0, 0.3);
+		padding: 2px 6px;
+		border-radius: 4px;
+		font-family: 'Consolas', 'Monaco', monospace;
+		font-size: 13px;
+		color: #b7f5a2;
 	}
 
 
