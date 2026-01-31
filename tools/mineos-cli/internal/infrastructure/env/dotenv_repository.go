@@ -45,6 +45,7 @@ func (r *DotenvRepository) Load(_ context.Context) (config.Config, error) {
 	cfg.DatabaseConnection = values["ConnectionStrings__DefaultConnection"]
 	cfg.DataDirectory = values["Data__Directory"]
 	cfg.ShutdownTimeout = values["MINEOS_SHUTDOWN_TIMEOUT"]
+	cfg.PreReleaseUpdates = values["MINEOS_CLI_PRERELEASE_UPDATES"]
 
 	return cfg, nil
 }
