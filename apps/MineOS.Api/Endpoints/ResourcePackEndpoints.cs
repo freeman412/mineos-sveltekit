@@ -89,7 +89,7 @@ public static class ResourcePackEndpoints
             string name,
             [FromBody] ModrinthInstallRequest request,
             IModrinthService modrinthService,
-            IOptions<HostOptions> hostOptions,
+            IOptions<MineOS.Application.Options.HostOptions> hostOptions,
             CancellationToken cancellationToken) =>
         {
             if (string.IsNullOrWhiteSpace(request.VersionId))
@@ -158,5 +158,3 @@ public static class ResourcePackEndpoints
         }
     }
 }
-
-public record ModrinthInstallRequest(string VersionId);
