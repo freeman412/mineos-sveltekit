@@ -171,6 +171,7 @@ builder.Services.AddHostedService(sp => sp.GetRequiredService<BackgroundJobServi
 builder.Services.AddHostedService<PerformanceCollectorService>();
 builder.Services.AddHostedService<LanBroadcastService>();
 builder.Services.AddHostedService<StartupServerService>();
+builder.Services.AddHostedService<TelemetryReporterService>();
 builder.Services.AddSingleton<WatchdogService>();
 builder.Services.AddSingleton<IWatchdogService>(sp => sp.GetRequiredService<WatchdogService>());
 builder.Services.AddHostedService(sp => sp.GetRequiredService<WatchdogService>());
@@ -188,6 +189,7 @@ builder.Services.AddHttpClient<CurseForgeClient>();
 builder.Services.AddScoped<ApiKeySeeder>();
 builder.Services.AddScoped<UserSeeder>();
 builder.Services.AddScoped<ISettingsService, SettingsService>();
+builder.Services.AddHttpClient<ITelemetryService, TelemetryService>();
 
 var allowedOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>() ?? Array.Empty<string>();
 

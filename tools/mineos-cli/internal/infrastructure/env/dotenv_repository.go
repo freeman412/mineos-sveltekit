@@ -46,6 +46,9 @@ func (r *DotenvRepository) Load(_ context.Context) (config.Config, error) {
 	cfg.DataDirectory = values["Data__Directory"]
 	cfg.ShutdownTimeout = values["MINEOS_SHUTDOWN_TIMEOUT"]
 	cfg.PreReleaseUpdates = values["MINEOS_CLI_PRERELEASE_UPDATES"]
+	cfg.TelemetryEnabled = values["MINEOS_TELEMETRY_ENABLED"]
+	cfg.TelemetryEndpoint = values["MINEOS_TELEMETRY_ENDPOINT"]
+	cfg.InstallationID = values["MINEOS_INSTALLATION_ID"]
 
 	return cfg, nil
 }
