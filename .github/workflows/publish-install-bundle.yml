@@ -51,7 +51,7 @@ jobs:
           if ls dist/cli/*.zip >/dev/null 2>&1; then
             cp dist/cli/*.zip dist/bundle/cli/
           fi
-          cp MineOS.sh MineOS.ps1 docker-compose.yml docker-compose.host.yml \
+          cp docker-compose.yml docker-compose.host.yml \
             docker-compose.build.yml docker-compose.dev.yml .env.template \
             uninstall.sh uninstall.ps1 README.md LICENSE.md dist/bundle/
           tar -czf dist/mineos-install-bundle.tar.gz -C dist/bundle .
