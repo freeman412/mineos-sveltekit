@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"os/exec"
 	"strconv"
 	"strings"
 	"time"
@@ -99,46 +98,3 @@ func waitForApiReady(ctx context.Context, cfg config.Config, out io.Writer, time
 	}
 }
 
-func waitForServicesStop(ctx context.Context, compose composeRunner, timeoutSeconds int) error {
-	if timeoutSeconds <= 0 {
-		return nil
-	}
-	deadline := time.Now().Add(time.Duration(timeoutSeconds) * time.Second)
-	for {
-		running, err := countRunningServices(compose)
-		if err != nil {
-			return err
-		}
-		if running == 0 {
-			return nil
-		}
-		if time.Now().After(deadline) {
-			return fmt.Errorf("timed out waiting for services to stop")
-		}
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-time.After(2 * time.Second):
-		}
-	}
-}
-
-func countRunningServices(compose composeRunner) (int, error) {
-	output, err := composeOutput(compose, []string{"ps", "--status", "running", "-q"})
-	if err != nil {
-		return 0, err
-	}
-	if strings.TrimSpace(output) == "" {
-		return 0, nil
-	}
-	return len(strings.Fields(output)), nil
-}
-
-func composeOutput(compose composeRunner, args []string) (string, error) {
-	cmd := exec.Command(compose.exe, append(compose.baseArgs, args...)...)
-	output, err := cmd.Output()
-	if err != nil {
-		return "", err
-	}
-	return string(output), nil
-}

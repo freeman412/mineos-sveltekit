@@ -203,6 +203,13 @@ func runUpgrade(cmd *cobra.Command, currentVersion string, force, checkOnly, inc
 	}
 
 	fmt.Fprintf(out, "\nSuccessfully upgraded to %s!\n", latestVersion)
+
+	// Ensure any new env vars introduced in newer versions are present
+	if _, err := ensureEnvDefaults(".env", out); err != nil {
+		// Non-fatal: the upgrade itself succeeded
+		fmt.Fprintf(out, "Warning: could not update .env defaults: %v\n", err)
+	}
+
 	return nil
 }
 

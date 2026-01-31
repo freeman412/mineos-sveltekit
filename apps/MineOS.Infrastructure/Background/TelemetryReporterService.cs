@@ -62,6 +62,18 @@ public sealed class TelemetryReporterService : BackgroundService
     private async Task ReportTelemetryAsync(CancellationToken cancellationToken)
     {
         using var scope = _scopeFactory.CreateScope();
+
+        // Check the setting dynamically so UI changes take effect without restart
+        var settingsService = scope.ServiceProvider.GetRequiredService<ISettingsService>();
+        var enabled = await settingsService.GetAsync(
+            Services.SettingsService.Keys.TelemetryEnabled, cancellationToken);
+
+        if (string.Equals(enabled, "false", StringComparison.OrdinalIgnoreCase))
+        {
+            _logger.LogDebug("Telemetry disabled via settings, skipping report");
+            return;
+        }
+
         var telemetryService = scope.ServiceProvider.GetRequiredService<ITelemetryService>();
         await telemetryService.ReportUsageAsync(cancellationToken);
     }

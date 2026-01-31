@@ -27,11 +27,6 @@ public sealed class UserSeeder
 
     public async Task EnsureSeedAsync(CancellationToken cancellationToken)
     {
-        if (await _db.Users.AnyAsync(cancellationToken))
-        {
-            return;
-        }
-
         var seedUsername = _config["Auth:SeedUsername"];
         var seedPassword = _config["Auth:SeedPassword"];
 
@@ -41,9 +36,34 @@ public sealed class UserSeeder
             return;
         }
 
+        var trimmedUsername = seedUsername.Trim();
+
+        // Check if the seed user already exists
+        var existingUser = await _db.Users
+            .FirstOrDefaultAsync(u => u.Username == trimmedUsername, cancellationToken);
+
+        if (existingUser != null)
+        {
+            // Update password if it changed (e.g., after reconfigure)
+            if (!_passwordHasher.Verify(seedPassword, existingUser.PasswordHash))
+            {
+                existingUser.PasswordHash = _passwordHasher.Hash(seedPassword);
+                await _db.SaveChangesAsync(cancellationToken);
+                _logger.LogInformation("Updated password for seed user: {Username}", trimmedUsername);
+            }
+            return;
+        }
+
+        // No users at all — create the seed user
+        if (await _db.Users.AnyAsync(cancellationToken))
+        {
+            // Other users exist but seed user doesn't (was deleted) — don't re-create
+            return;
+        }
+
         var user = new User
         {
-            Username = seedUsername.Trim(),
+            Username = trimmedUsername,
             PasswordHash = _passwordHasher.Hash(seedPassword),
             Role = "admin",
             CreatedAt = DateTimeOffset.UtcNow,

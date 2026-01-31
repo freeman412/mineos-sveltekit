@@ -14,13 +14,15 @@ public sealed class SettingsService : ISettingsService
     {
         public const string CurseForgeApiKey = "CurseForge:ApiKey";
         public const string ShutdownTimeoutSeconds = "MineOS:ShutdownTimeoutSeconds";
+        public const string TelemetryEnabled = "MineOS:TelemetryEnabled";
     }
 
     // Metadata for known settings (description, whether it's secret, config fallback path)
     private static readonly Dictionary<string, (string Description, bool IsSecret, string? ConfigPath)> SettingsMetadata = new()
     {
         [Keys.CurseForgeApiKey] = ("CurseForge API key for mod and modpack downloads", true, "CurseForge:ApiKey"),
-        [Keys.ShutdownTimeoutSeconds] = ("Seconds to wait for Minecraft servers to stop gracefully.", false, "MINEOS_SHUTDOWN_TIMEOUT")
+        [Keys.ShutdownTimeoutSeconds] = ("Seconds to wait for Minecraft servers to stop gracefully.", false, "MINEOS_SHUTDOWN_TIMEOUT"),
+        [Keys.TelemetryEnabled] = ("Send anonymous usage statistics (server count, user count) to help improve MineOS. Set to 'true' or 'false'.", false, "MINEOS_TELEMETRY_ENABLED")
     };
 
     private readonly AppDbContext _db;
