@@ -49,6 +49,11 @@ func (m TuiModel) View() string {
 		rightLines = m.RenderConfirmDialog(rightWidth, contentHeight)
 	}
 
+	// Overlay search input if active
+	if m.Mode == ModeSearch {
+		rightLines = m.RenderSearchInput(rightLines, rightWidth, contentHeight)
+	}
+
 	// 4. Assemble View
 	var b strings.Builder
 	b.WriteString(header)
@@ -267,4 +272,25 @@ func centerText(text string, width int) string {
 	}
 	padding := (width - len(text)) / 2
 	return strings.Repeat(" ", padding) + text + strings.Repeat(" ", width-padding-len(text))
+}
+
+// RenderSearchInput renders a search input bar at the bottom of existing lines
+func (m TuiModel) RenderSearchInput(existingLines []string, width, height int) []string {
+	// Keep existing lines but overlay search input at bottom
+	lines := make([]string, len(existingLines))
+	copy(lines, existingLines)
+
+	// Ensure we have enough lines
+	for len(lines) < height {
+		lines = append(lines, "")
+	}
+
+	// Overlay search input at the bottom
+	if len(lines) >= 2 {
+		lines[len(lines)-2] = StyleSubtle.Render(strings.Repeat("─", width))
+		searchLine := "  Search: " + m.Input.View()
+		lines[len(lines)-1] = TrimToWidth(searchLine, width)
+	}
+
+	return lines
 }

@@ -47,7 +47,7 @@ const MinecraftCat = `                                                          
 
 // Log buffer and streaming constants
 const (
-	MaxLogLines          = 700
+	MaxLogLines          = 5000 // Increased buffer size
 	DefaultDockerLogTail = 200
 	LogRetryDelay        = 2 * time.Second
 	ConnectionRetryDelay = 6 * time.Second

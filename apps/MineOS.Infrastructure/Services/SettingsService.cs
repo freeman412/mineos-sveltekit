@@ -15,14 +15,50 @@ public sealed class SettingsService : ISettingsService
         public const string CurseForgeApiKey = "CurseForge:ApiKey";
         public const string ShutdownTimeoutSeconds = "MineOS:ShutdownTimeoutSeconds";
         public const string TelemetryEnabled = "MineOS:TelemetryEnabled";
+        public const string DiscordWebhookUrl = "Discord:WebhookUrl";
+        public const string LogLevel = "MineOS:LogLevel";
     }
 
-    // Metadata for known settings (description, whether it's secret, config fallback path)
-    private static readonly Dictionary<string, (string Description, bool IsSecret, string? ConfigPath)> SettingsMetadata = new()
+    // Metadata for known settings
+    private record SettingMeta(
+        string Description,
+        bool IsSecret,
+        string? ConfigPath,
+        string Type,        // "boolean", "number", "text", "secret", "select"
+        string Group,       // "General", "Integrations", "Notifications", "Advanced"
+        string DisplayName,
+        string? Options = null,  // JSON array for select type
+        int? Min = null,
+        int? Max = null);
+
+    private static readonly Dictionary<string, SettingMeta> SettingsMetadata = new()
     {
-        [Keys.CurseForgeApiKey] = ("CurseForge API key for mod and modpack downloads", true, "CurseForge:ApiKey"),
-        [Keys.ShutdownTimeoutSeconds] = ("Seconds to wait for Minecraft servers to stop gracefully.", false, "MINEOS_SHUTDOWN_TIMEOUT"),
-        [Keys.TelemetryEnabled] = ("Send anonymous usage statistics (server count, user count) to help improve MineOS. Set to 'true' or 'false'.", false, "MINEOS_TELEMETRY_ENABLED")
+        [Keys.TelemetryEnabled] = new(
+            "Send anonymous usage statistics (server count, user count) to help improve MineOS.",
+            false, "MINEOS_TELEMETRY_ENABLED",
+            "boolean", "General", "Usage Statistics"),
+
+        [Keys.ShutdownTimeoutSeconds] = new(
+            "Seconds to wait for Minecraft servers to stop gracefully before forcing shutdown.",
+            false, "MINEOS_SHUTDOWN_TIMEOUT",
+            "number", "General", "Shutdown Timeout",
+            Min: 0, Max: 900),
+
+        [Keys.CurseForgeApiKey] = new(
+            "CurseForge API key for mod and modpack downloads. Get one at console.curseforge.com.",
+            true, "CurseForge:ApiKey",
+            "secret", "Integrations", "CurseForge API Key"),
+
+        [Keys.DiscordWebhookUrl] = new(
+            "Discord webhook URL for server event notifications (start, stop, crash).",
+            false, "Discord__WebhookUrl",
+            "text", "Notifications", "Discord Webhook URL"),
+
+        [Keys.LogLevel] = new(
+            "Minimum log level for the API. Higher levels reduce log volume.",
+            false, "Logging__LogLevel__Default",
+            "select", "Advanced", "Log Level",
+            Options: "[\"Verbose\",\"Debug\",\"Information\",\"Warning\",\"Error\"]"),
     };
 
     private readonly AppDbContext _db;
@@ -51,9 +87,9 @@ public sealed class SettingsService : ISettingsService
         }
 
         // Fall back to configuration (appsettings.json / environment variables)
-        if (SettingsMetadata.TryGetValue(key, out var metadata) && metadata.ConfigPath != null)
+        if (SettingsMetadata.TryGetValue(key, out var meta) && meta.ConfigPath != null)
         {
-            return _configuration[metadata.ConfigPath];
+            return _configuration[meta.ConfigPath];
         }
 
         // Try the key directly as a config path
@@ -74,10 +110,10 @@ public sealed class SettingsService : ISettingsService
                 UpdatedAt = DateTimeOffset.UtcNow
             };
 
-            if (SettingsMetadata.TryGetValue(key, out var metadata))
+            if (SettingsMetadata.TryGetValue(key, out var meta))
             {
-                setting.Description = metadata.Description;
-                setting.IsSecret = metadata.IsSecret;
+                setting.Description = meta.Description;
+                setting.IsSecret = meta.IsSecret;
             }
 
             _db.SystemSettings.Add(setting);
@@ -103,23 +139,23 @@ public sealed class SettingsService : ISettingsService
         var dbSettings = await _db.SystemSettings.ToListAsync(cancellationToken);
         var result = new List<SettingInfo>();
 
-        foreach (var (key, metadata) in SettingsMetadata)
+        foreach (var (key, meta) in SettingsMetadata)
         {
             var dbSetting = dbSettings.FirstOrDefault(s => s.Key == key);
             var dbValue = dbSetting?.Value;
-            var configValue = metadata.ConfigPath != null ? _configuration[metadata.ConfigPath] : null;
+            var configValue = meta.ConfigPath != null ? _configuration[meta.ConfigPath] : null;
 
             string? displayValue = null;
             string source;
 
             if (!string.IsNullOrWhiteSpace(dbValue))
             {
-                displayValue = metadata.IsSecret ? MaskSecret(dbValue) : dbValue;
+                displayValue = meta.IsSecret ? MaskSecret(dbValue) : dbValue;
                 source = "database";
             }
             else if (!string.IsNullOrWhiteSpace(configValue))
             {
-                displayValue = metadata.IsSecret ? MaskSecret(configValue) : configValue;
+                displayValue = meta.IsSecret ? MaskSecret(configValue) : configValue;
                 source = "configuration";
             }
             else
@@ -130,10 +166,16 @@ public sealed class SettingsService : ISettingsService
             result.Add(new SettingInfo(
                 Key: key,
                 Value: displayValue,
-                Description: metadata.Description,
-                IsSecret: metadata.IsSecret,
+                Description: meta.Description,
+                IsSecret: meta.IsSecret,
                 HasValue: !string.IsNullOrWhiteSpace(dbValue) || !string.IsNullOrWhiteSpace(configValue),
-                Source: source
+                Source: source,
+                Type: meta.Type,
+                Group: meta.Group,
+                DisplayName: meta.DisplayName,
+                Options: meta.Options,
+                Min: meta.Min,
+                Max: meta.Max
             ));
         }
 

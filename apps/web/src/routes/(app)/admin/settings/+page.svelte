@@ -11,6 +11,12 @@
 		isSecret: boolean;
 		hasValue: boolean;
 		source: string;
+		type: string;
+		group: string;
+		displayName: string | null;
+		options: string | null;
+		min: number | null;
+		max: number | null;
 	}
 
 	let { data }: { data: PageData } = $props();
@@ -18,6 +24,35 @@
 	let editingKey = $state<string | null>(null);
 	let editValue = $state('');
 	let saving = $state(false);
+	let numberValues = $state<Record<string, number>>({});
+
+	// Group settings by their group field
+	let groupedSettings = $derived.by(() => {
+		const settings = (data.settings.data ?? []) as SettingInfo[];
+		const groups: Record<string, SettingInfo[]> = {};
+		const groupOrder = ['General', 'Integrations', 'Notifications', 'Advanced'];
+
+		for (const s of settings) {
+			const group = s.group || 'General';
+			if (!groups[group]) groups[group] = [];
+			groups[group].push(s);
+		}
+
+		// Initialize number values from current settings
+		for (const s of settings) {
+			if (s.type === 'number' && s.hasValue && s.value != null && !(s.key in numberValues)) {
+				numberValues[s.key] = parseInt(s.value) || 0;
+			}
+		}
+
+		return groupOrder
+			.filter((g) => groups[g]?.length)
+			.map((g) => ({ name: g, settings: groups[g] }));
+	});
+
+	function displayName(setting: SettingInfo): string {
+		return setting.displayName || setting.key;
+	}
 
 	function startEdit(setting: SettingInfo) {
 		editingKey = setting.key;
@@ -29,13 +64,14 @@
 		editValue = '';
 	}
 
-	async function saveSetting(key: string) {
+	async function saveSetting(key: string, value?: string) {
 		saving = true;
 		try {
+			const val = value !== undefined ? value : editValue || null;
 			const res = await fetch(`/api/settings/${encodeURIComponent(key)}`, {
 				method: 'PUT',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ value: editValue || null })
+				body: JSON.stringify({ value: val })
 			});
 
 			if (!res.ok) {
@@ -76,6 +112,22 @@
 		}
 	}
 
+	async function toggleBoolean(setting: SettingInfo) {
+		const current = setting.value?.toLowerCase() === 'true';
+		await saveSetting(setting.key, current ? 'false' : 'true');
+	}
+
+	async function saveSelect(setting: SettingInfo, value: string) {
+		await saveSetting(setting.key, value);
+	}
+
+	async function saveNumber(setting: SettingInfo) {
+		const val = numberValues[setting.key];
+		if (val !== undefined) {
+			await saveSetting(setting.key, String(val));
+		}
+	}
+
 	function getSourceBadgeClass(source: string): string {
 		switch (source) {
 			case 'database':
@@ -87,13 +139,28 @@
 		}
 	}
 
-	function getKeyDisplayName(key: string): string {
-		const names: Record<string, string> = {
-			'CurseForge:ApiKey': 'CurseForge API Key',
-			'MineOS:ShutdownTimeoutSeconds': 'Server shutdown timeout (seconds)',
-			'MineOS:TelemetryEnabled': 'Anonymous usage telemetry'
-		};
-		return names[key] || key;
+	function getGroupIcon(group: string): string {
+		switch (group) {
+			case 'General':
+				return '⚙';
+			case 'Integrations':
+				return '🔌';
+			case 'Notifications':
+				return '🔔';
+			case 'Advanced':
+				return '🔧';
+			default:
+				return '📋';
+		}
+	}
+
+	function parseOptions(options: string | null): string[] {
+		if (!options) return [];
+		try {
+			return JSON.parse(options);
+		} catch {
+			return [];
+		}
 	}
 </script>
 
@@ -104,24 +171,23 @@
 	</div>
 </div>
 
-<div class="settings-list">
+<!-- UI Preferences (local/browser) -->
+<div class="settings-group">
+	<div class="group-header">
+		<span class="group-icon">🎨</span>
+		<h2>UI Preferences</h2>
+		<span class="source-badge source-config">local</span>
+	</div>
 	<div class="setting-card">
-		<div class="setting-view">
-			<div class="setting-header">
-				<h3>UI Preferences</h3>
-				<span class="source-badge source-config">local</span>
+		<div class="preference-row">
+			<div>
+				<div class="preference-title">Minecraft Sheep Pet</div>
+				<div class="preference-help">Show the sheep companion on every page.</div>
 			</div>
-			<p class="setting-description">Personalize the dashboard experience for this browser.</p>
-			<div class="preference-row">
-				<div>
-					<div class="preference-title">Minecraft Sheep Pet</div>
-					<div class="preference-help">Show the sheep companion on every page.</div>
-				</div>
-				<label class="toggle">
-					<input type="checkbox" bind:checked={$sheepEnabled} aria-label="Toggle sheep pet" />
-					<span class="toggle-slider"></span>
-				</label>
-			</div>
+			<label class="toggle">
+				<input type="checkbox" bind:checked={$sheepEnabled} aria-label="Toggle sheep pet" />
+				<span class="toggle-slider"></span>
+			</label>
 		</div>
 	</div>
 </div>
@@ -130,81 +196,249 @@
 	<div class="error-box">
 		<p>{data.settings.error}</p>
 	</div>
-{:else if data.settings.data && data.settings.data.length > 0}
-	<div class="settings-list">
-		{#each data.settings.data as setting (setting.key)}
-			<div class="setting-card">
-				{#if editingKey === setting.key}
-					<div class="setting-edit">
-						<div class="setting-header">
-							<h3>{getKeyDisplayName(setting.key)}</h3>
-							<span class="edit-badge">Editing</span>
-						</div>
-						<p class="setting-description">{setting.description}</p>
+{:else}
+	{#each groupedSettings as group (group.name)}
+		<div class="settings-group">
+			<div class="group-header">
+				<span class="group-icon">{getGroupIcon(group.name)}</span>
+				<h2>{group.name}</h2>
+			</div>
 
-						<label>
-							<span class="label-text">{setting.isSecret ? 'New Value (will be encrypted)' : 'New Value'}</span>
+			{#each group.settings as setting (setting.key)}
+				<div class="setting-card">
+					<!-- Boolean toggle -->
+					{#if setting.type === 'boolean'}
+						<div class="preference-row">
+							<div class="setting-info">
+								<div class="setting-title-row">
+									<div class="preference-title">{displayName(setting)}</div>
+									<span class="source-badge {getSourceBadgeClass(setting.source)}"
+										>{setting.source}</span
+									>
+								</div>
+								<div class="preference-help">{setting.description}</div>
+							</div>
+							<label class="toggle">
+								<input
+									type="checkbox"
+									checked={setting.value?.toLowerCase() === 'true'}
+									onchange={() => toggleBoolean(setting)}
+									disabled={saving}
+									aria-label={displayName(setting)}
+								/>
+								<span class="toggle-slider"></span>
+							</label>
+						</div>
+
+						<!-- Number input with range -->
+					{:else if setting.type === 'number'}
+						<div class="setting-info">
+							<div class="setting-title-row">
+								<div class="preference-title">{displayName(setting)}</div>
+								<span class="source-badge {getSourceBadgeClass(setting.source)}"
+									>{setting.source}</span
+								>
+							</div>
+							<div class="preference-help">{setting.description}</div>
+						</div>
+						<div class="number-control">
 							<input
-								type={setting.isSecret ? 'password' : 'text'}
-								bind:value={editValue}
-								placeholder={setting.isSecret ? 'Enter new API key' : 'Enter value'}
+								type="range"
+								min={setting.min ?? 0}
+								max={setting.max ?? 900}
+								bind:value={numberValues[setting.key]}
+								oninput={() => {
+									/* reactive binding handles it */
+								}}
+								aria-label={displayName(setting)}
 							/>
-						</label>
-
-						<div class="edit-actions">
+							<div class="number-input-group">
+								<input
+									type="number"
+									min={setting.min ?? 0}
+									max={setting.max ?? 900}
+									bind:value={numberValues[setting.key]}
+									onblur={() => saveNumber(setting)}
+									onkeydown={(e) => {
+										if (e.key === 'Enter') saveNumber(setting);
+									}}
+								/>
+								<span class="number-unit">sec</span>
+							</div>
 							<button
-								class="btn-primary"
-								onclick={() => saveSetting(setting.key)}
-								disabled={saving || !editValue.trim()}
+								class="btn-sm"
+								onclick={() => saveNumber(setting)}
+								disabled={saving}
 							>
-								{saving ? 'Saving...' : 'Save'}
-							</button>
-							<button class="btn-secondary" onclick={cancelEdit} disabled={saving}>
-								Cancel
+								{saving ? '...' : 'Save'}
 							</button>
 						</div>
-					</div>
-				{:else}
-					<div class="setting-view">
-						<div class="setting-header">
-							<h3>{getKeyDisplayName(setting.key)}</h3>
-							<span class="source-badge {getSourceBadgeClass(setting.source)}">
-								{setting.source}
-							</span>
-						</div>
-						<p class="setting-description">{setting.description}</p>
+						{#if setting.source === 'database'}
+							<button
+								class="btn-clear"
+								onclick={() => clearSetting(setting.key)}
+								title="Clear database value and fall back to config"
+							>
+								Reset to default
+							</button>
+						{/if}
 
-						<div class="setting-value">
-							{#if setting.hasValue}
-								<code>{setting.value}</code>
-							{:else}
-								<span class="not-configured">Not configured</span>
-							{/if}
+						<!-- Select dropdown -->
+					{:else if setting.type === 'select'}
+						<div class="setting-info">
+							<div class="setting-title-row">
+								<div class="preference-title">{displayName(setting)}</div>
+								<span class="source-badge {getSourceBadgeClass(setting.source)}"
+									>{setting.source}</span
+								>
+							</div>
+							<div class="preference-help">{setting.description}</div>
 						</div>
-
-						<div class="setting-actions">
-							<button class="btn-primary" onclick={() => startEdit(setting)}>
-								{setting.hasValue ? 'Update' : 'Configure'}
-							</button>
+						<div class="select-control">
+							<select
+								value={setting.value || ''}
+								onchange={(e) => saveSelect(setting, e.currentTarget.value)}
+								disabled={saving}
+								aria-label={displayName(setting)}
+							>
+								{#if !setting.hasValue}
+									<option value="" disabled>Select...</option>
+								{/if}
+								{#each parseOptions(setting.options) as opt (opt)}
+									<option value={opt}>{opt}</option>
+								{/each}
+							</select>
 							{#if setting.source === 'database'}
 								<button
-									class="btn-secondary danger"
+									class="btn-clear"
 									onclick={() => clearSetting(setting.key)}
 									title="Clear database value and fall back to config"
 								>
-									Clear
+									Reset
 								</button>
 							{/if}
 						</div>
-					</div>
-				{/if}
-			</div>
-		{/each}
-	</div>
-{:else}
-	<div class="empty-state">
-		<p>No configurable settings available.</p>
-	</div>
+
+						<!-- Secret input -->
+					{:else if setting.type === 'secret'}
+						{#if editingKey === setting.key}
+							<div class="setting-info">
+								<div class="setting-title-row">
+									<div class="preference-title">{displayName(setting)}</div>
+									<span class="edit-badge">Editing</span>
+								</div>
+								<div class="preference-help">{setting.description}</div>
+							</div>
+							<label class="input-label">
+								<span class="label-text">New value (will be stored securely)</span>
+								<input type="password" bind:value={editValue} placeholder="Enter new value" />
+							</label>
+							<div class="edit-actions">
+								<button
+									class="btn-primary"
+									onclick={() => saveSetting(setting.key)}
+									disabled={saving || !editValue.trim()}
+								>
+									{saving ? 'Saving...' : 'Save'}
+								</button>
+								<button class="btn-secondary" onclick={cancelEdit} disabled={saving}>
+									Cancel
+								</button>
+							</div>
+						{:else}
+							<div class="preference-row">
+								<div class="setting-info">
+									<div class="setting-title-row">
+										<div class="preference-title">{displayName(setting)}</div>
+										<span class="source-badge {getSourceBadgeClass(setting.source)}"
+											>{setting.source}</span
+										>
+									</div>
+									<div class="preference-help">{setting.description}</div>
+									{#if setting.hasValue}
+										<code class="setting-value-code">{setting.value}</code>
+									{:else}
+										<span class="not-configured">Not configured</span>
+									{/if}
+								</div>
+								<div class="setting-actions-vertical">
+									<button class="btn-primary" onclick={() => startEdit(setting)}>
+										{setting.hasValue ? 'Update' : 'Configure'}
+									</button>
+									{#if setting.source === 'database'}
+										<button
+											class="btn-clear"
+											onclick={() => clearSetting(setting.key)}
+										>
+											Clear
+										</button>
+									{/if}
+								</div>
+							</div>
+						{/if}
+
+						<!-- Text input (default) -->
+					{:else}
+						{#if editingKey === setting.key}
+							<div class="setting-info">
+								<div class="setting-title-row">
+									<div class="preference-title">{displayName(setting)}</div>
+									<span class="edit-badge">Editing</span>
+								</div>
+								<div class="preference-help">{setting.description}</div>
+							</div>
+							<label class="input-label">
+								<span class="label-text">New value</span>
+								<input type="text" bind:value={editValue} placeholder="Enter value" />
+							</label>
+							<div class="edit-actions">
+								<button
+									class="btn-primary"
+									onclick={() => saveSetting(setting.key)}
+									disabled={saving || !editValue.trim()}
+								>
+									{saving ? 'Saving...' : 'Save'}
+								</button>
+								<button class="btn-secondary" onclick={cancelEdit} disabled={saving}>
+									Cancel
+								</button>
+							</div>
+						{:else}
+							<div class="preference-row">
+								<div class="setting-info">
+									<div class="setting-title-row">
+										<div class="preference-title">{displayName(setting)}</div>
+										<span class="source-badge {getSourceBadgeClass(setting.source)}"
+											>{setting.source}</span
+										>
+									</div>
+									<div class="preference-help">{setting.description}</div>
+									{#if setting.hasValue}
+										<code class="setting-value-code">{setting.value}</code>
+									{:else}
+										<span class="not-configured">Not configured</span>
+									{/if}
+								</div>
+								<div class="setting-actions-vertical">
+									<button class="btn-primary" onclick={() => startEdit(setting)}>
+										{setting.hasValue ? 'Update' : 'Configure'}
+									</button>
+									{#if setting.source === 'database'}
+										<button
+											class="btn-clear"
+											onclick={() => clearSetting(setting.key)}
+										>
+											Clear
+										</button>
+									{/if}
+								</div>
+							</div>
+						{/if}
+					{/if}
+				</div>
+			{/each}
+		</div>
+	{/each}
 {/if}
 
 <div class="info-section">
@@ -213,15 +447,15 @@
 		<ul>
 			<li>
 				<span class="source-badge source-database">database</span>
-				Value is stored in the database and takes priority
+				Value stored in the database (takes priority)
 			</li>
 			<li>
 				<span class="source-badge source-config">configuration</span>
-				Value is from appsettings.json or environment variables
+				Value from environment variables or config file
 			</li>
 			<li>
 				<span class="source-badge source-not-set">not set</span>
-				No value configured - feature may not work
+				No value configured
 			</li>
 		</ul>
 	</div>
@@ -229,15 +463,19 @@
 	<div class="info-card">
 		<h3>Getting a CurseForge API Key</h3>
 		<ol>
-			<li>Visit <a href="https://console.curseforge.com/" target="_blank" rel="noopener noreferrer">console.curseforge.com</a></li>
+			<li>
+				Visit <a href="https://console.curseforge.com/" target="_blank" rel="noopener noreferrer"
+					>console.curseforge.com</a
+				>
+			</li>
 			<li>Sign in or create an account</li>
 			<li>Go to "API Keys" in your account settings</li>
 			<li>Create a new API key</li>
 			<li>Copy the key and paste it above</li>
 		</ol>
 		<p class="note">
-			The CurseForge API key is required for searching and downloading mods and modpacks.
-			The site works without it for vanilla server management.
+			The CurseForge API key is required for searching and downloading mods and modpacks. The site
+			works without it for vanilla server management.
 		</p>
 	</div>
 </div>
@@ -259,41 +497,62 @@
 		font-size: 15px;
 	}
 
-	.settings-list {
-		display: flex;
-		flex-direction: column;
-		gap: 20px;
-		margin-bottom: 32px;
+	/* Group layout */
+	.settings-group {
+		margin-bottom: 28px;
 	}
 
-	.setting-card {
-		background: linear-gradient(135deg, #1a1e2f 0%, #141827 100%);
-		border-radius: 16px;
-		padding: 24px;
-		box-shadow: 0 20px 40px rgba(0, 0, 0, 0.35);
-		border: 1px solid #2a2f47;
-	}
-
-	.setting-header {
+	.group-header {
 		display: flex;
 		align-items: center;
-		gap: 12px;
+		gap: 10px;
+		margin-bottom: 12px;
+		padding: 0 4px;
+	}
+
+	.group-header h2 {
+		margin: 0;
+		font-size: 16px;
+		font-weight: 600;
+		color: #9aa2c5;
+		text-transform: uppercase;
+		letter-spacing: 0.05em;
+	}
+
+	.group-icon {
+		font-size: 16px;
+	}
+
+	/* Cards */
+	.setting-card {
+		background: linear-gradient(135deg, #1a1e2f 0%, #141827 100%);
+		border-radius: 12px;
+		padding: 20px 24px;
+		border: 1px solid #2a2f47;
 		margin-bottom: 8px;
 	}
 
-	.setting-header h3 {
-		margin: 0;
-		font-size: 18px;
-		color: #eef0f8;
+	.setting-info {
+		flex: 1;
+		min-width: 0;
 	}
 
+	.setting-title-row {
+		display: flex;
+		align-items: center;
+		gap: 10px;
+		margin-bottom: 4px;
+	}
+
+	/* Badges */
 	.source-badge {
 		display: inline-block;
-		padding: 3px 10px;
+		padding: 2px 8px;
 		border-radius: 20px;
 		font-size: 11px;
 		font-weight: 600;
 		text-transform: uppercase;
+		flex-shrink: 0;
 	}
 
 	.source-database {
@@ -317,51 +576,18 @@
 	.edit-badge {
 		background: rgba(88, 101, 242, 0.2);
 		color: #a5b4fc;
-		padding: 4px 10px;
+		padding: 2px 8px;
 		border-radius: 6px;
-		font-size: 12px;
+		font-size: 11px;
 		font-weight: 500;
 	}
 
-	.setting-description {
-		margin: 0 0 16px;
-		color: #9aa2c5;
-		font-size: 14px;
-		line-height: 1.5;
-	}
-
-	.setting-value {
-		margin-bottom: 16px;
-	}
-
-	.setting-value code {
-		display: inline-block;
-		background: rgba(20, 24, 39, 0.8);
-		padding: 8px 14px;
-		border-radius: 8px;
-		font-family: 'Consolas', 'Monaco', monospace;
-		font-size: 14px;
-		color: #6ab04c;
-		border: 1px solid #2a2f47;
-	}
-
-	.not-configured {
-		color: #7c87b2;
-		font-style: italic;
-	}
-
-	.setting-actions,
-	.edit-actions {
-		display: flex;
-		gap: 10px;
-	}
-
+	/* Preference rows */
 	.preference-row {
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
 		gap: 16px;
-		padding: 12px 0 0;
 	}
 
 	.preference-title {
@@ -371,15 +597,18 @@
 	}
 
 	.preference-help {
-		margin-top: 4px;
+		margin-top: 2px;
 		color: #9aa2c5;
 		font-size: 13px;
+		line-height: 1.4;
 	}
 
+	/* Toggle switch */
 	.toggle {
 		position: relative;
 		display: inline-flex;
 		align-items: center;
+		flex-shrink: 0;
 	}
 
 	.toggle input {
@@ -397,6 +626,7 @@
 		border: 1px solid #3a3f5a;
 		position: relative;
 		transition: all 0.2s;
+		cursor: pointer;
 	}
 
 	.toggle-slider::after {
@@ -421,11 +651,128 @@
 		background: #6ab04c;
 	}
 
-	label {
+	.toggle input:disabled + .toggle-slider {
+		opacity: 0.5;
+		cursor: not-allowed;
+	}
+
+	/* Number control */
+	.number-control {
+		display: flex;
+		align-items: center;
+		gap: 12px;
+		margin-top: 12px;
+	}
+
+	.number-control input[type='range'] {
+		flex: 1;
+		height: 6px;
+		-webkit-appearance: none;
+		appearance: none;
+		background: #2a2f47;
+		border-radius: 3px;
+		outline: none;
+	}
+
+	.number-control input[type='range']::-webkit-slider-thumb {
+		-webkit-appearance: none;
+		width: 18px;
+		height: 18px;
+		border-radius: 50%;
+		background: #6ab04c;
+		cursor: pointer;
+		border: 2px solid #141827;
+	}
+
+	.number-input-group {
+		display: flex;
+		align-items: center;
+		gap: 4px;
+		flex-shrink: 0;
+	}
+
+	.number-control input[type='number'] {
+		width: 70px;
+		background: #141827;
+		border: 1px solid #2a2f47;
+		border-radius: 6px;
+		padding: 6px 8px;
+		color: #eef0f8;
+		font-family: 'Consolas', 'Monaco', monospace;
+		font-size: 14px;
+		text-align: center;
+	}
+
+	.number-control input[type='number']:focus {
+		outline: none;
+		border-color: rgba(106, 176, 76, 0.5);
+	}
+
+	.number-unit {
+		color: #7c87b2;
+		font-size: 13px;
+	}
+
+	/* Select dropdown */
+	.select-control {
+		display: flex;
+		align-items: center;
+		gap: 10px;
+		margin-top: 12px;
+	}
+
+	select {
+		background: #141827;
+		border: 1px solid #2a2f47;
+		border-radius: 8px;
+		padding: 8px 32px 8px 12px;
+		color: #eef0f8;
+		font-family: inherit;
+		font-size: 14px;
+		cursor: pointer;
+		appearance: none;
+		background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%239aa2c5' d='M6 8L1 3h10z'/%3E%3C/svg%3E");
+		background-repeat: no-repeat;
+		background-position: right 10px center;
+	}
+
+	select:focus {
+		outline: none;
+		border-color: rgba(106, 176, 76, 0.5);
+	}
+
+	select:disabled {
+		opacity: 0.5;
+		cursor: not-allowed;
+	}
+
+	/* Value display */
+	.setting-value-code {
+		display: inline-block;
+		background: rgba(20, 24, 39, 0.8);
+		padding: 4px 10px;
+		border-radius: 6px;
+		font-family: 'Consolas', 'Monaco', monospace;
+		font-size: 13px;
+		color: #6ab04c;
+		border: 1px solid #2a2f47;
+		margin-top: 8px;
+	}
+
+	.not-configured {
+		color: #7c87b2;
+		font-style: italic;
+		font-size: 13px;
+		margin-top: 8px;
+		display: inline-block;
+	}
+
+	/* Input labels */
+	.input-label {
 		display: flex;
 		flex-direction: column;
 		gap: 6px;
-		margin-bottom: 16px;
+		margin: 12px 0 16px;
 	}
 
 	.label-text {
@@ -434,29 +781,45 @@
 		font-weight: 500;
 	}
 
-	input {
+	input[type='text'],
+	input[type='password'] {
 		background: #141827;
 		border: 1px solid #2a2f47;
 		border-radius: 8px;
-		padding: 12px 14px;
+		padding: 10px 14px;
 		color: #eef0f8;
 		font-family: inherit;
 		font-size: 14px;
 		transition: border-color 0.2s;
 	}
 
-	input:focus {
+	input[type='text']:focus,
+	input[type='password']:focus {
 		outline: none;
 		border-color: rgba(106, 176, 76, 0.5);
 	}
 
+	/* Actions */
+	.setting-actions-vertical {
+		display: flex;
+		flex-direction: column;
+		gap: 6px;
+		flex-shrink: 0;
+	}
+
+	.edit-actions {
+		display: flex;
+		gap: 10px;
+	}
+
+	/* Buttons */
 	.btn-primary {
 		background: var(--mc-grass);
 		color: #fff;
 		border: none;
 		border-radius: 8px;
-		padding: 10px 20px;
-		font-size: 14px;
+		padding: 8px 16px;
+		font-size: 13px;
 		font-weight: 600;
 		cursor: pointer;
 		transition: background 0.2s;
@@ -476,8 +839,8 @@
 		color: #eef0f8;
 		border: none;
 		border-radius: 8px;
-		padding: 10px 20px;
-		font-size: 14px;
+		padding: 8px 16px;
+		font-size: 13px;
 		font-weight: 600;
 		cursor: pointer;
 		transition: background 0.2s;
@@ -487,11 +850,44 @@
 		background: #3a3f5a;
 	}
 
-	.btn-secondary.danger:hover:not(:disabled) {
-		background: rgba(255, 92, 92, 0.2);
+	.btn-sm {
+		background: #2a2f47;
+		color: #eef0f8;
+		border: none;
+		border-radius: 6px;
+		padding: 6px 12px;
+		font-size: 12px;
+		font-weight: 600;
+		cursor: pointer;
+		transition: background 0.2s;
+		flex-shrink: 0;
+	}
+
+	.btn-sm:hover:not(:disabled) {
+		background: rgba(106, 176, 76, 0.3);
+		color: #b7f5a2;
+	}
+
+	.btn-sm:disabled {
+		opacity: 0.5;
+		cursor: not-allowed;
+	}
+
+	.btn-clear {
+		background: none;
+		border: none;
+		color: #7c87b2;
+		font-size: 12px;
+		cursor: pointer;
+		padding: 4px 0;
+		margin-top: 6px;
+	}
+
+	.btn-clear:hover {
 		color: #ff9f9f;
 	}
 
+	/* Error */
 	.error-box {
 		background: rgba(255, 92, 92, 0.1);
 		border: 1px solid rgba(255, 92, 92, 0.3);
@@ -505,15 +901,7 @@
 		color: #ff9f9f;
 	}
 
-	.empty-state {
-		text-align: center;
-		padding: 60px 20px;
-		color: #7c87b2;
-		background: linear-gradient(135deg, #1a1e2f 0%, #141827 100%);
-		border-radius: 16px;
-		border: 1px solid #2a2f47;
-	}
-
+	/* Info section */
 	.info-section {
 		display: grid;
 		grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
