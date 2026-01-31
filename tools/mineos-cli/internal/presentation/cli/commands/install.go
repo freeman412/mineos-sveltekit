@@ -2,6 +2,7 @@ package commands
 
 import (
 	"bufio"
+	"context"
 	"crypto/rand"
 	"encoding/base64"
 	"errors"
@@ -17,24 +18,27 @@ import (
 
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
+
+	"github.com/freemancraft/mineos-sveltekit/tools/mineos-cli/internal/infrastructure/telemetry"
 )
 
 type installOptions struct {
-	adminUser       string
-	adminPass       string
-	apiKey          string
-	hostBaseDir     string
-	dataDir         string
-	apiPort         int
-	webPort         int
-	webOrigin       string
-	minecraftHost   string
-	bodySizeLimit   string
-	networkMode     string
-	buildFromSource bool
-	imageTag        string
-	quiet           bool
-	skipPathInstall bool
+	adminUser        string
+	adminPass        string
+	apiKey           string
+	hostBaseDir      string
+	dataDir          string
+	apiPort          int
+	webPort          int
+	webOrigin        string
+	minecraftHost    string
+	bodySizeLimit    string
+	networkMode      string
+	buildFromSource  bool
+	imageTag         string
+	quiet            bool
+	skipPathInstall  bool
+	telemetryEnabled bool
 }
 
 const (
@@ -326,6 +330,28 @@ func runInstall(cmd *cobra.Command, opts installOptions) error {
 		return errors.New("source files not found (./apps missing); use the installer with --build after cloning the repo")
 	}
 
+	// Telemetry prompt (default opt-in)
+	telemetryEnabled := true // default opt-in
+	if !opts.quiet {
+		fmt.Fprintln(out, "")
+		fmt.Fprintln(out, "Anonymous Telemetry:")
+		fmt.Fprintln(out, "Help improve MineOS by sharing anonymous usage data (OS, version, server count).")
+		fmt.Fprintln(out, "No personal information or server names are collected.")
+		fmt.Fprintln(out, "You can opt-out anytime by editing .env (MINEOS_TELEMETRY_ENABLED=false)")
+		value, err := promptYesNo(reader, out, "Enable anonymous telemetry", true)
+		if err != nil {
+			return err
+		}
+		telemetryEnabled = value
+	}
+	opts.telemetryEnabled = telemetryEnabled
+
+	// Generate installation ID for telemetry tracking
+	installationID := telemetry.GenerateInstallationID()
+
+	// Track installation start time for telemetry
+	installStart := time.Now()
+
 	jwtSecret, err := randomToken(32)
 	if err != nil {
 		return err
@@ -342,21 +368,23 @@ func runInstall(cmd *cobra.Command, opts installOptions) error {
 	caddySite := deriveCaddySite(opts.webOrigin)
 
 	envContents := renderEnv(envConfig{
-		adminUser:       opts.adminUser,
-		adminPass:       opts.adminPass,
-		jwtSecret:       jwtSecret,
-		apiKey:          apiKey,
-		hostBaseDir:     opts.hostBaseDir,
-		dataDir:         opts.dataDir,
-		networkMode:     opts.networkMode,
-		buildFromSource: opts.buildFromSource,
-		imageTag:        opts.imageTag,
-		apiPort:         opts.apiPort,
-		webPort:         opts.webPort,
-		webOrigin:       opts.webOrigin,
-		caddySite:       caddySite,
-		minecraftHost:   opts.minecraftHost,
-		bodySizeLimit:   opts.bodySizeLimit,
+		adminUser:        opts.adminUser,
+		adminPass:        opts.adminPass,
+		jwtSecret:        jwtSecret,
+		apiKey:           apiKey,
+		hostBaseDir:      opts.hostBaseDir,
+		dataDir:          opts.dataDir,
+		networkMode:      opts.networkMode,
+		buildFromSource:  opts.buildFromSource,
+		imageTag:         opts.imageTag,
+		apiPort:          opts.apiPort,
+		webPort:          opts.webPort,
+		webOrigin:        opts.webOrigin,
+		caddySite:        caddySite,
+		minecraftHost:    opts.minecraftHost,
+		bodySizeLimit:    opts.bodySizeLimit,
+		telemetryEnabled: opts.telemetryEnabled,
+		installationID:   installationID,
 	})
 
 	if err := os.WriteFile(".env", []byte(envContents), 0o644); err != nil {
@@ -389,8 +417,38 @@ func runInstall(cmd *cobra.Command, opts installOptions) error {
 	}
 
 	fmt.Fprintln(out, "Starting services...")
-	if err := compose.run(append(composeFiles, "up", "-d")); err != nil {
-		return err
+	installErr := compose.run(append(composeFiles, "up", "-d"))
+
+	// Calculate installation duration
+	installDuration := time.Since(installStart)
+	installDurationMs := installDuration.Milliseconds()
+
+	// Send installation telemetry (non-blocking, ignore errors)
+	if opts.telemetryEnabled {
+		go func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+
+			endpoint := "https://mineos.net"
+			client := telemetry.NewClient(endpoint, true)
+
+			errorMsg := ""
+			if installErr != nil {
+				errorMsg = installErr.Error()
+			}
+
+			version := opts.imageTag
+			if version == "" {
+				version = "source"
+			}
+
+			event := telemetry.BuildInstallEvent(installationID, version, installErr == nil, installDurationMs, errorMsg)
+			_ = client.ReportInstall(ctx, event)
+		}()
+	}
+
+	if installErr != nil {
+		return installErr
 	}
 
 	fmt.Fprintln(out, "")
@@ -463,21 +521,23 @@ func runInstall(cmd *cobra.Command, opts installOptions) error {
 }
 
 type envConfig struct {
-	adminUser       string
-	adminPass       string
-	jwtSecret       string
-	apiKey          string
-	hostBaseDir     string
-	dataDir         string
-	networkMode     string
-	buildFromSource bool
-	imageTag        string
-	apiPort         int
-	webPort         int
-	webOrigin       string
-	caddySite       string
-	minecraftHost   string
-	bodySizeLimit   string
+	adminUser        string
+	adminPass        string
+	jwtSecret        string
+	apiKey           string
+	hostBaseDir      string
+	dataDir          string
+	networkMode      string
+	buildFromSource  bool
+	imageTag         string
+	apiPort          int
+	webPort          int
+	webOrigin        string
+	caddySite        string
+	minecraftHost    string
+	bodySizeLimit    string
+	telemetryEnabled bool
+	installationID   string
 }
 
 func renderEnv(cfg envConfig) string {
@@ -534,7 +594,15 @@ func renderEnv(cfg envConfig) string {
 	builder.WriteString(fmt.Sprintf("BODY_SIZE_LIMIT=%s\n\n", cfg.bodySizeLimit))
 	builder.WriteString("# Logging\n")
 	builder.WriteString("Logging__LogLevel__Default=Information\n")
-	builder.WriteString("Logging__LogLevel__Microsoft.AspNetCore=Warning\n")
+	builder.WriteString("Logging__LogLevel__Microsoft.AspNetCore=Warning\n\n")
+	builder.WriteString("# Telemetry\n")
+	if cfg.telemetryEnabled {
+		builder.WriteString("MINEOS_TELEMETRY_ENABLED=true\n")
+	} else {
+		builder.WriteString("MINEOS_TELEMETRY_ENABLED=false\n")
+	}
+	builder.WriteString("MINEOS_TELEMETRY_ENDPOINT=https://mineos.net\n")
+	builder.WriteString(fmt.Sprintf("MINEOS_INSTALLATION_ID=%s\n", cfg.installationID))
 
 	return builder.String()
 }
