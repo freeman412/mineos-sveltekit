@@ -47,18 +47,15 @@ func NewRootCommand(deps RootDeps) *cobra.Command {
 			}
 			if _, err := os.Stat(effectivePath); os.IsNotExist(err) {
 				pwd, _ := os.Getwd()
-				fmt.Fprintf(os.Stderr, "\n⚠️  ERROR: .env file not found at: %s\n\n", effectivePath)
-				fmt.Fprintln(os.Stderr, "MineOS is not installed in this directory.")
-				fmt.Fprintln(os.Stderr, "")
-				fmt.Fprintln(os.Stderr, "To install MineOS, run:")
-				fmt.Fprintln(os.Stderr, "  mineos install")
-				fmt.Fprintln(os.Stderr, "")
-				fmt.Fprintln(os.Stderr, "If MineOS is installed elsewhere:")
-				fmt.Fprintln(os.Stderr, "  1. Navigate to the installation directory, OR")
-				fmt.Fprintf(os.Stderr, "  2. Use --env flag: mineos --env /path/to/.env %s\n", cmd.Name())
-				fmt.Fprintln(os.Stderr, "")
-				fmt.Fprintf(os.Stderr, "Current directory: %s\n\n", pwd)
-				os.Exit(1)
+				msg := fmt.Sprintf("\n.env file not found at: %s\n\n", effectivePath)
+				msg += "MineOS is not installed in this directory.\n\n"
+				msg += "To install MineOS, run:\n"
+				msg += "  mineos install\n\n"
+				msg += "If MineOS is installed elsewhere:\n"
+				msg += "  1. Navigate to the installation directory, OR\n"
+				msg += fmt.Sprintf("  2. Use --env flag: mineos --env /path/to/.env %s\n\n", cmd.Name())
+				msg += fmt.Sprintf("Current directory: %s\n", pwd)
+				return fmt.Errorf(msg)
 			}
 
 			return nil

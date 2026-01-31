@@ -467,12 +467,14 @@ func gracefulStop(ctx context.Context, loadConfig *usecases.LoadConfigUseCase, c
 	if err := stopMinecraftServers(ctx, loadConfig, out, false, timeoutSeconds); err != nil {
 		fmt.Fprintf(out, "Warning: %v\n", err)
 	}
-	fmt.Fprintf(out, "Stopping services (timeout: %ds)...\n", timeoutSeconds)
-	if err := compose.run([]string{"stop", "-t", strconv.Itoa(timeoutSeconds)}); err != nil {
+
+	// Minecraft servers are already stopped via the API above.
+	// Docker containers (API, web, caddy) should exit promptly on SIGTERM,
+	// so use a short timeout for docker compose stop.
+	const dockerStopTimeout = 30
+	fmt.Fprintln(out, "Stopping Docker services...")
+	if err := compose.run([]string{"stop", "-t", strconv.Itoa(dockerStopTimeout)}); err != nil {
 		return err
-	}
-	if err := waitForServicesStop(ctx, compose, timeoutSeconds); err != nil {
-		fmt.Fprintf(out, "Warning: %v\n", err)
 	}
 	return nil
 }

@@ -65,12 +65,15 @@ func runReconfigure(cmd *cobra.Command, loadConfig *usecases.LoadConfigUseCase) 
 
 	currentMinecraftHost := fallback(values["PUBLIC_MINECRAFT_HOST"], "localhost")
 	currentBodySize := fallback(values["BODY_SIZE_LIMIT"], defaultBodySizeLimit)
+	currentShutdownTimeout := parseEnvInt(values["MINEOS_SHUTDOWN_TIMEOUT"], defaultShutdownTimeout)
 	currentCurseforge := values["CurseForge__ApiKey"]
 	currentDiscord := values["Discord__WebhookUrl"]
 	currentNetworkMode := fallback(values["MINEOS_NETWORK_MODE"], defaultNetworkMode)
 	currentBuildFromSource := parseEnvBool(values["MINEOS_BUILD_FROM_SOURCE"])
 	currentImageTag := fallback(values["MINEOS_IMAGE_TAG"], "latest")
 	currentManagementKey := values["MINEOS_API_KEY"]
+	currentTelemetry := values["MINEOS_TELEMETRY_ENABLED"] != "false" // default true
+	currentPrerelease := parseEnvBool(values["MINEOS_CLI_PRERELEASE_UPDATES"])
 
 	fmt.Fprintln(out, "MineOS reconfigure")
 	fmt.Fprintln(out, "Press Enter to keep the current value.")
@@ -126,6 +129,11 @@ func runReconfigure(cmd *cobra.Command, loadConfig *usecases.LoadConfigUseCase) 
 		return err
 	}
 
+	shutdownTimeout, err := promptInt(reader, out, "Server shutdown timeout (seconds)", currentShutdownTimeout)
+	if err != nil {
+		return err
+	}
+
 	fmt.Fprintln(out, "")
 	fmt.Fprintln(out, "LAN discovery requires host networking on Linux.")
 	enableHostNetworking, err := promptYesNo(reader, out, "Enable host networking for LAN discovery", currentNetworkMode == "host")
@@ -157,6 +165,17 @@ func runReconfigure(cmd *cobra.Command, loadConfig *usecases.LoadConfigUseCase) 
 	}
 
 	discordWebhook, err := promptOptionalValue(reader, out, "Discord webhook URL (optional)", currentDiscord)
+	if err != nil {
+		return err
+	}
+
+	fmt.Fprintln(out, "")
+	telemetryEnabled, err := promptYesNo(reader, out, "Enable anonymous telemetry", currentTelemetry)
+	if err != nil {
+		return err
+	}
+
+	prereleaseEnabled, err := promptYesNo(reader, out, "Enable pre-release CLI updates", currentPrerelease)
 	if err != nil {
 		return err
 	}
@@ -204,6 +223,9 @@ func runReconfigure(cmd *cobra.Command, loadConfig *usecases.LoadConfigUseCase) 
 	if err := setEnvFileValue(envPath, "BODY_SIZE_LIMIT", bodySizeLimit); err != nil {
 		return err
 	}
+	if err := setEnvFileValue(envPath, "MINEOS_SHUTDOWN_TIMEOUT", strconv.Itoa(shutdownTimeout)); err != nil {
+		return err
+	}
 	if err := setEnvFileValue(envPath, "MINEOS_NETWORK_MODE", networkMode); err != nil {
 		return err
 	}
@@ -222,6 +244,17 @@ func runReconfigure(cmd *cobra.Command, loadConfig *usecases.LoadConfigUseCase) 
 		if err := setEnvFileValue(envPath, "Discord__WebhookUrl", discordWebhook); err != nil {
 			return err
 		}
+	}
+	if err := setEnvFileValue(envPath, "MINEOS_TELEMETRY_ENABLED", strconv.FormatBool(telemetryEnabled)); err != nil {
+		return err
+	}
+	if err := setEnvFileValue(envPath, "MINEOS_CLI_PRERELEASE_UPDATES", strconv.FormatBool(prereleaseEnabled)); err != nil {
+		return err
+	}
+
+	// Ensure any new env vars from newer versions are present with defaults
+	if _, err := ensureEnvDefaults(envPath, out); err != nil {
+		return err
 	}
 
 	fmt.Println("Configuration updated.")

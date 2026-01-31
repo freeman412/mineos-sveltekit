@@ -799,7 +799,17 @@ func deriveCaddySite(origin string) string {
 
 func ensureDockerAvailable() error {
 	if _, err := exec.LookPath("docker"); err != nil {
-		return errors.New("docker is not installed")
+		msg := "Docker is not installed.\n\n"
+		msg += "MineOS requires Docker to run. Please install Docker Desktop:\n"
+		if runtime.GOOS == "windows" {
+			msg += "  https://docs.docker.com/desktop/install/windows-install/\n"
+		} else if runtime.GOOS == "darwin" {
+			msg += "  https://docs.docker.com/desktop/install/mac-install/\n"
+		} else {
+			msg += "  https://docs.docker.com/engine/install/\n"
+		}
+		msg += "\nThen re-run this installer."
+		return errors.New(msg)
 	}
 	return nil
 }
@@ -807,7 +817,19 @@ func ensureDockerAvailable() error {
 func ensureDockerRunning() error {
 	cmd := exec.Command("docker", "info")
 	if err := cmd.Run(); err != nil {
-		return errors.New("docker is not running - please start Docker Desktop or the Docker daemon")
+		msg := "Docker is installed but not running.\n\n"
+		if runtime.GOOS == "windows" {
+			msg += "Please start Docker Desktop from the Start menu or system tray,\n"
+			msg += "wait for it to finish loading, then re-run this installer.\n"
+		} else if runtime.GOOS == "darwin" {
+			msg += "Please start Docker Desktop from Applications,\n"
+			msg += "wait for it to finish loading, then re-run this installer.\n"
+		} else {
+			msg += "Please start the Docker daemon:\n"
+			msg += "  sudo systemctl start docker\n"
+			msg += "\nThen re-run this installer.\n"
+		}
+		return errors.New(msg)
 	}
 	return nil
 }
