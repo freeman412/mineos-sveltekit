@@ -33,6 +33,15 @@ func (m TuiModel) RenderSettingsMain(width, height int) []string {
 	lines = append(lines, "  Conn:    "+Mask(m.Cfg.DatabaseConnection))
 	lines = append(lines, "")
 
+	// Update channel toggle
+	lines = append(lines, StyleHeader.Render("Updates"))
+	channel := StyleRunning.Render("Stable")
+	if m.Cfg.IsPreReleaseEnabled() {
+		channel = StyleError.Render("Preview (Pre-release)")
+	}
+	lines = append(lines, "  Channel: "+channel+"  "+StyleSubtle.Render("[p] toggle"))
+	lines = append(lines, "")
+
 	lines = append(lines, StyleSubtle.Render("Use SYSTEM menu to reconfigure or update."))
 
 	return PadLines(lines, height)

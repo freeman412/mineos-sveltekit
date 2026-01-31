@@ -29,4 +29,10 @@ public record SettingInfo(
     string? Description,
     bool IsSecret,
     bool HasValue,
-    string Source);
+    string Source,
+    string Type = "text",
+    string Group = "General",
+    string? DisplayName = null,
+    string? Options = null,
+    int? Min = null,
+    int? Max = null);

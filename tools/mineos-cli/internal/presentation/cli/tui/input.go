@@ -32,6 +32,12 @@ func (m TuiModel) HandleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case tea.KeyEsc:
 		return m.navBack()
+
+	case tea.KeyPgUp:
+		return m.pageUp()
+
+	case tea.KeyPgDown:
+		return m.pageDown()
 	}
 
 	// Vim-style navigation
@@ -48,6 +54,43 @@ func (m TuiModel) HandleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.navLeft()
 	case "l":
 		return m.navRight()
+	case "p":
+		// Toggle pre-release updates in settings view
+		if m.CurrentView == ViewSettings && m.ConfigReady {
+			return m, m.ToggleEnvSettingCmd("MINEOS_CLI_PRERELEASE_UPDATES", m.Cfg.PreReleaseUpdates)
+		}
+	case "/":
+		// Enter search mode in logs views
+		if m.CurrentView == ViewServiceLogs {
+			m.Mode = ModeSearch
+			m.Input.SetValue(m.LogSearchQuery)
+			m.Input.Placeholder = "search logs..."
+			m.Input.Focus()
+			return m, textinput.Blink
+		}
+	case "n":
+		// Find next match in search mode
+		if m.CurrentView == ViewServiceLogs && m.LogSearchQuery != "" {
+			return m.findNextMatch(1)
+		}
+	case "N":
+		// Find previous match in search mode
+		if m.CurrentView == ViewServiceLogs && m.LogSearchQuery != "" {
+			return m.findNextMatch(-1)
+		}
+	case "G":
+		// Jump to bottom of logs (vim-style)
+		if m.CurrentView == ViewServiceLogs {
+			m.LogScroll = 0
+			return m, nil
+		}
+	case "g":
+		// Check for 'gg' to jump to top
+		// Note: This is a simplified version, proper implementation would need state tracking
+		if m.CurrentView == ViewServiceLogs {
+			m.LogScroll = len(m.Logs)
+			return m, nil
+		}
 	}
 
 	return m, nil
@@ -66,6 +109,7 @@ func (m TuiModel) navLeft() (tea.Model, tea.Cmd) {
 				}
 				m.LogSource = sources[prevIdx]
 				m.Logs = nil
+				m.LogScroll = 0 // Reset scroll when switching sources
 				return m, m.StartLogStreamCmd()
 			}
 		}
@@ -83,6 +127,7 @@ func (m TuiModel) navRight() (tea.Model, tea.Cmd) {
 				nextIdx := (i + 1) % len(sources)
 				m.LogSource = sources[nextIdx]
 				m.Logs = nil
+				m.LogScroll = 0 // Reset scroll when switching sources
 				return m, m.StartLogStreamCmd()
 			}
 		}
@@ -92,6 +137,14 @@ func (m TuiModel) navRight() (tea.Model, tea.Cmd) {
 
 // navUp moves selection up in the navigation menu
 func (m TuiModel) navUp() (tea.Model, tea.Cmd) {
+	// In logs view, scroll up by 1 line
+	if m.CurrentView == ViewServiceLogs {
+		if m.LogScroll < len(m.Logs)-1 {
+			m.LogScroll++
+		}
+		return m, nil
+	}
+
 	// In servers view with server actions mode
 	if m.CurrentView == ViewServers && m.ServerActions {
 		if m.ActionIndex > 0 {
@@ -120,6 +173,14 @@ func (m TuiModel) navUp() (tea.Model, tea.Cmd) {
 
 // navDown moves selection down in the navigation menu
 func (m TuiModel) navDown() (tea.Model, tea.Cmd) {
+	// In logs view, scroll down by 1 line
+	if m.CurrentView == ViewServiceLogs {
+		if m.LogScroll > 0 {
+			m.LogScroll--
+		}
+		return m, nil
+	}
+
 	// In servers view with server actions mode
 	if m.CurrentView == ViewServers && m.ServerActions {
 		if m.ActionIndex < len(GetServerActions())-1 {
@@ -477,4 +538,103 @@ func (m TuiModel) NextMinecraftLogType(current string) string {
 		}
 	}
 	return "combined"
+}
+
+// pageUp scrolls up by one page in logs view
+func (m TuiModel) pageUp() (tea.Model, tea.Cmd) {
+	if m.CurrentView == ViewServiceLogs {
+		pageSize := m.Height - 10 // Approximate visible log lines
+		if pageSize < 5 {
+			pageSize = 5
+		}
+		m.LogScroll += pageSize
+		if m.LogScroll > len(m.Logs) {
+			m.LogScroll = len(m.Logs)
+		}
+	}
+	return m, nil
+}
+
+// pageDown scrolls down by one page in logs view
+func (m TuiModel) pageDown() (tea.Model, tea.Cmd) {
+	if m.CurrentView == ViewServiceLogs {
+		pageSize := m.Height - 10 // Approximate visible log lines
+		if pageSize < 5 {
+			pageSize = 5
+		}
+		m.LogScroll -= pageSize
+		if m.LogScroll < 0 {
+			m.LogScroll = 0
+		}
+	}
+	return m, nil
+}
+
+// findNextMatch finds the next occurrence of the search query in logs
+func (m TuiModel) findNextMatch(direction int) (tea.Model, tea.Cmd) {
+	if m.LogSearchQuery == "" || len(m.Logs) == 0 {
+		return m, nil
+	}
+
+	query := strings.ToLower(m.LogSearchQuery)
+	startLine := len(m.Logs) - m.LogScroll - 1
+
+	// Search forward or backward
+	if direction > 0 {
+		// Search forward (older logs)
+		for i := startLine + 1; i < len(m.Logs); i++ {
+			if strings.Contains(strings.ToLower(m.Logs[i]), query) {
+				m.LogScroll = len(m.Logs) - i - 1
+				return m, nil
+			}
+		}
+		// Wrap around
+		for i := 0; i <= startLine; i++ {
+			if strings.Contains(strings.ToLower(m.Logs[i]), query) {
+				m.LogScroll = len(m.Logs) - i - 1
+				return m, nil
+			}
+		}
+	} else {
+		// Search backward (newer logs)
+		for i := startLine - 1; i >= 0; i-- {
+			if strings.Contains(strings.ToLower(m.Logs[i]), query) {
+				m.LogScroll = len(m.Logs) - i - 1
+				return m, nil
+			}
+		}
+		// Wrap around
+		for i := len(m.Logs) - 1; i >= startLine; i-- {
+			if strings.Contains(strings.ToLower(m.Logs[i]), query) {
+				m.LogScroll = len(m.Logs) - i - 1
+				return m, nil
+			}
+		}
+	}
+
+	return m, nil
+}
+
+// HandleSearchInput handles input when in search mode
+func (m TuiModel) HandleSearchInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.Type {
+	case tea.KeyEsc:
+		m.Mode = ModeNormal
+		m.Input.Blur()
+		return m, nil
+	case tea.KeyEnter:
+		query := strings.TrimSpace(m.Input.Value())
+		m.Mode = ModeNormal
+		m.Input.Blur()
+		m.LogSearchQuery = query
+		// Jump to first match
+		if query != "" {
+			return m.findNextMatch(1)
+		}
+		return m, nil
+	}
+
+	var cmd tea.Cmd
+	m.Input, cmd = m.Input.Update(msg)
+	return m, cmd
 }

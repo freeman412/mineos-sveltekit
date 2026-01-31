@@ -19,8 +19,10 @@ func (m TuiModel) RenderHeader() string {
 	logo := StyleHeader.Render(" MineOS ") + " " + StyleError.Render("[ALPHA - EXPERIMENTAL]")
 
 	// Persistent Info (Top Left Box)
+	apiPort := Fallback(m.Cfg.ApiPort, "5078")
+	apiEndpoint := StyleSubtle.Render(fmt.Sprintf("http://localhost:%s", apiPort))
 	infoLines := []string{
-		fmt.Sprintf("API:       %s", health),
+		fmt.Sprintf("API:       %s  %s", health, apiEndpoint),
 		fmt.Sprintf("Origin:    %s", StyleStatus.Render(Fallback(m.Cfg.WebOrigin, "http://localhost:3000"))),
 		fmt.Sprintf("MC Host:   %s", StyleStatus.Render(Fallback(m.Cfg.MinecraftHost, "localhost"))),
 		fmt.Sprintf("Docker:    %s", m.RenderDockerStatus()),

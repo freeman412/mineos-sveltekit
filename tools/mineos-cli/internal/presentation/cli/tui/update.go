@@ -80,6 +80,9 @@ func (m TuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.Mode == ModeInteractive {
 			return m.HandleInteractiveInput(msg)
 		}
+		if m.Mode == ModeSearch {
+			return m.HandleSearchInput(msg)
+		}
 		return m.HandleKey(msg)
 
 	case tea.WindowSizeMsg:
@@ -176,6 +179,22 @@ func (m TuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case StreamingFinishedMsg:
 		return m.handleStreamingFinished(msg)
+
+	case SettingsToggledMsg:
+		if msg.Err != nil {
+			m.ErrMsg = "Failed to update setting: " + msg.Err.Error()
+			return m, nil
+		}
+		if msg.Key == "MINEOS_CLI_PRERELEASE_UPDATES" {
+			m.Cfg.PreReleaseUpdates = msg.Val
+			if msg.Val == "true" {
+				m.StatusMsg = "Update channel: Preview (pre-release)"
+			} else {
+				m.StatusMsg = "Update channel: Stable"
+			}
+		}
+		m.ErrMsg = ""
+		return m, nil
 	}
 
 	return m, nil
