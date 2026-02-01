@@ -3,6 +3,7 @@ package commands
 import (
 	"archive/zip"
 	"bufio"
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -13,7 +14,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/joho/godotenv"
 	"github.com/spf13/cobra"
+
+	"github.com/freemancraft/mineos-sveltekit/tools/mineos-cli/internal/infrastructure/telemetry"
 )
 
 const uninstallBanner = `  __  __ _             ___  ____
@@ -72,6 +76,9 @@ func runUninstall(cmd *cobra.Command, opts uninstallOptions) error {
 	fmt.Fprintln(out, uninstallBanner)
 	fmt.Fprintln(out, "MineOS Uninstall")
 	fmt.Fprintln(out, "")
+
+	// Send uninstall telemetry before tearing down
+	reportUninstallTelemetry(out)
 
 	switch mode {
 	case "containers":
@@ -472,6 +479,40 @@ func removeCLIFromPathUnix(out io.Writer) error {
 	}
 
 	return nil
+}
+
+// reportUninstallTelemetry reads .env for telemetry config and notifies the
+// telemetry server that this installation is being removed.
+func reportUninstallTelemetry(out io.Writer) {
+	values, err := godotenv.Read(".env")
+	if err != nil {
+		return // no .env, nothing to report
+	}
+
+	installationID := values["MINEOS_INSTALLATION_ID"]
+	telemetryKey := values["MINEOS_TELEMETRY_KEY"]
+	enabled := values["MINEOS_TELEMETRY_ENABLED"]
+	endpoint := values["MINEOS_TELEMETRY_ENDPOINT"]
+
+	if installationID == "" || strings.EqualFold(enabled, "false") {
+		return
+	}
+	if endpoint == "" {
+		endpoint = "https://mineos.net"
+	}
+
+	fmt.Fprintln(out, styleDim.Render("Sending uninstall telemetry..."))
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	client := telemetry.NewClient(endpoint, true, "")
+	if err := client.ReportUninstall(ctx, installationID, telemetryKey); err != nil {
+		fmt.Fprintf(out, "%s %v\n", styleDim.Render("Telemetry:"), styleDim.Render(err.Error()))
+	} else {
+		fmt.Fprintln(out, styleDim.Render("Uninstall reported."))
+	}
+	fmt.Fprintln(out, "")
 }
 
 func removeInstallationDirectory(out io.Writer) error {

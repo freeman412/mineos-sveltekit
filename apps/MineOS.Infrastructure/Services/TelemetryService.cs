@@ -209,23 +209,41 @@ public class TelemetryService : ITelemetryService
 
             var response = await _httpClient.PostAsync(
                 $"{_endpoint}/api/telemetry/install", content, cancellationToken);
-            response.EnsureSuccessStatusCode();
 
+            // Try to extract telemetry_key from the response body regardless of status code.
+            // The server may return the key even on 409/500 (duplicate registration).
             var responseJson = await response.Content.ReadAsStringAsync(cancellationToken);
-            var installResponse = JsonSerializer.Deserialize<InstallResponse>(responseJson, JsonOptions);
-
-            var key = installResponse?.TelemetryKey;
-            if (string.IsNullOrEmpty(key))
+            string? key = null;
+            try
             {
-                _logger.LogWarning("Telemetry install response did not contain a telemetry_key");
+                var installResponse = JsonSerializer.Deserialize<InstallResponse>(responseJson, JsonOptions);
+                key = installResponse?.TelemetryKey;
+            }
+            catch (JsonException)
+            {
+                // Response body wasn't valid JSON — ignore
+            }
+
+            if (!string.IsNullOrEmpty(key))
+            {
+                await _settingsService.SetAsync(SettingsService.Keys.TelemetryKey, key, cancellationToken);
+                _cachedTelemetryKey = key;
+                _logger.LogInformation("Telemetry key obtained and stored successfully");
+                return key;
+            }
+
+            if (!response.IsSuccessStatusCode)
+            {
+                // Likely a duplicate registration — expected on first boot when the CLI
+                // already registered the same installation_id before the API started.
+                _logger.LogInformation(
+                    "Telemetry registration returned {StatusCode} (installation likely already registered)",
+                    (int)response.StatusCode);
                 return null;
             }
 
-            await _settingsService.SetAsync(SettingsService.Keys.TelemetryKey, key, cancellationToken);
-            _cachedTelemetryKey = key;
-
-            _logger.LogInformation("Telemetry key obtained and stored successfully");
-            return key;
+            _logger.LogInformation("Telemetry install response did not contain a telemetry_key");
+            return null;
         }
         catch (Exception ex)
         {

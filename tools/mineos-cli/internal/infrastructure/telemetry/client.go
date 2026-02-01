@@ -137,6 +137,47 @@ func (c *Client) ReportInstall(ctx context.Context, event InstallEvent) (*Instal
 	return &installResp, nil
 }
 
+// UninstallEvent represents an uninstall telemetry payload.
+type UninstallEvent struct {
+	InstallationID string `json:"installation_id"`
+}
+
+// ReportUninstall notifies the telemetry server that this installation is being removed.
+func (c *Client) ReportUninstall(ctx context.Context, installationID, telemetryKey string) error {
+	if !c.enabled {
+		return nil
+	}
+
+	payload := UninstallEvent{InstallationID: installationID}
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("failed to marshal payload: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "POST", c.baseURL+"/api/telemetry/uninstall", bytes.NewReader(data))
+	if err != nil {
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("User-Agent", fmt.Sprintf("MineOS-CLI/%s (%s; %s)", "dev", runtime.GOOS, runtime.GOARCH))
+	if telemetryKey != "" {
+		req.Header.Set("x-mineos-telemetry-key", telemetryKey)
+	}
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to send request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return fmt.Errorf("uninstall telemetry request failed with status: %s", resp.Status)
+	}
+
+	return nil
+}
+
 // ReportUsage sends usage telemetry
 func (c *Client) ReportUsage(ctx context.Context, event UsageEvent) error {
 	if !c.enabled {
