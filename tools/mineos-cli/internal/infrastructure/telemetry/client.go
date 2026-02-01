@@ -40,19 +40,26 @@ func lookupGeo() *geoInfo {
 }
 
 type Client struct {
-	baseURL    string
-	httpClient *http.Client
-	enabled    bool
+	baseURL      string
+	httpClient   *http.Client
+	enabled      bool
+	telemetryKey string
 }
 
-func NewClient(baseURL string, enabled bool) *Client {
+func NewClient(baseURL string, enabled bool, telemetryKey string) *Client {
 	return &Client{
 		baseURL: baseURL,
 		httpClient: &http.Client{
 			Timeout: 10 * time.Second,
 		},
-		enabled: enabled,
+		enabled:      enabled,
+		telemetryKey: telemetryKey,
 	}
+}
+
+// InstallResponse represents the response from the /api/telemetry/install endpoint.
+type InstallResponse struct {
+	TelemetryKey string `json:"telemetry_key"`
 }
 
 // InstallEvent represents installation telemetry
@@ -81,30 +88,59 @@ type InstallEvent struct {
 
 // UsageEvent represents usage telemetry
 type UsageEvent struct {
-	InstallationID      string   `json:"installation_id"`
-	ServerCount         *int     `json:"server_count,omitempty"`
-	ActiveServerCount   *int     `json:"active_server_count,omitempty"`
-	TotalUserCount      *int     `json:"total_user_count,omitempty"`
-	ActiveUserCount     *int     `json:"active_user_count,omitempty"`
-	MinecraftUsernames  []string `json:"minecraft_usernames,omitempty"`
-	UptimeSeconds       *int64   `json:"uptime_seconds,omitempty"`
-	CommandsRun         *int     `json:"commands_run,omitempty"`
-	MineOSVersion       string   `json:"mineos_version"`
+	InstallationID     string   `json:"installation_id"`
+	ServerCount        *int     `json:"server_count,omitempty"`
+	ActiveServerCount  *int     `json:"active_server_count,omitempty"`
+	TotalUserCount     *int     `json:"total_user_count,omitempty"`
+	ActiveUserCount    *int     `json:"active_user_count,omitempty"`
+	MinecraftUsernames []string `json:"minecraft_usernames,omitempty"`
+	UptimeSeconds      *int64   `json:"uptime_seconds,omitempty"`
+	CommandsRun        *int     `json:"commands_run,omitempty"`
+	MineOSVersion      string   `json:"mineos_version"`
 }
 
-// ReportInstall sends installation telemetry
-func (c *Client) ReportInstall(ctx context.Context, event InstallEvent) error {
+// ReportInstall sends installation telemetry and returns the install response
+// containing the telemetry_key.
+func (c *Client) ReportInstall(ctx context.Context, event InstallEvent) (*InstallResponse, error) {
 	if !c.enabled {
-		return nil // Silently skip if disabled
+		return nil, nil
 	}
 
-	return c.post(ctx, "/api/telemetry/install", event)
+	data, err := json.Marshal(event)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal payload: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "POST", c.baseURL+"/api/telemetry/install", bytes.NewReader(data))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("User-Agent", fmt.Sprintf("MineOS-CLI/%s (%s; %s)", "dev", runtime.GOOS, runtime.GOARCH))
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to send request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("telemetry request failed with status: %s", resp.Status)
+	}
+
+	var installResp InstallResponse
+	if err := json.NewDecoder(resp.Body).Decode(&installResp); err != nil {
+		return nil, nil
+	}
+
+	return &installResp, nil
 }
 
 // ReportUsage sends usage telemetry
 func (c *Client) ReportUsage(ctx context.Context, event UsageEvent) error {
 	if !c.enabled {
-		return nil // Silently skip if disabled
+		return nil
 	}
 
 	return c.post(ctx, "/api/telemetry/usage", event)
@@ -123,6 +159,10 @@ func (c *Client) post(ctx context.Context, path string, payload interface{}) err
 
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("User-Agent", fmt.Sprintf("MineOS-CLI/%s (%s; %s)", "dev", runtime.GOOS, runtime.GOARCH))
+
+	if c.telemetryKey != "" {
+		req.Header.Set("Authorization", "Bearer "+c.telemetryKey)
+	}
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
@@ -157,7 +197,7 @@ func BuildInstallEvent(installationID, version string, success bool, durationMs 
 		InstallSuccess:    success,
 		InstallDurationMs: &durationMs,
 		UserAgent:         fmt.Sprintf("MineOS-Installer/%s", version),
-		IsDocker:          true, // MineOS always uses Docker
+		IsDocker:          true,
 		CPUCores:          &cores,
 	}
 
@@ -165,7 +205,6 @@ func BuildInstallEvent(installationID, version string, success bool, durationMs 
 		event.ErrorMessage = &errorMsg
 	}
 
-	// Populate geographic data (best-effort, non-blocking)
 	if geo := lookupGeo(); geo != nil {
 		if geo.Country != "" {
 			event.Country = &geo.Country

@@ -20,6 +20,7 @@ type Config struct {
 	TelemetryEnabled   string // "true" to enable telemetry, "false" to disable
 	TelemetryEndpoint  string // URL for telemetry endpoint
 	InstallationID     string // UUID for this installation
+	TelemetryKey       string // Bearer token for telemetry API
 }
 
 func (c Config) EffectiveApiKey() string {

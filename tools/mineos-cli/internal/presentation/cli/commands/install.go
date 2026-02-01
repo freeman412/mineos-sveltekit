@@ -16,10 +16,36 @@ import (
 	"strings"
 	"time"
 
+	"github.com/charmbracelet/lipgloss"
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 
 	"github.com/freemancraft/mineos-sveltekit/tools/mineos-cli/internal/infrastructure/telemetry"
+)
+
+// Installer color palette — consistent with TUI styles
+var (
+	// Core colors
+	styleBold    = lipgloss.NewStyle().Bold(true)
+	styleTitle   = lipgloss.NewStyle().Foreground(lipgloss.Color("39")).Bold(true)
+	styleSuccess = lipgloss.NewStyle().Foreground(lipgloss.Color("70")).Bold(true)
+	styleWarning = lipgloss.NewStyle().Foreground(lipgloss.Color("214")).Bold(true)
+	styleError   = lipgloss.NewStyle().Foreground(lipgloss.Color("196")).Bold(true)
+	styleDim     = lipgloss.NewStyle().Foreground(lipgloss.Color("246"))
+	styleAccent  = lipgloss.NewStyle().Foreground(lipgloss.Color("205"))
+	styleInfo    = lipgloss.NewStyle().Foreground(lipgloss.Color("81"))
+	styleValue   = lipgloss.NewStyle().Foreground(lipgloss.Color("75")).Bold(true)
+	styleLabel   = lipgloss.NewStyle().Foreground(lipgloss.Color("255"))
+	styleStep    = lipgloss.NewStyle().Foreground(lipgloss.Color("135")).Bold(true)
+
+	// Decorative
+	styleBanner = lipgloss.NewStyle().Foreground(lipgloss.Color("39")).Bold(true)
+
+	// Box for the completion message
+	styleBox = lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(lipgloss.Color("70")).
+			Padding(0, 2)
 )
 
 type installOptions struct {
@@ -148,7 +174,7 @@ func runInstall(cmd *cobra.Command, opts installOptions) error {
 	if _, err := os.Stat(".env"); err == nil {
 		if opts.quiet {
 			// In quiet mode, overwrite without prompting
-			fmt.Fprintln(out, "Overwriting existing .env file...")
+			fmt.Fprintln(out, styleWarning.Render("Overwriting existing .env file..."))
 		} else {
 			overwrite, err := promptYesNo(reader, out, ".env already exists. Overwrite", false)
 			if err != nil {
@@ -161,12 +187,12 @@ func runInstall(cmd *cobra.Command, opts installOptions) error {
 	}
 
 	if !opts.quiet {
-		fmt.Fprintln(out, installBanner)
-		fmt.Fprintln(out, installBannerTagline)
+		fmt.Fprintln(out, styleBanner.Render(installBanner))
+		fmt.Fprintln(out, styleAccent.Render(installBannerTagline))
 		fmt.Fprintln(out, "")
-		fmt.Fprintln(out, "Welcome to the MineOS installer!")
-		fmt.Fprintln(out, "This will set up everything you need to manage Minecraft servers.")
-		fmt.Fprintln(out, "Press Enter to accept the default values shown in parentheses.")
+		fmt.Fprintln(out, styleTitle.Render("Welcome to the MineOS installer!"))
+		fmt.Fprintln(out, styleDim.Render("This will set up everything you need to manage Minecraft servers."))
+		fmt.Fprintln(out, styleDim.Render("Press Enter to accept the default values shown in parentheses."))
 		fmt.Fprintln(out, "")
 	}
 
@@ -215,7 +241,7 @@ func runInstall(cmd *cobra.Command, opts installOptions) error {
 
 	if opts.apiPort == 0 && !opts.quiet {
 		fmt.Fprintln(out, "")
-		fmt.Fprintln(out, "Backend API port - Used internally by the server (usually keep default)")
+		fmt.Fprintln(out, styleStep.Render("Backend API port")+" "+styleDim.Render("- Used internally by the server (usually keep default)"))
 		value, err := promptInt(reader, out, "API port", defaultApiPort)
 		if err != nil {
 			return err
@@ -225,8 +251,8 @@ func runInstall(cmd *cobra.Command, opts installOptions) error {
 
 	if opts.webPort == 0 && !opts.quiet {
 		fmt.Fprintln(out, "")
-		fmt.Fprintln(out, "Web interface port - This is the port you'll type in your browser")
-		fmt.Fprintln(out, "Example: http://localhost:3000 - You can change this if 3000 is already in use")
+		fmt.Fprintln(out, styleStep.Render("Web interface port")+" "+styleDim.Render("- This is the port you'll type in your browser"))
+		fmt.Fprintln(out, styleDim.Render("Example: http://localhost:3000 - You can change this if 3000 is already in use"))
 		value, err := promptInt(reader, out, "Web UI port", defaultWebPort)
 		if err != nil {
 			return err
@@ -237,9 +263,9 @@ func runInstall(cmd *cobra.Command, opts installOptions) error {
 	if opts.webOrigin == "" && !opts.quiet {
 		defaultOrigin := fmt.Sprintf("http://localhost:%d", opts.webPort)
 		fmt.Fprintln(out, "")
-		fmt.Fprintln(out, "Web interface URL - This is the full address you'll use in your browser")
-		fmt.Fprintln(out, "If running on this computer, use 'localhost'. If accessing from other devices,")
-		fmt.Fprintln(out, "replace 'localhost' with this computer's IP address (e.g., http://192.168.1.100:3000)")
+		fmt.Fprintln(out, styleStep.Render("Web interface URL")+" "+styleDim.Render("- The full address you'll use in your browser"))
+		fmt.Fprintln(out, styleDim.Render("If running on this computer, use 'localhost'. If accessing from other devices,"))
+		fmt.Fprintln(out, styleDim.Render("replace 'localhost' with this computer's IP address (e.g., http://192.168.1.100:3000)"))
 		value, err := promptString(reader, out, "Web UI origin", defaultOrigin)
 		if err != nil {
 			return err
@@ -249,10 +275,10 @@ func runInstall(cmd *cobra.Command, opts installOptions) error {
 
 	if opts.minecraftHost == "" && !opts.quiet {
 		fmt.Fprintln(out, "")
-		fmt.Fprintln(out, "Minecraft server address - What players will connect to in Minecraft")
-		fmt.Fprintln(out, "For local play: use 'localhost'")
-		fmt.Fprintln(out, "For LAN/friends: use this computer's local IP (e.g., 192.168.1.100)")
-		fmt.Fprintln(out, "For internet: use your public IP or domain name (e.g., mc.example.com)")
+		fmt.Fprintln(out, styleStep.Render("Minecraft server address")+" "+styleDim.Render("- What players will connect to"))
+		fmt.Fprintln(out, styleDim.Render("  Local play: use 'localhost'"))
+		fmt.Fprintln(out, styleDim.Render("  LAN/friends: use this computer's local IP (e.g., 192.168.1.100)"))
+		fmt.Fprintln(out, styleDim.Render("  Internet: use your public IP or domain name (e.g., mc.example.com)"))
 		value, err := promptString(reader, out, "Public Minecraft host", "localhost")
 		if err != nil {
 			return err
@@ -262,9 +288,9 @@ func runInstall(cmd *cobra.Command, opts installOptions) error {
 
 	if opts.bodySizeLimit == "" && !opts.quiet {
 		fmt.Fprintln(out, "")
-		fmt.Fprintln(out, "Upload file size limit - Maximum size for files uploaded through the web interface")
-		fmt.Fprintln(out, "'Infinity' = no limit, or specify a size like '500MB' or '1GB'")
-		fmt.Fprintln(out, "(Modpacks and world backups can be large, so 'Infinity' is recommended)")
+		fmt.Fprintln(out, styleStep.Render("Upload file size limit")+" "+styleDim.Render("- Maximum upload size through the web interface"))
+		fmt.Fprintln(out, styleDim.Render("  'Infinity' = no limit, or specify a size like '500MB' or '1GB'"))
+		fmt.Fprintln(out, styleDim.Render("  (Modpacks and world backups can be large, so 'Infinity' is recommended)"))
 		value, err := promptString(reader, out, "Web UI upload size limit", defaultBodySizeLimit)
 		if err != nil {
 			return err
@@ -278,7 +304,7 @@ func runInstall(cmd *cobra.Command, opts installOptions) error {
 			opts.networkMode = defaultNetworkMode
 		} else {
 			fmt.Fprintln(out, "")
-			fmt.Fprintln(out, "LAN discovery requires host networking on Linux.")
+			fmt.Fprintln(out, styleStep.Render("Network Mode")+" "+styleDim.Render("- LAN discovery requires host networking on Linux"))
 			value, err := promptYesNo(reader, out, "Enable host networking for LAN discovery", false)
 			if err != nil {
 				return err
@@ -295,7 +321,7 @@ func runInstall(cmd *cobra.Command, opts installOptions) error {
 			return fmt.Errorf("invalid network-mode: %s", opts.networkMode)
 		}
 		if mode == "host" && runtime.GOOS != "linux" {
-			fmt.Fprintln(out, "Host networking is only supported on Linux. Using bridge mode.")
+			fmt.Fprintln(out, styleWarning.Render("Host networking is only supported on Linux.")+" Using bridge mode.")
 			mode = defaultNetworkMode
 		}
 		opts.networkMode = mode
@@ -304,9 +330,9 @@ func runInstall(cmd *cobra.Command, opts installOptions) error {
 	buildChanged := cmd.Flags().Changed("build")
 	if !buildChanged && !opts.quiet {
 		fmt.Fprintln(out, "")
-		fmt.Fprintln(out, "Installation method:")
-		fmt.Fprintln(out, "- Pull images (recommended): Download pre-built software - faster and easier")
-		fmt.Fprintln(out, "- Build from source: Compile the software yourself - for developers only")
+		fmt.Fprintln(out, styleStep.Render("Installation method:"))
+		fmt.Fprintln(out, styleDim.Render("  - Pull images (recommended): Download pre-built software - faster and easier"))
+		fmt.Fprintln(out, styleDim.Render("  - Build from source: Compile the software yourself - for developers only"))
 		value, err := promptYesNo(reader, out, "Build from source instead of pulling pre-built images", false)
 		if err != nil {
 			return err
@@ -317,10 +343,10 @@ func runInstall(cmd *cobra.Command, opts installOptions) error {
 	if !opts.buildFromSource {
 		if opts.imageTag == "" && !opts.quiet {
 			fmt.Fprintln(out, "")
-			fmt.Fprintln(out, "Version to install:")
-			fmt.Fprintln(out, "- 'latest': Most recent stable version (recommended)")
-			fmt.Fprintln(out, "- 'preview': Latest preview/pre-release version")
-			fmt.Fprintln(out, "- Or specify a version tag like 'v1.0.0' for a specific release")
+			fmt.Fprintln(out, styleStep.Render("Version to install:"))
+			fmt.Fprintln(out, styleDim.Render("  - 'latest': Most recent stable version (recommended)"))
+			fmt.Fprintln(out, styleDim.Render("  - 'preview': Latest preview/pre-release version"))
+			fmt.Fprintln(out, styleDim.Render("  - Or specify a version tag like 'v1.0.0' for a specific release"))
 			value, err := promptString(reader, out, "Version tag", "latest")
 			if err != nil {
 				return err
@@ -329,8 +355,8 @@ func runInstall(cmd *cobra.Command, opts installOptions) error {
 		}
 		if isPreviewTag(opts.imageTag) && !opts.quiet {
 			fmt.Fprintln(out, "")
-			fmt.Fprintln(out, "WARNING: Preview versions may be unstable, contain bugs, or cause data loss.")
-			fmt.Fprintln(out, "Do not use preview releases in production. Back up your data before upgrading.")
+			fmt.Fprintln(out, styleWarning.Render("WARNING:")+" Preview versions may be unstable, contain bugs, or cause data loss.")
+			fmt.Fprintln(out, styleWarning.Render("Do not use preview releases in production. Back up your data before upgrading."))
 			fmt.Fprintln(out, "")
 		}
 	} else if !dirExists("apps") {
@@ -341,11 +367,11 @@ func runInstall(cmd *cobra.Command, opts installOptions) error {
 	telemetryEnabled := true // default opt-in
 	if !opts.quiet {
 		fmt.Fprintln(out, "")
-		fmt.Fprintln(out, "Anonymous Telemetry:")
-		fmt.Fprintln(out, "Help improve MineOS by sharing anonymous usage data (OS, version, server count,")
-		fmt.Fprintln(out, "approximate location based on IP, and lifecycle events like startup/shutdown/crashes).")
-		fmt.Fprintln(out, "No personal information, player activity, or server names are collected.")
-		fmt.Fprintln(out, "You can opt-out anytime by editing .env (MINEOS_TELEMETRY_ENABLED=false)")
+		fmt.Fprintln(out, styleStep.Render("Anonymous Telemetry:"))
+		fmt.Fprintln(out, styleDim.Render("  Help improve MineOS by sharing anonymous usage data (OS, version, server count,"))
+		fmt.Fprintln(out, styleDim.Render("  approximate location based on IP, and lifecycle events like startup/shutdown/crashes)."))
+		fmt.Fprintln(out, styleDim.Render("  No personal information, player activity, or server names are collected."))
+		fmt.Fprintln(out, styleDim.Render("  You can opt-out anytime by editing .env (")+styleInfo.Render("MINEOS_TELEMETRY_ENABLED=false")+styleDim.Render(")"))
 		value, err := promptYesNo(reader, out, "Enable anonymous telemetry", true)
 		if err != nil {
 			return err
@@ -356,8 +382,8 @@ func runInstall(cmd *cobra.Command, opts installOptions) error {
 
 	if !opts.quiet {
 		fmt.Fprintln(out, "")
-		fmt.Fprintln(out, "Note: Integrations like CurseForge API keys can be configured later")
-		fmt.Fprintln(out, "in the web UI under Settings > Integrations.")
+		fmt.Fprintln(out, styleInfo.Render("Tip:")+" "+styleDim.Render("Integrations like CurseForge API keys can be configured later"))
+		fmt.Fprintln(out, styleDim.Render("in the web UI under Settings > Integrations."))
 	}
 
 	// Generate installation ID for telemetry tracking
@@ -418,33 +444,35 @@ func runInstall(cmd *cobra.Command, opts installOptions) error {
 	}
 
 	if opts.buildFromSource {
-		fmt.Fprintln(out, "Building Docker images...")
+		fmt.Fprintln(out, "")
+		fmt.Fprintln(out, styleInfo.Render("Building Docker images..."))
 		buildID := time.Now().Format("20060102150405")
 		if err := compose.runWithEnv(append(composeFiles, "build"), []string{"PUBLIC_BUILD_ID=" + buildID}); err != nil {
 			return err
 		}
 	} else {
-		fmt.Fprintln(out, "Pulling Docker images...")
+		fmt.Fprintln(out, "")
+		fmt.Fprintln(out, styleInfo.Render("Pulling Docker images..."))
 		if err := compose.run(append(composeFiles, "pull")); err != nil {
 			return err
 		}
 	}
 
-	fmt.Fprintln(out, "Starting services...")
+	fmt.Fprintln(out, styleInfo.Render("Starting services..."))
 	installErr := compose.run(append(composeFiles, "up", "-d"))
 
 	// Calculate installation duration
 	installDuration := time.Since(installStart)
 	installDurationMs := installDuration.Milliseconds()
 
-	// Send installation telemetry (non-blocking, ignore errors)
+	// Send installation telemetry and capture telemetry key
 	if opts.telemetryEnabled {
 		go func() {
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
 
 			endpoint := "https://mineos.net"
-			client := telemetry.NewClient(endpoint, true)
+			client := telemetry.NewClient(endpoint, true, "")
 
 			errorMsg := ""
 			if installErr != nil {
@@ -457,7 +485,12 @@ func runInstall(cmd *cobra.Command, opts installOptions) error {
 			}
 
 			event := telemetry.BuildInstallEvent(installationID, version, installErr == nil, installDurationMs, errorMsg)
-			_ = client.ReportInstall(ctx, event)
+			resp, err := client.ReportInstall(ctx, event)
+
+			// If we got a telemetry key, append it to .env
+			if err == nil && resp != nil && resp.TelemetryKey != "" {
+				appendToEnv(".env", "MINEOS_TELEMETRY_KEY", resp.TelemetryKey)
+			}
 		}()
 	}
 
@@ -466,32 +499,29 @@ func runInstall(cmd *cobra.Command, opts installOptions) error {
 	}
 
 	fmt.Fprintln(out, "")
-	fmt.Fprintln(out, "========================================")
-	fmt.Fprintln(out, "Installation Complete! 🎉")
-	fmt.Fprintln(out, "========================================")
+	fmt.Fprintln(out, styleBox.Render(styleSuccess.Render("  Installation Complete! 🎉  ")))
 	fmt.Fprintln(out, "")
-	fmt.Fprintln(out, "Your MineOS server is now running!")
+	fmt.Fprintln(out, styleSuccess.Render("  Your MineOS server is now running!"))
 	fmt.Fprintln(out, "")
-	fmt.Fprintln(out, "Web Interface:")
-	fmt.Fprintf(out, "  Open your browser and go to: %s\n", opts.webOrigin)
+	fmt.Fprintln(out, styleTitle.Render("  Web Interface"))
+	fmt.Fprintf(out, "  %s %s\n", styleLabel.Render("Open your browser:"), styleValue.Render(opts.webOrigin))
 	fmt.Fprintln(out, "")
-	fmt.Fprintln(out, "Login Credentials:")
-	fmt.Fprintln(out, "  Username:", opts.adminUser)
-	fmt.Fprintln(out, "  Password:", opts.adminPass)
+	fmt.Fprintln(out, styleTitle.Render("  Login Credentials"))
+	fmt.Fprintf(out, "  %s  %s\n", styleLabel.Render("Username:"), styleValue.Render(opts.adminUser))
+	fmt.Fprintf(out, "  %s  %s\n", styleLabel.Render("Password:"), styleValue.Render(opts.adminPass))
 	fmt.Fprintln(out, "")
-	fmt.Fprintln(out, "API Information (for advanced users):")
-	fmt.Fprintf(out, "  API endpoint: http://localhost:%d\n", opts.apiPort)
-	fmt.Fprintf(out, "  API docs: http://localhost:%d/swagger\n", opts.apiPort)
-	fmt.Fprintln(out, "  API key:", apiKey)
+	fmt.Fprintln(out, styleTitle.Render("  API Information")+" "+styleDim.Render("(for advanced users)"))
+	fmt.Fprintf(out, "  %s  %s\n", styleDim.Render("Endpoint:"), styleInfo.Render(fmt.Sprintf("http://localhost:%d", opts.apiPort)))
+	fmt.Fprintf(out, "  %s  %s\n", styleDim.Render("Docs:    "), styleInfo.Render(fmt.Sprintf("http://localhost:%d/swagger", opts.apiPort)))
+	fmt.Fprintf(out, "  %s  %s\n", styleDim.Render("API key: "), styleInfo.Render(apiKey))
 	fmt.Fprintln(out, "")
-	fmt.Fprintln(out, "Next Steps:")
-	fmt.Fprintln(out, "  1. Open the web interface in your browser")
-	fmt.Fprintln(out, "  2. Log in with your admin credentials")
-	fmt.Fprintln(out, "  3. Create your first Minecraft server!")
+	fmt.Fprintln(out, styleTitle.Render("  Next Steps"))
+	fmt.Fprintln(out, styleSuccess.Render("  1.")+" Open the web interface in your browser")
+	fmt.Fprintln(out, styleSuccess.Render("  2.")+" Log in with your admin credentials")
+	fmt.Fprintln(out, styleSuccess.Render("  3.")+" Create your first Minecraft server!")
 	fmt.Fprintln(out, "")
-	fmt.Fprintln(out, "Manage your installation:")
-	fmt.Fprintln(out, "  - Use the terminal interface for advanced management")
-	fmt.Fprintln(out, "  - Use 'mineos --help' to see all available commands")
+	fmt.Fprintln(out, styleDim.Render("  Use the terminal interface for advanced management"))
+	fmt.Fprintln(out, styleDim.Render("  Use 'mineos --help' to see all available commands"))
 	fmt.Fprintln(out, "")
 
 	// Prompt to install CLI to PATH (skip in quiet mode or if explicitly skipped)
@@ -503,19 +533,19 @@ func runInstall(cmd *cobra.Command, opts installOptions) error {
 
 		if installToPath {
 			if err := installCLIToPath(out); err != nil {
-				fmt.Fprintf(out, "Warning: Could not install to PATH: %v\n", err)
+				fmt.Fprintf(out, "%s Could not install to PATH: %v\n", styleWarning.Render("Warning:"), err)
 				fmt.Fprintln(out, "You can still use the CLI from this directory.")
 				printLocalCLIInstructions(out)
 			} else {
 				pwd, _ := os.Getwd()
 				fmt.Fprintln(out, "")
-				fmt.Fprintln(out, "CLI installed to system PATH!")
+				fmt.Fprintln(out, styleSuccess.Render("CLI installed to system PATH!"))
 				fmt.Fprintln(out, "")
-				fmt.Fprintln(out, "To manage your servers from the terminal:")
-				fmt.Fprintf(out, "  cd \"%s\"\n", pwd)
-				fmt.Fprintln(out, "  mineos tui")
+				fmt.Fprintln(out, styleTitle.Render("  To manage your servers from the terminal:"))
+				fmt.Fprintf(out, "    %s\n", styleInfo.Render(fmt.Sprintf("cd \"%s\"", pwd)))
+				fmt.Fprintf(out, "    %s\n", styleInfo.Render("mineos tui"))
 				fmt.Fprintln(out, "")
-				fmt.Fprintln(out, "Note: You must run commands from this directory (or use --env flag)")
+				fmt.Fprintln(out, styleDim.Render("  Note: You must run commands from this directory (or use --env flag)"))
 			}
 		} else {
 			printLocalCLIInstructions(out)
@@ -526,9 +556,9 @@ func runInstall(cmd *cobra.Command, opts installOptions) error {
 
 	if !opts.quiet {
 		fmt.Fprintln(out, "")
-		fmt.Fprintln(out, "Happy Minecrafting!")
+		fmt.Fprintln(out, styleAccent.Render("  Happy Minecrafting! ⛏"))
 	} else {
-		fmt.Fprintln(out, "Installation complete.")
+		fmt.Fprintln(out, styleSuccess.Render("Installation complete."))
 	}
 
 	return nil
@@ -619,7 +649,7 @@ func renderEnv(cfg envConfig) string {
 }
 
 func createDirectories(out io.Writer, hostBaseDir, dataDir string) error {
-	fmt.Fprintln(out, "Creating directories...")
+	fmt.Fprintln(out, styleInfo.Render("Creating directories..."))
 	paths := []string{
 		filepath.Join(hostBaseDir, "servers"),
 		filepath.Join(hostBaseDir, "profiles"),
@@ -636,13 +666,13 @@ func createDirectories(out io.Writer, hostBaseDir, dataDir string) error {
 
 	if runtime.GOOS == "linux" && isRoot() {
 		if err := chownRecursive(hostBaseDir, 1000, 1000); err != nil {
-			fmt.Fprintf(out, "Warning: unable to chown %s: %v\n", hostBaseDir, err)
+			fmt.Fprintf(out, "%s unable to chown %s: %v\n", styleWarning.Render("Warning:"), hostBaseDir, err)
 		}
 		if err := chownRecursive(dataDir, 1000, 1000); err != nil {
-			fmt.Fprintf(out, "Warning: unable to chown %s: %v\n", dataDir, err)
+			fmt.Fprintf(out, "%s unable to chown %s: %v\n", styleWarning.Render("Warning:"), dataDir, err)
 		}
 	} else if runtime.GOOS == "linux" {
-		fmt.Fprintln(out, "Not running as root; skipping ownership changes (1000:1000).")
+		fmt.Fprintln(out, styleDim.Render("Not running as root; skipping ownership changes (1000:1000)."))
 	}
 
 	return nil
@@ -659,9 +689,9 @@ func chownRecursive(path string, uid, gid int) error {
 
 func promptString(_ *bufio.Reader, _ io.Writer, label, defaultValue string) (string, error) {
 	if defaultValue != "" {
-		fmt.Printf("%s (default: %s): ", label, defaultValue)
+		fmt.Printf("%s %s: ", styleLabel.Render(label), styleDim.Render("(default: "+defaultValue+")"))
 	} else {
-		fmt.Printf("%s: ", label)
+		fmt.Printf("%s: ", styleLabel.Render(label))
 	}
 
 	scanner := bufio.NewScanner(os.Stdin)
@@ -681,7 +711,7 @@ func promptString(_ *bufio.Reader, _ io.Writer, label, defaultValue string) (str
 
 func promptPassword(out io.Writer, prompt string) (string, error) {
 	if term.IsTerminal(int(os.Stdin.Fd())) {
-		fmt.Fprint(out, prompt)
+		fmt.Fprint(out, styleLabel.Render(strings.TrimSuffix(prompt, " "))+": ")
 		bytes, err := term.ReadPassword(int(os.Stdin.Fd()))
 		fmt.Fprintln(out)
 		if err != nil {
@@ -710,7 +740,7 @@ func promptYesNo(_ *bufio.Reader, _ io.Writer, label string, defaultValue bool) 
 	if defaultValue {
 		defaultLabel = "Y/n"
 	}
-	fmt.Printf("%s (%s): ", label, defaultLabel)
+	fmt.Printf("%s %s: ", styleLabel.Render(label), styleDim.Render("("+defaultLabel+")"))
 
 	scanner := bufio.NewScanner(os.Stdin)
 	if !scanner.Scan() {
@@ -875,20 +905,20 @@ func (c composeRunner) runWithEnv(args []string, env []string) error {
 
 func printLocalCLIInstructions(out io.Writer) {
 	fmt.Fprintln(out, "")
-	fmt.Fprintln(out, "To manage your servers from the terminal:")
+	fmt.Fprintln(out, styleTitle.Render("  To manage your servers from the terminal:"))
 
 	if runtime.GOOS == "windows" {
 		pwd, _ := os.Getwd()
-		fmt.Fprintf(out, "  cd \"%s\"\n", pwd)
-		fmt.Fprintln(out, "  .\\mineos.exe tui")
+		fmt.Fprintf(out, "    %s\n", styleInfo.Render(fmt.Sprintf("cd \"%s\"", pwd)))
+		fmt.Fprintf(out, "    %s\n", styleInfo.Render(".\\mineos.exe tui"))
 	} else {
 		pwd, _ := os.Getwd()
-		fmt.Fprintf(out, "  cd \"%s\"\n", pwd)
-		fmt.Fprintln(out, "  ./mineos tui")
+		fmt.Fprintf(out, "    %s\n", styleInfo.Render(fmt.Sprintf("cd \"%s\"", pwd)))
+		fmt.Fprintf(out, "    %s\n", styleInfo.Render("./mineos tui"))
 	}
 
 	fmt.Fprintln(out, "")
-	fmt.Fprintln(out, "(Or run the installer again and choose to install to PATH)")
+	fmt.Fprintln(out, styleDim.Render("  (Or run the installer again and choose to install to PATH)"))
 }
 
 func installCLIToPath(out io.Writer) error {
@@ -923,38 +953,38 @@ func installCLIToPathWindows(out io.Writer, exePath string) error {
 		return fmt.Errorf("failed to copy executable: %w", err)
 	}
 
-	fmt.Fprintf(out, "Installed to: %s\n", destPath)
+	fmt.Fprintf(out, "%s %s\n", styleSuccess.Render("Installed to:"), styleValue.Render(destPath))
 
 	// Show important note about .env location
 	pwd, _ := os.Getwd()
 	fmt.Fprintln(out, "")
-	fmt.Fprintln(out, "IMPORTANT: Your .env file is located at:")
-	fmt.Fprintf(out, "  %s\\.env\n", pwd)
+	fmt.Fprintln(out, styleWarning.Render("IMPORTANT:")+" Your .env file is located at:")
+	fmt.Fprintf(out, "  %s\n", styleValue.Render(pwd+"\\.env"))
 	fmt.Fprintln(out, "")
-	fmt.Fprintln(out, "You must either:")
-	fmt.Fprintln(out, "  1. cd to this directory before running mineos commands, OR")
-	fmt.Fprintf(out, "  2. Use the --env flag: mineos --env \"%s\\.env\" tui\n", pwd)
+	fmt.Fprintln(out, styleDim.Render("You must either:"))
+	fmt.Fprintf(out, "  %s cd to this directory before running mineos commands, OR\n", styleSuccess.Render("1."))
+	fmt.Fprintf(out, "  %s Use the --env flag: %s\n", styleSuccess.Render("2."), styleInfo.Render(fmt.Sprintf("mineos --env \"%s\\.env\" tui", pwd)))
 
 	// Check if directory is in PATH
 	pathEnv := os.Getenv("PATH")
 	if !strings.Contains(strings.ToLower(pathEnv), strings.ToLower(installDir)) {
 		fmt.Fprintln(out, "")
-		fmt.Fprintln(out, "⚠️  Almost done! The installation directory is not in your PATH.")
+		fmt.Fprintln(out, styleWarning.Render("⚠  Almost done!")+" The installation directory is not in your PATH.")
 		fmt.Fprintln(out, "")
-		fmt.Fprintln(out, "To complete the installation, add this directory to your PATH:")
-		fmt.Fprintf(out, "  %s\n", installDir)
+		fmt.Fprintln(out, styleDim.Render("To complete the installation, add this directory to your PATH:"))
+		fmt.Fprintf(out, "  %s\n", styleValue.Render(installDir))
 		fmt.Fprintln(out, "")
-		fmt.Fprintln(out, "How to add to PATH:")
-		fmt.Fprintln(out, "  1. Press Win+R, type 'sysdm.cpl', press Enter")
-		fmt.Fprintln(out, "  2. Go to 'Advanced' tab → 'Environment Variables'")
-		fmt.Fprintln(out, "  3. Under 'User variables', select 'Path' → 'Edit'")
-		fmt.Fprintln(out, "  4. Click 'New' and paste the directory path above")
-		fmt.Fprintln(out, "  5. Click 'OK' on all windows")
-		fmt.Fprintln(out, "  6. Restart your terminal")
+		fmt.Fprintln(out, styleTitle.Render("How to add to PATH:"))
+		fmt.Fprintf(out, "  %s Press Win+R, type %s, press Enter\n", styleDim.Render("1."), styleInfo.Render("sysdm.cpl"))
+		fmt.Fprintf(out, "  %s Go to 'Advanced' tab > 'Environment Variables'\n", styleDim.Render("2."))
+		fmt.Fprintf(out, "  %s Under 'User variables', select 'Path' > 'Edit'\n", styleDim.Render("3."))
+		fmt.Fprintf(out, "  %s Click 'New' and paste the directory path above\n", styleDim.Render("4."))
+		fmt.Fprintf(out, "  %s Click 'OK' on all windows\n", styleDim.Render("5."))
+		fmt.Fprintf(out, "  %s Restart your terminal\n", styleDim.Render("6."))
 		fmt.Fprintln(out, "")
-		fmt.Fprintln(out, "Alternatively, use PowerShell (run as user, not admin):")
-		fmt.Fprintln(out, "  $env:Path += ';"+installDir+"'")
-		fmt.Fprintf(out, "  [Environment]::SetEnvironmentVariable('Path', $env:Path, 'User')\n")
+		fmt.Fprintln(out, styleDim.Render("Alternatively, use PowerShell (run as user, not admin):"))
+		fmt.Fprintf(out, "  %s\n", styleInfo.Render("$env:Path += ';"+installDir+"'"))
+		fmt.Fprintf(out, "  %s\n", styleInfo.Render("[Environment]::SetEnvironmentVariable('Path', $env:Path, 'User')"))
 	}
 
 	return nil
@@ -995,29 +1025,29 @@ func installCLIToPathUnix(out io.Writer, exePath string) error {
 		return fmt.Errorf("failed to make executable: %w", err)
 	}
 
-	fmt.Fprintf(out, "Installed to: %s\n", destPath)
+	fmt.Fprintf(out, "%s %s\n", styleSuccess.Render("Installed to:"), styleValue.Render(destPath))
 
 	// Show important note about .env location
 	pwd, _ := os.Getwd()
 	fmt.Fprintln(out, "")
-	fmt.Fprintln(out, "IMPORTANT: Your .env file is located at:")
-	fmt.Fprintf(out, "  %s/.env\n", pwd)
+	fmt.Fprintln(out, styleWarning.Render("IMPORTANT:")+" Your .env file is located at:")
+	fmt.Fprintf(out, "  %s\n", styleValue.Render(pwd+"/.env"))
 	fmt.Fprintln(out, "")
-	fmt.Fprintln(out, "You must either:")
-	fmt.Fprintln(out, "  1. cd to this directory before running mineos commands, OR")
-	fmt.Fprintf(out, "  2. Use the --env flag: mineos --env \"%s/.env\" tui\n", pwd)
+	fmt.Fprintln(out, styleDim.Render("You must either:"))
+	fmt.Fprintf(out, "  %s cd to this directory before running mineos commands, OR\n", styleSuccess.Render("1."))
+	fmt.Fprintf(out, "  %s Use the --env flag: %s\n", styleSuccess.Render("2."), styleInfo.Render(fmt.Sprintf("mineos --env \"%s/.env\" tui", pwd)))
 
 	// Check if directory is in PATH
 	pathEnv := os.Getenv("PATH")
 	if !strings.Contains(pathEnv, installDir) {
 		fmt.Fprintln(out, "")
-		fmt.Fprintln(out, "⚠️  Almost done! The installation directory is not in your PATH.")
+		fmt.Fprintln(out, styleWarning.Render("⚠  Almost done!")+" The installation directory is not in your PATH.")
 		fmt.Fprintln(out, "")
-		fmt.Fprintln(out, "Add this line to your shell profile (~/.bashrc, ~/.zshrc, or ~/.profile):")
-		fmt.Fprintf(out, "  export PATH=\"%s:$PATH\"\n", installDir)
+		fmt.Fprintln(out, styleDim.Render("Add this line to your shell profile (~/.bashrc, ~/.zshrc, or ~/.profile):"))
+		fmt.Fprintf(out, "  %s\n", styleInfo.Render(fmt.Sprintf("export PATH=\"%s:$PATH\"", installDir)))
 		fmt.Fprintln(out, "")
-		fmt.Fprintln(out, "Then reload your shell:")
-		fmt.Fprintln(out, "  source ~/.bashrc  # or ~/.zshrc")
+		fmt.Fprintln(out, styleDim.Render("Then reload your shell:"))
+		fmt.Fprintf(out, "  %s\n", styleInfo.Render("source ~/.bashrc  # or ~/.zshrc"))
 	}
 
 	return nil
@@ -1031,4 +1061,14 @@ func testWriteAccess(dir string) error {
 	}
 	f.Close()
 	return os.Remove(testFile)
+}
+
+// appendToEnv appends a KEY=VALUE line to the given .env file.
+func appendToEnv(path, key, value string) {
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0o644)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+	fmt.Fprintf(f, "\n%s=%s\n", key, value)
 }

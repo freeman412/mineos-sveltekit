@@ -18,6 +18,7 @@ public sealed class SettingsService : ISettingsService
         public const string TelemetryEnabled = "MineOS:TelemetryEnabled";
         public const string DiscordWebhookUrl = "Discord:WebhookUrl";
         public const string LogLevel = "MineOS:LogLevel";
+        public const string TelemetryKey = "MineOS:TelemetryKey";
     }
 
     // Metadata for known settings

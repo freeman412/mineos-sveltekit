@@ -49,6 +49,7 @@ func (r *DotenvRepository) Load(_ context.Context) (config.Config, error) {
 	cfg.TelemetryEnabled = values["MINEOS_TELEMETRY_ENABLED"]
 	cfg.TelemetryEndpoint = values["MINEOS_TELEMETRY_ENDPOINT"]
 	cfg.InstallationID = values["MINEOS_INSTALLATION_ID"]
+	cfg.TelemetryKey = values["MINEOS_TELEMETRY_KEY"]
 
 	return cfg, nil
 }
