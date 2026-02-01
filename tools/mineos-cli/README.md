@@ -78,7 +78,7 @@ mineos
 | `mineos servers restart <name>` | Restart a server |
 | `mineos servers kill <name>` | Force kill a server |
 | `mineos servers stop-all` | Stop all running servers |
-| `mineos logs <server>` | Stream server logs |
+| `mineos servers logs <server>` | Stream Minecraft server logs |
 
 ### Stack Management
 
@@ -93,6 +93,11 @@ mineos
 | `mineos stack ps` | Show container status |
 | `mineos stack logs` | View Docker logs |
 | `mineos stack update` | Pull and recreate services |
+
+Shortcuts (same as `stack`):
+- `mineos start` / `mineos stop` / `mineos restart`
+- `mineos logs [service]` (Docker compose logs)
+- `mineos pull` / `mineos ps` / `mineos down`
 
 ### Status & Configuration
 
@@ -163,21 +168,33 @@ mineos install -q \
   --build
 ```
 
-## Logs Command
+## Minecraft Logs Command
 
 Stream real-time logs from a Minecraft server:
 
 ```bash
 # Default (combined logs)
-mineos logs myserver
+mineos servers logs myserver
 
 # Specific log source
-mineos logs myserver --source server
-mineos logs myserver --source java
-mineos logs myserver --source crash
+mineos servers logs myserver --source server
+mineos servers logs myserver --source java
+mineos servers logs myserver --source crash
 ```
 
 Press Ctrl+C to stop streaming.
+
+## Docker Logs Command
+
+Stream real-time Docker Compose logs:
+
+```bash
+# All services (default)
+mineos logs
+
+# A single service (example)
+mineos logs api
+```
 
 ## Uninstall Command
 

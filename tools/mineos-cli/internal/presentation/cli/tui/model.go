@@ -65,6 +65,9 @@ type TuiModel struct {
 	LoadConfig *usecases.LoadConfigUseCase
 	Ctx        context.Context
 
+	// Version is the mineos-cli version (usually from the git tag at build time).
+	Version string
+
 	Width  int
 	Height int
 

@@ -1,6 +1,7 @@
 package commands
 
 import (
+	"errors"
 	"fmt"
 	"os"
 
@@ -27,15 +28,20 @@ func NewRootCommand(deps RootDeps) *cobra.Command {
 		Short: "MineOS management CLI",
 		Long:  "MineOS management CLI for server setup and operations.",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return tui.RunTui(cmd.Context(), deps.LoadConfig, cmd.InOrStdin(), cmd.OutOrStdout())
+			return tui.RunTui(cmd.Context(), deps.LoadConfig, deps.Version, cmd.InOrStdin(), cmd.OutOrStdout())
 		},
 		PersistentPreRunE: func(cmd *cobra.Command, _ []string) error {
 			if envPath != "" {
 				deps.ConfigRepo.SetPath(envPath)
 			}
 
-			// Skip .env check for commands that don't need it
-			skipEnvCheck := cmd.Name() == "install" || cmd.Name() == "upgrade" || cmd.Name() == "version" || cmd.Name() == "help"
+			// Skip .env check for commands that don't need it (or can help bootstrap an install).
+			skipEnvCheck := cmd.Name() == "mineos" ||
+				cmd.Name() == "tui" ||
+				cmd.Name() == "install" ||
+				cmd.Name() == "upgrade" ||
+				cmd.Name() == "version" ||
+				cmd.Name() == "help"
 			if skipEnvCheck {
 				return nil
 			}
@@ -55,7 +61,7 @@ func NewRootCommand(deps RootDeps) *cobra.Command {
 				msg += "  1. Navigate to the installation directory, OR\n"
 				msg += fmt.Sprintf("  2. Use --env flag: mineos --env /path/to/.env %s\n\n", cmd.Name())
 				msg += fmt.Sprintf("Current directory: %s\n", pwd)
-				return fmt.Errorf(msg)
+				return errors.New(msg)
 			}
 
 			return nil
@@ -69,10 +75,17 @@ func NewRootCommand(deps RootDeps) *cobra.Command {
 	cmd.AddCommand(NewHealthCommand(deps.LoadConfig))
 	cmd.AddCommand(NewInteractiveCommand(deps.LoadConfig))
 	cmd.AddCommand(NewInstallCommand())
-	cmd.AddCommand(NewLogsCommand(deps.LoadConfig))
+	// Default logs for installation management: docker compose logs.
+	cmd.AddCommand(NewDockerLogsCommand(deps.LoadConfig))
 	cmd.AddCommand(NewReconfigureCommand(deps.LoadConfig))
+	cmd.AddCommand(NewStartCommand(deps.LoadConfig))
+	cmd.AddCommand(NewStopCommand(deps.LoadConfig))
+	cmd.AddCommand(NewRestartCommand(deps.LoadConfig))
+	cmd.AddCommand(NewPullCommand(deps.LoadConfig))
+	cmd.AddCommand(NewPsCommand(deps.LoadConfig))
+	cmd.AddCommand(NewDownCommand(deps.LoadConfig))
 	cmd.AddCommand(NewStackCommand(deps.LoadConfig))
-	cmd.AddCommand(NewTuiCommand(deps.LoadConfig))
+	cmd.AddCommand(NewTuiCommand(deps.LoadConfig, deps.Version))
 	cmd.AddCommand(NewServersCommand(deps.LoadConfig))
 	cmd.AddCommand(NewStatusCommand(deps.LoadConfig))
 	cmd.AddCommand(NewUninstallCommand())

@@ -21,6 +21,7 @@ func NewServersCommand(loadConfig *usecases.LoadConfigUseCase) *cobra.Command {
 
 	cmd.AddCommand(NewServersListCommand(loadConfig))
 	cmd.AddCommand(NewServersStopAllCommand(loadConfig))
+	cmd.AddCommand(NewServerLogsCommand(loadConfig))
 	cmd.AddCommand(NewServerActionCommand(loadConfig, "start"))
 	cmd.AddCommand(NewServerActionCommand(loadConfig, "stop"))
 	cmd.AddCommand(NewServerActionCommand(loadConfig, "restart"))

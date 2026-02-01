@@ -154,6 +154,11 @@ func runReconfigure(cmd *cobra.Command, loadConfig *usecases.LoadConfigUseCase) 
 		return err
 	}
 
+	fmt.Fprintln(out, "")
+	fmt.Fprintln(out, "Version to pull:")
+	fmt.Fprintln(out, "- 'latest': Most recent stable version (recommended)")
+	fmt.Fprintln(out, "- 'preview': Latest preview/pre-release version")
+	fmt.Fprintln(out, "- Or specify a version tag like 'v1.0.0' to pin to a specific release")
 	imageTag, err := promptString(reader, out, "Image tag to pull", currentImageTag)
 	if err != nil {
 		return err

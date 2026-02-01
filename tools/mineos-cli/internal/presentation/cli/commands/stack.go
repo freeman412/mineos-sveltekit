@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -370,7 +371,14 @@ func NewStackUpdateCommand(loadConfig *usecases.LoadConfigUseCase) *cobra.Comman
 				return err
 			}
 
-			fmt.Fprintln(out, "Pulling latest images...")
+			tag := strings.TrimSpace(cfg.ImageTag)
+			channel := "stable (latest)"
+			if tag == "preview" {
+				channel = "preview"
+			} else if tag != "" && tag != "latest" {
+				channel = "pinned (" + tag + ")"
+			}
+			fmt.Fprintf(out, "Pulling images (%s)...\n", channel)
 			if err := compose.run([]string{"pull"}); err != nil {
 				return err
 			}

@@ -14,9 +14,8 @@ import (
 	"github.com/freemancraft/mineos-sveltekit/tools/mineos-cli/internal/infrastructure/api"
 )
 
-func NewLogsCommand(loadConfig *usecases.LoadConfigUseCase) *cobra.Command {
+func NewServerLogsCommand(loadConfig *usecases.LoadConfigUseCase) *cobra.Command {
 	var source string
-	var follow bool
 
 	cmd := &cobra.Command{
 		Use:   "logs <server>",
@@ -79,7 +78,6 @@ Available log sources:
 	}
 
 	cmd.Flags().StringVarP(&source, "source", "s", "combined", "Log source (combined, server, java, crash)")
-	cmd.Flags().BoolVarP(&follow, "follow", "f", true, "Follow log output (always true for streaming)")
 
 	return cmd
 }

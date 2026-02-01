@@ -1,4 +1,4 @@
-﻿package tui
+package tui
 
 import (
 	"strings"
@@ -26,6 +26,16 @@ func (m TuiModel) RenderSettingsMain(width, height int) []string {
 	lines = append(lines, "  Path:    "+m.Cfg.EnvPath)
 	lines = append(lines, "  Port:    "+Fallback(m.Cfg.ApiPort, "5078"))
 	lines = append(lines, "  Host:    "+Fallback(m.Cfg.MinecraftHost, "localhost"))
+	stackChannel := StyleRunning.Render("Stable (latest)")
+	tag := strings.TrimSpace(m.Cfg.ImageTag)
+	if tag == "" || tag == "latest" {
+		// stable
+	} else if tag == "preview" {
+		stackChannel = StyleError.Render("Preview")
+	} else {
+		stackChannel = StyleStatus.Render("Pinned (" + tag + ")")
+	}
+	lines = append(lines, "  Stack:   "+stackChannel)
 	lines = append(lines, "")
 
 	lines = append(lines, StyleHeader.Render("Database"))

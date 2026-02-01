@@ -15,7 +15,7 @@ import (
 )
 
 // NewTuiModel creates a new TUI model with the given dependencies
-func NewTuiModel(loadConfig *usecases.LoadConfigUseCase, ctx context.Context) TuiModel {
+func NewTuiModel(loadConfig *usecases.LoadConfigUseCase, ctx context.Context, version string) TuiModel {
 	input := textinput.New()
 	input.Placeholder = "console command"
 	input.CharLimit = 2048
@@ -26,6 +26,7 @@ func NewTuiModel(loadConfig *usecases.LoadConfigUseCase, ctx context.Context) Tu
 	return TuiModel{
 		LoadConfig:    loadConfig,
 		Ctx:           ctx,
+		Version:       version,
 		LogsActive:    true,
 		LogType:       LogTypeDocker,
 		LogSource:     DefaultDockerLogSource,
@@ -39,8 +40,8 @@ func NewTuiModel(loadConfig *usecases.LoadConfigUseCase, ctx context.Context) Tu
 }
 
 // RunTui runs the TUI application with context and I/O streams
-func RunTui(ctx context.Context, loadConfig *usecases.LoadConfigUseCase, in io.Reader, out io.Writer) error {
-	model := NewTuiModel(loadConfig, ctx)
+func RunTui(ctx context.Context, loadConfig *usecases.LoadConfigUseCase, version string, in io.Reader, out io.Writer) error {
+	model := NewTuiModel(loadConfig, ctx, version)
 
 	opts := []tea.ProgramOption{tea.WithAltScreen()}
 	if in != nil {
@@ -235,8 +236,8 @@ func (m TuiModel) handleConfigLoaded(msg ConfigLoadedMsg) (tea.Model, tea.Cmd) {
 	}
 	m.Cfg = msg.Cfg
 	m.ConfigReady = true
-	m.ErrMsg = ""     // Clear previous errors
-	m.StatusMsg = ""  // Clear reconnecting status
+	m.ErrMsg = ""    // Clear previous errors
+	m.StatusMsg = "" // Clear reconnecting status
 	m.RetryCount = 0
 	m.Client = api.NewClientFromConfig(msg.Cfg)
 	return m, m.LoadServersCmd()

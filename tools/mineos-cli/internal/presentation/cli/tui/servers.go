@@ -113,7 +113,8 @@ func (m TuiModel) RenderMinecraftLogs(width, height int) []string {
 	for _, line := range m.Logs[start:] {
 		// Sanitize log line to remove ANSI codes that cause rendering issues on Linux
 		sanitized := SanitizeLogLine(line)
-		lines = append(lines, TrimToWidth(sanitized, width))
+		// 4 space indent to prevent overlap with nav menu
+		lines = append(lines, TrimToWidth("    "+sanitized, width))
 	}
 
 	return PadLines(lines, height)
