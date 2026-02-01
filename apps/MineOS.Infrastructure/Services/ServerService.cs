@@ -17,15 +17,18 @@ public class ServerService : IServerService
     private readonly IProcessManager _processManager;
     private readonly HostOptions _options;
     private readonly ILogger<ServerService> _logger;
+    private readonly ITelemetryService _telemetryService;
 
     public ServerService(
         IProcessManager processManager,
         IOptions<HostOptions> options,
-        ILogger<ServerService> logger)
+        ILogger<ServerService> logger,
+        ITelemetryService telemetryService)
     {
         _processManager = processManager;
         _options = options.Value;
         _logger = logger;
+        _telemetryService = telemetryService;
     }
 
     private string GetServerPath(string name) =>
@@ -166,6 +169,7 @@ public class ServerService : IServerService
         OwnershipHelper.TrySetOwnership(archivePath, _options.RunAsUid, _options.RunAsGid, _logger, recursive: true);
 
         _logger.LogInformation("Created server {ServerName} at {ServerPath}", request.Name, serverPath);
+        _ = _telemetryService.ReportLifecycleEventAsync("server_created", null, CancellationToken.None);
 
         return await GetServerAsync(request.Name, cancellationToken);
     }
@@ -252,6 +256,7 @@ public class ServerService : IServerService
             Directory.Delete(archivePath, recursive: true);
 
         _logger.LogInformation("Deleted server {ServerName}", name);
+        _ = _telemetryService.ReportLifecycleEventAsync("server_deleted", null, CancellationToken.None);
     }
 
     public async Task<List<ServerDetailDto>> ListServersAsync(CancellationToken cancellationToken)

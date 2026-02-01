@@ -358,6 +358,14 @@ public sealed class WatchdogService : BackgroundService, IWatchdogService
                 AutoRestartAttempted = false,
                 AutoRestartSucceeded = false
             }, cancellationToken);
+
+            // Report crash telemetry (fire-and-forget)
+            using var scope = _scopeFactory.CreateScope();
+            var telemetryService = scope.ServiceProvider.GetRequiredService<ITelemetryService>();
+            _ = telemetryService.ReportLifecycleEventAsync("crash", new
+            {
+                crash_type = crashType
+            }, CancellationToken.None);
         }
         catch (Exception ex)
         {

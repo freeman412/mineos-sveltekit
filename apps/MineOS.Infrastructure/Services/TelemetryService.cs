@@ -34,7 +34,9 @@ public class TelemetryService : ITelemetryService
         _enabled = configuration["MINEOS_TELEMETRY_ENABLED"]?.ToLowerInvariant() != "false";
         _endpoint = configuration["MINEOS_TELEMETRY_ENDPOINT"] ?? "https://mineos.net";
         _installationId = configuration["MINEOS_INSTALLATION_ID"] ?? string.Empty;
-        _version = configuration["MINEOS_VERSION"] ?? "unknown";
+        _version = configuration["MINEOS_VERSION"]
+                   ?? configuration["MINEOS_IMAGE_TAG"]
+                   ?? "unknown";
     }
 
     public async Task ReportUsageAsync(UsageData data, CancellationToken cancellationToken = default)
