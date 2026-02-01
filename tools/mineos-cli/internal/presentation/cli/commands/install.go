@@ -205,7 +205,7 @@ func runInstall(cmd *cobra.Command, opts installOptions) error {
 
 	if opts.adminPass == "" && !opts.quiet {
 		for {
-			value, err := promptPassword(out, "Admin password: ")
+			value, err := promptPassword(out, "Admin password")
 			if err != nil {
 				return err
 			}
@@ -366,11 +366,13 @@ func runInstall(cmd *cobra.Command, opts installOptions) error {
 	telemetryEnabled := true // default opt-in
 	if !opts.quiet {
 		fmt.Fprintln(out, "")
-		fmt.Fprintln(out, styleStep.Render("Anonymous Telemetry:"))
-		fmt.Fprintln(out, styleDim.Render("  Help improve MineOS by sharing anonymous usage data (OS, version, server count,"))
-		fmt.Fprintln(out, styleDim.Render("  approximate location based on IP, and lifecycle events like startup/shutdown/crashes)."))
-		fmt.Fprintln(out, styleDim.Render("  No personal information, player activity, or server names are collected."))
-		fmt.Fprintln(out, styleDim.Render("  You can opt-out anytime by editing .env (")+styleInfo.Render("MINEOS_TELEMETRY_ENABLED=false")+styleDim.Render(")"))
+		fmt.Fprintln(out, styleStep.Render("Support MineOS Development"))
+		fmt.Fprintln(out, styleDim.Render("  Telemetry helps us understand how MineOS is used so we can prioritize"))
+		fmt.Fprintln(out, styleDim.Render("  features, fix bugs faster, and keep the project alive. We only collect"))
+		fmt.Fprintln(out, styleDim.Render("  anonymous data: OS, version, server count, and lifecycle events."))
+		fmt.Fprintln(out, styleDim.Render("  No personal info, player data, or server names — ever."))
+		fmt.Fprintln(out, "")
+		fmt.Fprintln(out, styleDim.Render("  You can change this anytime in the web UI settings or in .env"))
 		value, err := promptYesNo(reader, out, "Enable anonymous telemetry", true)
 		if err != nil {
 			return err
@@ -457,41 +459,33 @@ func runInstall(cmd *cobra.Command, opts installOptions) error {
 		}
 	}
 
-	fmt.Fprintln(out, styleInfo.Render("Starting services..."))
-	installErr := compose.run(append(composeFiles, "up", "-d"))
-
-	// Calculate installation duration
-	installDuration := time.Since(installStart)
-	installDurationMs := installDuration.Milliseconds()
-
-	// Send installation telemetry and capture telemetry key
+	// Register telemetry BEFORE compose up so the key is in .env when the container starts
 	if opts.telemetryEnabled {
-		go func() {
+		func() {
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
 
 			endpoint := "https://mineos.net"
 			client := telemetry.NewClient(endpoint, true, "")
 
-			errorMsg := ""
-			if installErr != nil {
-				errorMsg = installErr.Error()
-			}
-
 			version := resolveImageVersion(opts.imageTag)
 			if version == "" {
 				version = "source"
 			}
 
-			event := telemetry.BuildInstallEvent(installationID, version, installErr == nil, installDurationMs, errorMsg)
+			installDuration := time.Since(installStart)
+			event := telemetry.BuildInstallEvent(installationID, version, true, installDuration.Milliseconds(), "")
 			resp, err := client.ReportInstall(ctx, event)
 
-			// If we got a telemetry key, append it to .env
 			if err == nil && resp != nil && resp.TelemetryKey != "" {
 				appendToEnv(".env", "MINEOS_TELEMETRY_KEY", resp.TelemetryKey)
+				fmt.Fprintln(out, styleDim.Render("Telemetry registered."))
 			}
 		}()
 	}
+
+	fmt.Fprintln(out, styleInfo.Render("Starting services..."))
+	installErr := compose.run(append(composeFiles, "up", "-d"))
 
 	if installErr != nil {
 		return installErr
