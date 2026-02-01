@@ -1,5 +1,4 @@
 using System.Collections.Concurrent;
-using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -8,7 +7,6 @@ using MineOS.Application.Dtos;
 using MineOS.Application.Interfaces;
 using MineOS.Domain.Entities;
 using MineOS.Application.Options;
-using MineOS.Infrastructure.Persistence;
 
 namespace MineOS.Infrastructure.Services;
 
@@ -17,17 +15,23 @@ public sealed class WatchdogService : BackgroundService, IWatchdogService
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly HostOptions _options;
     private readonly ILogger<WatchdogService> _logger;
+    private readonly IRepository<CrashEvent> _crashEventRepo;
+    private readonly IRepository<SystemNotification> _notificationRepo;
     private readonly ConcurrentDictionary<string, ServerMonitorState> _serverStates = new();
     private readonly TimeSpan _checkInterval = TimeSpan.FromSeconds(5);
 
     public WatchdogService(
         IServiceScopeFactory scopeFactory,
         IOptions<HostOptions> options,
-        ILogger<WatchdogService> logger)
+        ILogger<WatchdogService> logger,
+        IRepository<CrashEvent> crashEventRepo,
+        IRepository<SystemNotification> notificationRepo)
     {
         _scopeFactory = scopeFactory;
         _options = options.Value;
         _logger = logger;
+        _crashEventRepo = crashEventRepo;
+        _notificationRepo = notificationRepo;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -345,10 +349,7 @@ public sealed class WatchdogService : BackgroundService, IWatchdogService
     {
         try
         {
-            using var scope = _scopeFactory.CreateScope();
-            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-
-            var crashEvent = new CrashEvent
+            await _crashEventRepo.AddAsync(new CrashEvent
             {
                 ServerName = serverName,
                 DetectedAt = DateTimeOffset.UtcNow,
@@ -356,10 +357,15 @@ public sealed class WatchdogService : BackgroundService, IWatchdogService
                 CrashDetails = details,
                 AutoRestartAttempted = false,
                 AutoRestartSucceeded = false
-            };
+            }, cancellationToken);
 
-            db.CrashEvents.Add(crashEvent);
-            await db.SaveChangesAsync(cancellationToken);
+            // Report crash telemetry (fire-and-forget)
+            using var scope = _scopeFactory.CreateScope();
+            var telemetryService = scope.ServiceProvider.GetRequiredService<ITelemetryService>();
+            _ = telemetryService.ReportLifecycleEventAsync("crash", new
+            {
+                crash_type = crashType
+            }, CancellationToken.None);
         }
         catch (Exception ex)
         {
@@ -374,20 +380,16 @@ public sealed class WatchdogService : BackgroundService, IWatchdogService
     {
         try
         {
-            using var scope = _scopeFactory.CreateScope();
-            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var events = await _crashEventRepo.ToListAsync(
+                c => c.ServerName == serverName, cancellationToken);
 
-            var latestCrash = await db.CrashEvents
-                .Where(c => c.ServerName == serverName)
-                .OrderByDescending(c => c.DetectedAt)
-                .FirstOrDefaultAsync(cancellationToken);
-
+            var latestCrash = events.OrderByDescending(c => c.DetectedAt).FirstOrDefault();
             if (latestCrash != null)
             {
                 latestCrash.AutoRestartAttempted = true;
                 latestCrash.AutoRestartSucceeded = success;
                 latestCrash.RestartAttemptedAt = DateTimeOffset.UtcNow;
-                await db.SaveChangesAsync(cancellationToken);
+                await _crashEventRepo.UpdateAsync(latestCrash, cancellationToken);
             }
         }
         catch (Exception ex)
@@ -405,10 +407,7 @@ public sealed class WatchdogService : BackgroundService, IWatchdogService
     {
         try
         {
-            using var scope = _scopeFactory.CreateScope();
-            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-
-            var notification = new SystemNotification
+            await _notificationRepo.AddAsync(new SystemNotification
             {
                 Type = type,
                 Title = title,
@@ -416,10 +415,7 @@ public sealed class WatchdogService : BackgroundService, IWatchdogService
                 ServerName = serverName,
                 CreatedAt = DateTimeOffset.UtcNow,
                 IsRead = false
-            };
-
-            db.SystemNotifications.Add(notification);
-            await db.SaveChangesAsync(cancellationToken);
+            }, cancellationToken);
         }
         catch (Exception ex)
         {
@@ -434,68 +430,41 @@ public sealed class WatchdogService : BackgroundService, IWatchdogService
         int limit = 20,
         CancellationToken cancellationToken = default)
     {
-        using var scope = _scopeFactory.CreateScope();
-        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var events = await _crashEventRepo.ToListAsync(
+            c => c.ServerName == serverName, cancellationToken);
 
-        var events = await db.CrashEvents
-            .Where(c => c.ServerName == serverName)
+        return events
             .OrderByDescending(c => c.DetectedAt)
             .Take(limit)
             .Select(c => new CrashEventDto(
-                c.Id,
-                c.ServerName,
-                c.DetectedAt,
-                c.CrashType,
-                c.CrashDetails,
-                c.AutoRestartAttempted,
-                c.AutoRestartSucceeded))
-            .ToListAsync(cancellationToken);
-
-        return events;
+                c.Id, c.ServerName, c.DetectedAt, c.CrashType,
+                c.CrashDetails, c.AutoRestartAttempted, c.AutoRestartSucceeded))
+            .ToList();
     }
 
     public async Task<IEnumerable<CrashEventDto>> GetAllCrashEventsAsync(
         int limit = 50,
         CancellationToken cancellationToken = default)
     {
-        using var scope = _scopeFactory.CreateScope();
-        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var events = await _crashEventRepo.ToListAsync(_ => true, cancellationToken);
 
-        var events = await db.CrashEvents
+        return events
             .OrderByDescending(c => c.DetectedAt)
             .Take(limit)
             .Select(c => new CrashEventDto(
-                c.Id,
-                c.ServerName,
-                c.DetectedAt,
-                c.CrashType,
-                c.CrashDetails,
-                c.AutoRestartAttempted,
-                c.AutoRestartSucceeded))
-            .ToListAsync(cancellationToken);
-
-        return events;
+                c.Id, c.ServerName, c.DetectedAt, c.CrashType,
+                c.CrashDetails, c.AutoRestartAttempted, c.AutoRestartSucceeded))
+            .ToList();
     }
 
     public async Task ClearCrashHistoryAsync(string serverName, CancellationToken cancellationToken = default)
     {
-        using var scope = _scopeFactory.CreateScope();
-        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        await _crashEventRepo.RemoveWhereAsync(
+            c => c.ServerName == serverName, cancellationToken);
 
-        var events = await db.CrashEvents
-            .Where(c => c.ServerName == serverName)
-            .ToListAsync(cancellationToken);
-
-        db.CrashEvents.RemoveRange(events);
-        await db.SaveChangesAsync(cancellationToken);
-
-        // Reset the state
         if (_serverStates.TryGetValue(serverName, out var state))
         {
-            state.RestartAttempts = 0;
-            state.LastCrashTime = null;
-            state.LastRestartAttempt = null;
-            state.CooldownEndsAt = null;
+            state.ResetCrashHistory();
         }
     }
 
@@ -503,19 +472,12 @@ public sealed class WatchdogService : BackgroundService, IWatchdogService
     {
         return _serverStates.ToDictionary(
             kvp => kvp.Key,
-            kvp => new ServerWatchdogStatus(
-                kvp.Value.ServerName,
-                kvp.Value.IsMonitoring,
-                kvp.Value.WasRunning,
-                kvp.Value.RestartAttempts,
-                kvp.Value.LastCrashTime,
-                kvp.Value.LastManualStopTime,
-                kvp.Value.LastRestartAttempt,
-                kvp.Value.CooldownEndsAt));
+            kvp => kvp.Value.ToStatus());
     }
 
     private class ServerMonitorState
     {
+        private readonly object _lock = new();
         public string ServerName { get; }
         public bool IsMonitoring { get; set; }
         public bool WasRunning { get; set; }
@@ -528,6 +490,27 @@ public sealed class WatchdogService : BackgroundService, IWatchdogService
         public ServerMonitorState(string serverName)
         {
             ServerName = serverName;
+        }
+
+        public void ResetCrashHistory()
+        {
+            lock (_lock)
+            {
+                RestartAttempts = 0;
+                LastCrashTime = null;
+                LastRestartAttempt = null;
+                CooldownEndsAt = null;
+            }
+        }
+
+        public ServerWatchdogStatus ToStatus()
+        {
+            lock (_lock)
+            {
+                return new ServerWatchdogStatus(
+                    ServerName, IsMonitoring, WasRunning, RestartAttempts,
+                    LastCrashTime, LastManualStopTime, LastRestartAttempt, CooldownEndsAt);
+            }
         }
     }
 

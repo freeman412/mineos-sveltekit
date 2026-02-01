@@ -33,6 +33,11 @@ services:
       - Cors__AllowedOrigins__0=${WEB_ORIGIN_PROD:-http://localhost:${WEB_PORT:-3000}}
       - Cors__AllowedOrigins__1=${WEB_ORIGIN_DEV:-http://localhost:5174}
       - Cors__AllowedOrigins__2=${WEB_ORIGIN_PROD:-}
+      - MINEOS_TELEMETRY_ENABLED=${MINEOS_TELEMETRY_ENABLED:-true}
+      - MINEOS_TELEMETRY_ENDPOINT=${MINEOS_TELEMETRY_ENDPOINT:-https://mineos.net}
+      - MINEOS_INSTALLATION_ID=${MINEOS_INSTALLATION_ID:-}
+      - MINEOS_TELEMETRY_KEY=${MINEOS_TELEMETRY_KEY:-}
+      - MINEOS_SHUTDOWN_TIMEOUT=${MINEOS_SHUTDOWN_TIMEOUT:-300}
     volumes:
       - ${HOST_BASE_DIRECTORY:-/var/games/minecraft}:/var/games/minecraft
       - ${Data__Directory:-./data}:/app/data

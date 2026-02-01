@@ -1,7 +1,8 @@
-﻿package tui
+package tui
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/charmbracelet/lipgloss"
 )
@@ -16,11 +17,17 @@ func (m TuiModel) RenderHeader() string {
 	}
 
 	// Logo/Title with ALPHA warning
-	logo := StyleHeader.Render(" MineOS ") + " " + StyleError.Render("[ALPHA - EXPERIMENTAL]")
+	version := strings.TrimSpace(m.Version)
+	if version == "" {
+		version = "dev"
+	}
+	logo := StyleHeader.Render(" MineOS ") + StyleSubtle.Render(" v"+version) + " " + StyleError.Render("[ALPHA - EXPERIMENTAL]")
 
 	// Persistent Info (Top Left Box)
+	apiPort := Fallback(m.Cfg.ApiPort, "5078")
+	apiEndpoint := StyleSubtle.Render(fmt.Sprintf("http://localhost:%s", apiPort))
 	infoLines := []string{
-		fmt.Sprintf("API:       %s", health),
+		fmt.Sprintf("API:       %s  %s", health, apiEndpoint),
 		fmt.Sprintf("Origin:    %s", StyleStatus.Render(Fallback(m.Cfg.WebOrigin, "http://localhost:3000"))),
 		fmt.Sprintf("MC Host:   %s", StyleStatus.Render(Fallback(m.Cfg.MinecraftHost, "localhost"))),
 		fmt.Sprintf("Docker:    %s", m.RenderDockerStatus()),

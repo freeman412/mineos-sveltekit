@@ -3,6 +3,8 @@ services:
     build:
       context: ./apps
       dockerfile: MineOS.Api/Dockerfile
+      args:
+        MINEOS_IMAGE_TAG: ${MINEOS_IMAGE_TAG:-latest}
 
   web:
     build:

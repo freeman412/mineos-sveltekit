@@ -57,3 +57,4 @@ apps/web/.env
 tools/mineos-cli/mineos.exe
 tools/mineos-cli/.idea/*
 tools/mineos-cli/mineos.exe.old
+mineos/*

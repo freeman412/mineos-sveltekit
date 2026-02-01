@@ -14,6 +14,7 @@ using ApiKeyOptions = MineOS.Application.Options.ApiKeyOptions;
 using JwtOptions = MineOS.Application.Options.JwtOptions;
 using CurseForgeOptions = MineOS.Application.Options.CurseForgeOptions;
 using MineOS.Infrastructure.Persistence;
+using MineOS.Infrastructure.Persistence.Repositories;
 using MineOS.Infrastructure.Services;
 using MineOS.Infrastructure.External;
 using MineOS.Infrastructure.Background;
@@ -93,26 +94,26 @@ builder.Services.AddSwaggerGen(options =>
 
 builder.Services.Configure<HostOptions>(builder.Configuration.GetSection("Host"));
 builder.Services.Configure<ApiKeyOptions>(builder.Configuration.GetSection("ApiKey"));
-builder.Services.Configure<JwtOptions>(builder.Configuration.GetSection("Auth:Jwt"));
+builder.Services.AddOptions<JwtOptions>()
+    .BindConfiguration("Auth:Jwt")
+    .Validate(o => !string.IsNullOrWhiteSpace(o.SigningKey),
+        "JWT signing key must be configured. Set Auth:Jwt:SigningKey in appsettings.json or AUTH__JWT__SIGNINGKEY environment variable.")
+    .ValidateOnStart();
 builder.Services.Configure<CurseForgeOptions>(builder.Configuration.GetSection("CurseForge"));
 
+var jwtOptions = builder.Configuration.GetSection("Auth:Jwt").Get<JwtOptions>() ?? new JwtOptions();
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>
     {
-        var resolved = builder.Configuration.GetSection("Auth:Jwt").Get<JwtOptions>() ?? new JwtOptions();
-        if (string.IsNullOrWhiteSpace(resolved.SigningKey))
-        {
-            resolved.SigningKey = "change-me";
-        }
-
         options.TokenValidationParameters = new TokenValidationParameters
         {
             ValidateIssuer = true,
             ValidateAudience = true,
             ValidateIssuerSigningKey = true,
-            ValidIssuer = resolved.Issuer,
-            ValidAudience = resolved.Audience,
-            IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(resolved.SigningKey))
+            ValidIssuer = jwtOptions.Issuer,
+            ValidAudience = jwtOptions.Audience,
+            IssuerSigningKey = new SymmetricSecurityKey(
+                Encoding.UTF8.GetBytes(jwtOptions.SigningKey))
         };
 
         options.Events = new JwtBearerEvents
@@ -133,11 +134,17 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
 
 builder.Services.AddAuthorization();
 
+var defaultConnectionString = builder.Configuration.GetConnectionString("Default");
 builder.Services.AddDbContext<AppDbContext>(options =>
 {
-    var connectionString = builder.Configuration.GetConnectionString("Default");
-    options.UseSqlite(connectionString);
+    options.UseSqlite(defaultConnectionString);
 });
+builder.Services.AddDbContextFactory<AppDbContext>(options =>
+{
+    options.UseSqlite(defaultConnectionString);
+});
+builder.Services.AddSingleton(typeof(IRepository<>), typeof(Repository<>));
+builder.Services.AddSingleton<IModpackRepository, ModpackRepository>();
 builder.Services.AddScoped<IApiKeyValidator, ApiKeyValidator>();
 builder.Services.AddScoped<IHostService, HostService>();
 builder.Services.AddScoped<IAuthService, AuthService>();
@@ -151,7 +158,6 @@ builder.Services.AddScoped<IConsoleService, ConsoleService>();
 builder.Services.AddScoped<IMonitoringService, MonitoringService>();
 builder.Services.AddScoped<IPerformanceService, PerformanceService>();
 builder.Services.AddScoped<IFileService, FileService>();
-builder.Services.AddScoped<IProfileService, ProfileService>();
 builder.Services.AddScoped<IImportService, ImportService>();
 builder.Services.AddScoped<IPluginService, PluginService>();
 builder.Services.AddScoped<ICurseForgeService, CurseForgeService>();
@@ -171,6 +177,8 @@ builder.Services.AddHostedService(sp => sp.GetRequiredService<BackgroundJobServi
 builder.Services.AddHostedService<PerformanceCollectorService>();
 builder.Services.AddHostedService<LanBroadcastService>();
 builder.Services.AddHostedService<StartupServerService>();
+builder.Services.AddHostedService<ApplicationLifetimeService>();
+builder.Services.AddHostedService<TelemetryReporterService>();
 builder.Services.AddSingleton<WatchdogService>();
 builder.Services.AddSingleton<IWatchdogService>(sp => sp.GetRequiredService<WatchdogService>());
 builder.Services.AddHostedService(sp => sp.GetRequiredService<WatchdogService>());
@@ -188,6 +196,7 @@ builder.Services.AddHttpClient<CurseForgeClient>();
 builder.Services.AddScoped<ApiKeySeeder>();
 builder.Services.AddScoped<UserSeeder>();
 builder.Services.AddScoped<ISettingsService, SettingsService>();
+builder.Services.AddHttpClient<ITelemetryService, TelemetryService>();
 
 var allowedOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>() ?? Array.Empty<string>();
 

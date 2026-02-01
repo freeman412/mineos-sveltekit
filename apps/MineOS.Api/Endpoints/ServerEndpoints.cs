@@ -456,6 +456,9 @@ public static class ServerEndpoints
         // Phase 6b: Plugin management endpoints
         servers.MapPluginEndpoints();
 
+        // Phase 6c: Resource Pack management endpoints
+        servers.MapResourcePackEndpoints();
+
         var cron = api.MapGroup("/servers/{name}/cron");
         cron.AddEndpointFilter<ServerAccessFilter>();
         cron.MapGet("/", (string name) => Results.Ok(Array.Empty<CronJobDto>()));

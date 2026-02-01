@@ -3,6 +3,7 @@
 	import { browser } from '$app/environment';
 	import { onMount } from 'svelte';
 	import NotificationMenu from './NotificationMenu.svelte';
+	import NetherPortalButton from './NetherPortalButton.svelte';
 	import type { Profile, ServerSummary, ServerDetail } from '$lib/api/types';
 	import * as api from '$lib/api/client';
 
@@ -25,6 +26,7 @@
 	let recentServerNames = $state<string[]>([]);
 	let recentProfileIds = $state<string[]>([]);
 	let actionBusy = $state<string | null>(null);
+	let mineosVersion = $state<string | null>(null);
 
 	const minQueryLength = 2;
 	const maxResults = 8;
@@ -56,6 +58,11 @@
 		recentQueries = loadRecent(recentQueryKey);
 		recentServerNames = loadRecent(recentServerKey);
 		recentProfileIds = loadRecent(recentProfileKey);
+
+		void (async () => {
+			const res = await api.getMeta(fetch);
+			if (res.data?.version) mineosVersion = res.data.version;
+		})();
 	});
 
 	function loadRecent(key: string): string[] {
@@ -486,7 +493,11 @@
 	</div>
 
 	<div class="topbar-actions">
+		{#if mineosVersion}
+			<span class="version-pill" title={`MineOS ${mineosVersion}`}>{mineosVersion}</span>
+		{/if}
 		<NotificationMenu />
+		<NetherPortalButton />
 		<a class="user-info" href="/profile">
 			<span class="user-icon" aria-hidden="true">
 				<svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">
@@ -749,6 +760,18 @@
 		display: flex;
 		align-items: center;
 		gap: 16px;
+	}
+
+	.version-pill {
+		font-size: 12px;
+		font-weight: 600;
+		letter-spacing: 0.02em;
+		color: #c4cff5;
+		background: rgba(91, 158, 255, 0.12);
+		border: 1px solid rgba(91, 158, 255, 0.35);
+		padding: 6px 10px;
+		border-radius: 999px;
+		white-space: nowrap;
 	}
 
 	.user-info {

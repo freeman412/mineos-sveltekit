@@ -18,14 +18,16 @@ import (
 )
 
 const (
-	githubRepo    = "freeman412/mineos-sveltekit"
-	githubAPIBase = "https://api.github.com"
-	releasesURL   = githubAPIBase + "/repos/" + githubRepo + "/releases/latest"
+	githubRepo       = "freeman412/mineos-sveltekit"
+	githubAPIBase    = "https://api.github.com"
+	latestReleaseURL = githubAPIBase + "/repos/" + githubRepo + "/releases/latest"
+	allReleasesURL   = githubAPIBase + "/repos/" + githubRepo + "/releases"
 )
 
 type githubRelease struct {
-	TagName string        `json:"tag_name"`
-	Assets  []githubAsset `json:"assets"`
+	TagName    string        `json:"tag_name"`
+	Assets     []githubAsset `json:"assets"`
+	Prerelease bool          `json:"prerelease"`
 }
 
 type githubAsset struct {
@@ -36,6 +38,7 @@ type githubAsset struct {
 func NewUpgradeCommand(currentVersion string) *cobra.Command {
 	var force bool
 	var check bool
+	var prerelease bool
 
 	cmd := &cobra.Command{
 		Use:   "upgrade",
@@ -45,29 +48,34 @@ func NewUpgradeCommand(currentVersion string) *cobra.Command {
 This command downloads and replaces the current CLI binary. It does NOT
 update the MineOS Docker containers - use 'mineos stack update' for that.
 
+By default, only stable releases are considered. Use --prerelease to include
+beta/pre-release versions, or set MINEOS_CLI_PRERELEASE_UPDATES=true in .env.
+
 Examples:
-  mineos upgrade          # Upgrade to latest version
-  mineos upgrade --check  # Check for updates without installing
-  mineos upgrade --force  # Force upgrade even if already on latest`,
+  mineos upgrade               # Upgrade to latest stable version
+  mineos upgrade --check       # Check for updates without installing
+  mineos upgrade --prerelease  # Include pre-release versions
+  mineos upgrade --force       # Force upgrade even if already on latest`,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return runUpgrade(cmd, currentVersion, force, check)
+			return runUpgrade(cmd, currentVersion, force, check, prerelease)
 		},
 	}
 
 	cmd.Flags().BoolVar(&force, "force", false, "Force upgrade even if already on latest version")
 	cmd.Flags().BoolVar(&check, "check", false, "Check for updates without installing")
+	cmd.Flags().BoolVar(&prerelease, "prerelease", false, "Include pre-release/beta versions")
 
 	return cmd
 }
 
 var errNoReleases = errors.New("no releases found")
 
-func runUpgrade(cmd *cobra.Command, currentVersion string, force, checkOnly bool) error {
+func runUpgrade(cmd *cobra.Command, currentVersion string, force, checkOnly, includePrerelease bool) error {
 	out := cmd.OutOrStdout()
 
 	fmt.Fprintln(out, "Checking for updates...")
 
-	release, err := fetchLatestRelease()
+	release, err := fetchBestRelease(includePrerelease)
 	if err != nil {
 		if errors.Is(err, errNoReleases) {
 			fmt.Fprintf(out, "Current version: %s\n", currentVersion)
@@ -78,8 +86,13 @@ func runUpgrade(cmd *cobra.Command, currentVersion string, force, checkOnly bool
 	}
 
 	latestVersion := release.TagName
+	releaseType := "stable"
+	if release.Prerelease {
+		releaseType = "pre-release"
+	}
+
 	fmt.Fprintf(out, "Current version: %s\n", currentVersion)
-	fmt.Fprintf(out, "Latest version:  %s\n", latestVersion)
+	fmt.Fprintf(out, "Latest version:  %s (%s)\n", latestVersion, releaseType)
 
 	// Normalize versions for comparison (strip 'v' prefix if present)
 	currentNorm := strings.TrimPrefix(currentVersion, "v")
@@ -190,11 +203,18 @@ func runUpgrade(cmd *cobra.Command, currentVersion string, force, checkOnly bool
 	}
 
 	fmt.Fprintf(out, "\nSuccessfully upgraded to %s!\n", latestVersion)
+
+	// Ensure any new env vars introduced in newer versions are present
+	if _, err := ensureEnvDefaults(".env", out); err != nil {
+		// Non-fatal: the upgrade itself succeeded
+		fmt.Fprintf(out, "Warning: could not update .env defaults: %v\n", err)
+	}
+
 	return nil
 }
 
 func fetchLatestRelease() (*githubRelease, error) {
-	resp, err := http.Get(releasesURL)
+	resp, err := http.Get(latestReleaseURL)
 	if err != nil {
 		return nil, err
 	}
@@ -213,6 +233,41 @@ func fetchLatestRelease() (*githubRelease, error) {
 	}
 
 	return &release, nil
+}
+
+// fetchBestRelease fetches the best available release based on pre-release preference.
+// If includePrerelease is true, it will consider pre-release versions.
+func fetchBestRelease(includePrerelease bool) (*githubRelease, error) {
+	// If we only want stable releases, use the latest release endpoint
+	if !includePrerelease {
+		return fetchLatestRelease()
+	}
+
+	// Otherwise, fetch all releases and find the newest (including pre-releases)
+	resp, err := http.Get(allReleasesURL)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusNotFound {
+		return nil, errNoReleases
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("GitHub API returned status: %s", resp.Status)
+	}
+
+	var releases []githubRelease
+	if err := json.NewDecoder(resp.Body).Decode(&releases); err != nil {
+		return nil, fmt.Errorf("failed to parse releases info: %w", err)
+	}
+
+	if len(releases) == 0 {
+		return nil, errNoReleases
+	}
+
+	// GitHub returns releases sorted by created date descending, so first one is newest
+	return &releases[0], nil
 }
 
 func getAssetName() string {
@@ -387,13 +442,15 @@ func copyFileWithMode(src, dst string, mode os.FileMode) error {
 
 // CheckForUpdates checks if a newer version is available and returns a message if so.
 // Returns empty string if no update available or on error.
+// This function only checks stable releases. Use `mineos upgrade --prerelease` for pre-releases.
 func CheckForUpdates(currentVersion string) string {
 	// Don't check for dev versions
 	if currentVersion == "dev" || currentVersion == "" {
 		return ""
 	}
 
-	release, err := fetchLatestRelease()
+	// Only check stable releases for background checks
+	release, err := fetchBestRelease(false)
 	if err != nil {
 		return ""
 	}
@@ -402,7 +459,11 @@ func CheckForUpdates(currentVersion string) string {
 	latestNorm := strings.TrimPrefix(release.TagName, "v")
 
 	if currentNorm != latestNorm {
-		return fmt.Sprintf("A new version of mineos CLI is available: %s (current: %s). Run 'mineos upgrade' to update.", release.TagName, currentVersion)
+		releaseType := "stable"
+		if release.Prerelease {
+			releaseType = "pre-release"
+		}
+		return fmt.Sprintf("A new %s version of mineos CLI is available: %s (current: %s). Run 'mineos upgrade' to update.", releaseType, release.TagName, currentVersion)
 	}
 
 	return ""

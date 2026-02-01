@@ -128,6 +128,46 @@ namespace MineOS.Infrastructure.Migrations
                     b.ToTable("AuditLogs");
                 });
 
+            modelBuilder.Entity("MineOS.Domain.Entities.CrashEvent", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<bool>("AutoRestartAttempted")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<bool>("AutoRestartSucceeded")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("CrashDetails")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("CrashType")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<long>("DetectedAt")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<long?>("RestartAttemptedAt")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("ServerName")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("DetectedAt");
+
+                    b.HasIndex("ServerName");
+
+                    b.ToTable("CrashEvents");
+                });
+
             modelBuilder.Entity("MineOS.Domain.Entities.Host", b =>
                 {
                     b.Property<int>("Id")
@@ -431,6 +471,53 @@ namespace MineOS.Infrastructure.Migrations
                     b.ToTable("Players");
                 });
 
+            modelBuilder.Entity("MineOS.Domain.Entities.PlayerActivityEvent", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("EventData")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("EventType")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("PlayerName")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("PlayerUuid")
+                        .IsRequired()
+                        .HasMaxLength(36)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ServerName")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("TEXT");
+
+                    b.Property<long>("Timestamp")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("PlayerUuid");
+
+                    b.HasIndex("ServerName");
+
+                    b.HasIndex("Timestamp");
+
+                    b.HasIndex("ServerName", "PlayerUuid");
+
+                    b.HasIndex("ServerName", "Timestamp");
+
+                    b.ToTable("PlayerActivityEvents");
+                });
+
             modelBuilder.Entity("MineOS.Domain.Entities.PlayerBan", b =>
                 {
                     b.Property<int>("Id")
@@ -463,6 +550,53 @@ namespace MineOS.Infrastructure.Migrations
                     b.HasIndex("PlayerId");
 
                     b.ToTable("PlayerBans");
+                });
+
+            modelBuilder.Entity("MineOS.Domain.Entities.PlayerSession", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<long?>("DurationSeconds")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<long>("JoinedAt")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("LeaveReason")
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<long?>("LeftAt")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("PlayerName")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("PlayerUuid")
+                        .IsRequired()
+                        .HasMaxLength(36)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ServerName")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("JoinedAt");
+
+                    b.HasIndex("PlayerUuid");
+
+                    b.HasIndex("ServerName");
+
+                    b.HasIndex("ServerName", "PlayerUuid");
+
+                    b.ToTable("PlayerSessions");
                 });
 
             modelBuilder.Entity("MineOS.Domain.Entities.Plugin", b =>

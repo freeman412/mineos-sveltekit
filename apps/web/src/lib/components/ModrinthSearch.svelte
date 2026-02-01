@@ -1,6 +1,7 @@
 <script lang="ts">
 	import ModrinthModSearch from './ModrinthModSearch.svelte';
 	import ModrinthModpackSearch from './ModrinthModpackSearch.svelte';
+	import ModrinthResourcePackSearch from './ModrinthResourcePackSearch.svelte';
 
 	interface Props {
 		serverName: string;
@@ -9,7 +10,7 @@
 	}
 
 	let { serverName, serverVersion, onInstallComplete }: Props = $props();
-	let searchType = $state<'mods' | 'modpacks'>('mods');
+	let searchType = $state<'mods' | 'modpacks' | 'resourcepacks'>('mods');
 </script>
 
 <div class="modrinth-search">
@@ -33,13 +34,24 @@
 			>
 				Modpacks
 			</button>
+			<button
+				type="button"
+				class:active={searchType === 'resourcepacks'}
+				role="tab"
+				aria-selected={searchType === 'resourcepacks'}
+				onclick={() => (searchType = 'resourcepacks')}
+			>
+				Resource Packs
+			</button>
 		</div>
 	</div>
 
 	{#if searchType === 'mods'}
 		<ModrinthModSearch {serverName} {serverVersion} {onInstallComplete} />
-	{:else}
+	{:else if searchType === 'modpacks'}
 		<ModrinthModpackSearch {serverName} {serverVersion} {onInstallComplete} />
+	{:else}
+		<ModrinthResourcePackSearch {serverName} {serverVersion} {onInstallComplete} />
 	{/if}
 </div>
 

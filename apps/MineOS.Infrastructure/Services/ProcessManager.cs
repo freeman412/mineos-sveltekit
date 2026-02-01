@@ -136,7 +136,7 @@ public partial class ProcessManager : IProcessManager
             serverName, uid, gid);
         _logger.LogInformation("screen command args: {Args}", string.Join(" ", args));
 
-        var process = new Process { StartInfo = startInfo };
+        using var process = new Process { StartInfo = startInfo };
         try
         {
             process.Start();
@@ -197,7 +197,7 @@ public partial class ProcessManager : IProcessManager
 
         _logger.LogDebug("Sending command to screen session {Session}: {Command}", sessionName, command);
 
-        var process = new Process { StartInfo = startInfo };
+        using var process = new Process { StartInfo = startInfo };
         process.Start();
 
         await process.WaitForExitAsync(cancellationToken);
@@ -220,7 +220,7 @@ public partial class ProcessManager : IProcessManager
     {
         try
         {
-            var process = Process.GetProcessById(pid);
+            using var process = Process.GetProcessById(pid);
             process.Kill();
             await process.WaitForExitAsync(cancellationToken);
             _logger.LogInformation("Killed process {Pid}", pid);

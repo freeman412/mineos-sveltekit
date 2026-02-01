@@ -76,6 +76,10 @@ RUN mkdir -p /var/games/minecraft/servers \
     chmod 700 /var/games/minecraft/logs && \
     chown -R 1000:1000 /app/data
 
+# Version label (passed from docker-compose or CI)
+ARG MINEOS_IMAGE_TAG=latest
+ENV MINEOS_IMAGE_TAG=${MINEOS_IMAGE_TAG}
+
 # Expose API port
 EXPOSE 5078
 

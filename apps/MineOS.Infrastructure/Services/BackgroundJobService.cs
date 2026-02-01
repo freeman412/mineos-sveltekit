@@ -1,8 +1,6 @@
 using System.Collections.Concurrent;
 using System.Runtime.CompilerServices;
 using System.Threading.Channels;
-using Microsoft.Data.Sqlite;
-using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -10,7 +8,6 @@ using MineOS.Application.Dtos;
 using MineOS.Application.Interfaces;
 using MineOS.Application.Services;
 using MineOS.Domain.Entities;
-using MineOS.Infrastructure.Persistence;
 
 namespace MineOS.Infrastructure.Services;
 
@@ -18,6 +15,8 @@ public sealed class BackgroundJobService : IBackgroundJobService, IHostedService
 {
     private readonly ILogger<BackgroundJobService> _logger;
     private readonly IServiceScopeFactory _scopeFactory;
+    private readonly IRepository<JobRecord> _jobRepo;
+    private readonly IRepository<SystemNotification> _notificationRepo;
     private readonly Channel<BackgroundJob> _jobQueue;
     private readonly ConcurrentDictionary<string, JobState> _jobs;
     private readonly ConcurrentDictionary<string, ModpackInstallState> _modpackStates = new();
@@ -26,10 +25,16 @@ public sealed class BackgroundJobService : IBackgroundJobService, IHostedService
     private Task? _modpackExecutingTask;
     private readonly CancellationTokenSource _stoppingCts = new();
 
-    public BackgroundJobService(ILogger<BackgroundJobService> logger, IServiceScopeFactory scopeFactory)
+    public BackgroundJobService(
+        ILogger<BackgroundJobService> logger,
+        IServiceScopeFactory scopeFactory,
+        IRepository<JobRecord> jobRepo,
+        IRepository<SystemNotification> notificationRepo)
     {
         _logger = logger;
         _scopeFactory = scopeFactory;
+        _jobRepo = jobRepo;
+        _notificationRepo = notificationRepo;
         _jobQueue = Channel.CreateUnbounded<BackgroundJob>();
         _modpackJobQueue = Channel.CreateUnbounded<ModpackJob>();
         _jobs = new ConcurrentDictionary<string, JobState>();
@@ -48,14 +53,12 @@ public sealed class BackgroundJobService : IBackgroundJobService, IHostedService
             JobId = jobId,
             Type = type,
             ServerName = serverName,
-            Status = "queued",
-            Percentage = 0,
-            StartedAt = DateTimeOffset.UtcNow
         };
+        state.SetStartedAt(DateTimeOffset.UtcNow);
 
         _jobs[jobId] = state;
         _jobQueue.Writer.TryWrite(job);
-        PersistJobSync(state);
+        PersistJobFireAndForget(state);
 
         _logger.LogInformation("Queued job {JobId} ({Type}) for server {ServerName}", jobId, type, serverName);
 
@@ -69,33 +72,35 @@ public sealed class BackgroundJobService : IBackgroundJobService, IHostedService
             return GetJobStatusFromDb(jobId);
         }
 
+        var s = state.Snapshot();
         return new JobStatusDto(
             state.JobId,
             state.Type,
             state.ServerName,
-            state.Status,
-            state.Percentage,
-            state.Message,
-            state.StartedAt,
-            state.CompletedAt,
-            state.Error
+            s.Status,
+            s.Percentage,
+            s.Message,
+            s.StartedAt,
+            s.CompletedAt,
+            s.Error
         );
     }
 
     public IReadOnlyList<JobStatusDto> GetActiveJobs()
     {
         return _jobs.Values
-            .Where(j => j.Status == "queued" || j.Status == "running")
-            .Select(j => new JobStatusDto(
-                j.JobId,
-                j.Type,
-                j.ServerName,
-                j.Status,
-                j.Percentage,
-                j.Message,
-                j.StartedAt,
-                j.CompletedAt,
-                j.Error))
+            .Select(j => (State: j, Snap: j.Snapshot()))
+            .Where(x => x.Snap.Status == "queued" || x.Snap.Status == "running")
+            .Select(x => new JobStatusDto(
+                x.State.JobId,
+                x.State.Type,
+                x.State.ServerName,
+                x.Snap.Status,
+                x.Snap.Percentage,
+                x.Snap.Message,
+                x.Snap.StartedAt,
+                x.Snap.CompletedAt,
+                x.Snap.Error))
             .ToList();
     }
 
@@ -132,28 +137,22 @@ public sealed class BackgroundJobService : IBackgroundJobService, IHostedService
         }
 
         // Send current status immediately
+        var snap = state.Snapshot();
         yield return new JobProgressDto(
-            state.JobId,
-            state.Type,
-            state.ServerName,
-            state.Status,
-            state.Percentage,
-            state.Message,
+            state.JobId, state.Type, state.ServerName,
+            snap.Status, snap.Percentage, snap.Message,
             DateTimeOffset.UtcNow
         );
 
         // Stream updates
         while (!cancellationToken.IsCancellationRequested)
         {
-            if (state.Status == "completed" || state.Status == "failed")
+            snap = state.Snapshot();
+            if (snap.Status == "completed" || snap.Status == "failed")
             {
                 yield return new JobProgressDto(
-                    state.JobId,
-                    state.Type,
-                    state.ServerName,
-                    state.Status,
-                    state.Percentage,
-                    state.Message ?? state.Error,
+                    state.JobId, state.Type, state.ServerName,
+                    snap.Status, snap.Percentage, snap.Message ?? snap.Error,
                     DateTimeOffset.UtcNow
                 );
                 yield break;
@@ -161,13 +160,10 @@ public sealed class BackgroundJobService : IBackgroundJobService, IHostedService
 
             await Task.Delay(500, cancellationToken);
 
+            snap = state.Snapshot();
             yield return new JobProgressDto(
-                state.JobId,
-                state.Type,
-                state.ServerName,
-                state.Status,
-                state.Percentage,
-                state.Message,
+                state.JobId, state.Type, state.ServerName,
+                snap.Status, snap.Percentage, snap.Message,
                 DateTimeOffset.UtcNow
             );
         }
@@ -244,7 +240,14 @@ public sealed class BackgroundJobService : IBackgroundJobService, IHostedService
         if (_executingTask != null) tasks.Add(_executingTask);
         if (_modpackExecutingTask != null) tasks.Add(_modpackExecutingTask);
 
-        await Task.WhenAny(Task.WhenAll(tasks), Task.Delay(Timeout.Infinite, cancellationToken));
+        try
+        {
+            await Task.WhenAll(tasks).WaitAsync(TimeSpan.FromSeconds(30), cancellationToken);
+        }
+        catch (TimeoutException)
+        {
+            _logger.LogWarning("Background job service shutdown timed out after 30 seconds");
+        }
     }
 
     private async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -274,14 +277,12 @@ public sealed class BackgroundJobService : IBackgroundJobService, IHostedService
             return;
         }
 
-        state.Status = "running";
-        state.Percentage = 0;
+        state.Update("running", percentage: 0);
         PersistJobFireAndForget(state);
 
         var progress = new Progress<JobProgressDto>(p =>
         {
-            state.Percentage = p.Percentage;
-            state.Message = p.Message;
+            state.UpdateProgress(p.Percentage, p.Message);
             PersistJobFireAndForget(state);
         });
 
@@ -290,9 +291,7 @@ public sealed class BackgroundJobService : IBackgroundJobService, IHostedService
             await using var scope = _scopeFactory.CreateAsyncScope();
             await job.Work(scope.ServiceProvider, progress, stoppingToken);
 
-            state.Status = "completed";
-            state.Percentage = 100;
-            state.CompletedAt = DateTimeOffset.UtcNow;
+            state.Update("completed", percentage: 100, completedAt: DateTimeOffset.UtcNow);
             PersistJobFireAndForget(state);
             await CreateJobNotificationAsync(state, "completed", CancellationToken.None);
 
@@ -300,18 +299,14 @@ public sealed class BackgroundJobService : IBackgroundJobService, IHostedService
         }
         catch (OperationCanceledException)
         {
-            state.Status = "failed";
-            state.Error = "Cancelled";
-            state.CompletedAt = DateTimeOffset.UtcNow;
+            state.Update("failed", error: "Cancelled", completedAt: DateTimeOffset.UtcNow);
             PersistJobFireAndForget(state);
             await CreateJobNotificationAsync(state, "cancelled", CancellationToken.None);
             _logger.LogWarning("Job {JobId} was cancelled", job.JobId);
         }
         catch (Exception ex)
         {
-            state.Status = "failed";
-            state.Error = ex.Message;
-            state.CompletedAt = DateTimeOffset.UtcNow;
+            state.Update("failed", error: ex.Message, completedAt: DateTimeOffset.UtcNow);
             PersistJobFireAndForget(state);
             await CreateJobNotificationAsync(state, "failed", CancellationToken.None);
 
@@ -370,26 +365,52 @@ public sealed class BackgroundJobService : IBackgroundJobService, IHostedService
 
     private class JobState
     {
+        private readonly object _lock = new();
         public required string JobId { get; init; }
         public required string Type { get; init; }
         public required string ServerName { get; init; }
-        public string Status { get; set; } = "queued";
-        public int Percentage { get; set; }
-        public string? Message { get; set; }
-        public DateTimeOffset StartedAt { get; set; }
-        public DateTimeOffset? CompletedAt { get; set; }
-        public string? Error { get; set; }
-    }
 
-    private void PersistJobSync(JobState state)
-    {
-        try
+        private string _status = "queued";
+        private int _percentage;
+        private string? _message;
+        private DateTimeOffset _startedAt;
+        private DateTimeOffset? _completedAt;
+        private string? _error;
+
+        public void Update(string status, int? percentage = null, string? message = null,
+            DateTimeOffset? completedAt = null, string? error = null)
         {
-            UpsertJobAsync(state, CancellationToken.None).GetAwaiter().GetResult();
+            lock (_lock)
+            {
+                _status = status;
+                if (percentage.HasValue) _percentage = percentage.Value;
+                if (message != null) _message = message;
+                if (completedAt.HasValue) _completedAt = completedAt.Value;
+                if (error != null) _error = error;
+            }
         }
-        catch (Exception ex)
+
+        public void SetStartedAt(DateTimeOffset value)
         {
-            _logger.LogError(ex, "Failed to persist job {JobId}", state.JobId);
+            lock (_lock) { _startedAt = value; }
+        }
+
+        public void UpdateProgress(int percentage, string? message)
+        {
+            lock (_lock)
+            {
+                _percentage = percentage;
+                _message = message;
+            }
+        }
+
+        public (string Status, int Percentage, string? Message, DateTimeOffset StartedAt,
+            DateTimeOffset? CompletedAt, string? Error) Snapshot()
+        {
+            lock (_lock)
+            {
+                return (_status, _percentage, _message, _startedAt, _completedAt, _error);
+            }
         }
     }
 
@@ -412,9 +433,7 @@ public sealed class BackgroundJobService : IBackgroundJobService, IHostedService
     {
         try
         {
-            using var scope = _scopeFactory.CreateScope();
-            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-            var record = db.Jobs.AsNoTracking().FirstOrDefault(j => j.JobId == jobId);
+            var record = _jobRepo.FindById(jobId);
             if (record == null)
             {
                 return null;
@@ -439,61 +458,46 @@ public sealed class BackgroundJobService : IBackgroundJobService, IHostedService
         }
     }
 
-    private async Task<Domain.Entities.JobRecord?> GetJobRecordAsync(string jobId, CancellationToken cancellationToken)
+    private async Task<JobRecord?> GetJobRecordAsync(string jobId, CancellationToken cancellationToken)
     {
-        await using var scope = _scopeFactory.CreateAsyncScope();
-        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-        return await db.Jobs.AsNoTracking().FirstOrDefaultAsync(j => j.JobId == jobId, cancellationToken);
+        return await _jobRepo.FirstOrDefaultAsync(j => j.JobId == jobId, cancellationToken);
     }
 
     private async Task UpsertJobAsync(JobState state, CancellationToken cancellationToken)
     {
-        await using var scope = _scopeFactory.CreateAsyncScope();
-        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-        var startedAt = state.StartedAt.ToString("O");
-        var completedAt = state.CompletedAt?.ToString("O");
-        var parameters = new object[]
-        {
-            new SqliteParameter("@jobId", state.JobId),
-            new SqliteParameter("@type", state.Type),
-            new SqliteParameter("@serverName", state.ServerName),
-            new SqliteParameter("@status", state.Status),
-            new SqliteParameter("@percentage", state.Percentage),
-            new SqliteParameter("@message", SqliteType.Text)
-            {
-                Value = (object?)state.Message ?? DBNull.Value
-            },
-            new SqliteParameter("@error", SqliteType.Text)
-            {
-                Value = (object?)state.Error ?? DBNull.Value
-            },
-            new SqliteParameter("@startedAt", startedAt),
-            new SqliteParameter("@completedAt", SqliteType.Text)
-            {
-                Value = (object?)completedAt ?? DBNull.Value
-            }
-        };
+        var snap = state.Snapshot();
 
-        await db.Database.ExecuteSqlRawAsync(
-            """
-            INSERT INTO Jobs (JobId, Type, ServerName, Status, Percentage, Message, Error, StartedAt, CompletedAt)
-            VALUES (@jobId, @type, @serverName, @status, @percentage, @message, @error, @startedAt, @completedAt)
-            ON CONFLICT(JobId) DO UPDATE SET
-                Type = excluded.Type,
-                ServerName = excluded.ServerName,
-                Status = excluded.Status,
-                Percentage = excluded.Percentage,
-                Message = excluded.Message,
-                Error = excluded.Error,
-                StartedAt = excluded.StartedAt,
-                CompletedAt = excluded.CompletedAt;
-            """,
-            parameters,
-            cancellationToken);
+        var record = await _jobRepo.FindByIdAsync(cancellationToken, state.JobId);
+        if (record == null)
+        {
+            record = new JobRecord
+            {
+                JobId = state.JobId,
+                Type = state.Type,
+                ServerName = state.ServerName,
+                Status = snap.Status,
+                Percentage = snap.Percentage,
+                Message = snap.Message,
+                Error = snap.Error,
+                StartedAt = snap.StartedAt,
+                CompletedAt = snap.CompletedAt
+            };
+            await _jobRepo.AddAsync(record, cancellationToken);
+        }
+        else
+        {
+            record.Status = snap.Status;
+            record.Percentage = snap.Percentage;
+            record.Message = snap.Message;
+            record.Error = snap.Error;
+            record.CompletedAt = snap.CompletedAt;
+            await _jobRepo.UpdateAsync(record, cancellationToken);
+        }
     }
 
     private async Task CreateJobNotificationAsync(JobState state, string outcome, CancellationToken cancellationToken)
     {
+        var snap = state.Snapshot();
         var (type, titleSuffix) = GetNotificationType(outcome);
         var jobLabel = GetJobDisplayName(state.Type);
         var title = $"{jobLabel} {titleSuffix}";
@@ -501,7 +505,7 @@ public sealed class BackgroundJobService : IBackgroundJobService, IHostedService
         {
             "completed" => $"{jobLabel} for {state.ServerName} completed successfully.",
             "cancelled" => $"{jobLabel} for {state.ServerName} was cancelled.",
-            _ => $"{jobLabel} for {state.ServerName} failed: {state.Error ?? "Unknown error"}."
+            _ => $"{jobLabel} for {state.ServerName} failed: {snap.Error ?? "Unknown error"}."
         };
 
         await CreateNotificationAsync(type, title, message, state.ServerName, cancellationToken);
@@ -532,9 +536,7 @@ public sealed class BackgroundJobService : IBackgroundJobService, IHostedService
         string? serverName,
         CancellationToken cancellationToken)
     {
-        await using var scope = _scopeFactory.CreateAsyncScope();
-        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-        var notification = new SystemNotification
+        await _notificationRepo.AddAsync(new SystemNotification
         {
             Type = type,
             Title = title,
@@ -542,10 +544,7 @@ public sealed class BackgroundJobService : IBackgroundJobService, IHostedService
             CreatedAt = DateTimeOffset.UtcNow,
             ServerName = serverName,
             IsRead = false
-        };
-
-        db.SystemNotifications.Add(notification);
-        await db.SaveChangesAsync(cancellationToken);
+        }, cancellationToken);
     }
 
     private static (string Type, string TitleSuffix) GetNotificationType(string outcome)

@@ -30,6 +30,7 @@ const (
 	ModeCommand
 	ModeConfirm
 	ModeInteractive // Running an interactive command inside the TUI
+	ModeSearch      // Searching logs
 )
 
 // LogType represents the type of log being viewed
@@ -64,6 +65,9 @@ type TuiModel struct {
 	LoadConfig *usecases.LoadConfigUseCase
 	Ctx        context.Context
 
+	// Version is the mineos-cli version (usually from the git tag at build time).
+	Version string
+
 	Width  int
 	Height int
 
@@ -91,6 +95,9 @@ type TuiModel struct {
 	LogsChan        <-chan string
 	LogErrsChan     <-chan error
 	LogCancel       context.CancelFunc
+	LogScroll       int    // Scroll offset for logs view
+	LogSearchQuery  string // Search query for logs
+	LogSearchMode   bool   // Whether in search mode
 
 	StatusMsg string
 	ErrMsg    string
@@ -243,3 +250,13 @@ type StreamingFinishedMsg struct {
 	Label string
 	Err   error
 }
+
+// SettingsToggledMsg is sent when a setting is toggled in the TUI
+type SettingsToggledMsg struct {
+	Key string
+	Val string
+	Err error
+}
+
+// HealthTickMsg is sent periodically to re-check API health when unhealthy
+type HealthTickMsg struct{}

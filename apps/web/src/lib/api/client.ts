@@ -4,6 +4,7 @@ import type {
 	ServerSummary,
 	Profile,
 	ArchiveEntry,
+	MineOSMeta,
 	CurseForgeSearchResult,
 	CurseForgeMod
 } from './types';
@@ -84,6 +85,10 @@ function apiDelete<T = void>(fetcher: Fetcher, path: string): Promise<ApiResult<
 
 export function getHostMetrics(fetcher: Fetcher) {
 	return apiFetch<HostMetrics>(fetcher, '/api/host/metrics');
+}
+
+export function getMeta(fetcher: Fetcher) {
+	return apiFetch<MineOSMeta>(fetcher, '/api/meta');
 }
 
 export function getHostServers(fetcher: Fetcher) {

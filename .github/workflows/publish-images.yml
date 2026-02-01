@@ -28,7 +28,6 @@ jobs:
             context: ./apps/web
             file: ./apps/web/Dockerfile
             build_args: |
-              PUBLIC_BUILD_ID=${{ github.sha }}
               PUBLIC_MINECRAFT_HOST=
 
     steps:
@@ -42,14 +41,26 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Compute build version
+        id: ver
+        shell: bash
+        run: |
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            echo "version=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+          fi
+
       - uses: docker/metadata-action@v5
         id: meta
         with:
           images: ${{ matrix.image }}
           tags: |
-            type=raw,value=latest,enable={{is_default_branch}}
+            type=raw,value=edge,enable={{is_default_branch}}
+            type=raw,value=latest,enable=${{ github.ref_type == 'tag' && startsWith(github.ref_name, 'v') && !contains(github.ref_name, '-') }}
+            type=raw,value=preview,enable=${{ github.ref_type == 'tag' && startsWith(github.ref_name, 'v') && contains(github.ref_name, '-') }}
             type=ref,event=tag
-            type=sha
+            type=sha,format=short
 
       - uses: docker/build-push-action@v5
         with:
@@ -58,6 +69,9 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          build-args: ${{ matrix.build_args }}
+          build-args: |
+            ${{ matrix.build_args }}
+            ${{ matrix.name == 'api' && format('MINEOS_IMAGE_TAG={0}', steps.ver.outputs.version) || '' }}
+            ${{ matrix.name == 'web' && format('PUBLIC_BUILD_ID={0}', steps.ver.outputs.version) || '' }}
           cache-from: type=gha
           cache-to: type=gha,mode=max

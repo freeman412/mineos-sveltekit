@@ -1,15 +1,12 @@
 using System.IO.Compression;
 using System.Net;
 using System.Text.Json;
-using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using MineOS.Application.Dtos;
 using MineOS.Application.Interfaces;
 using MineOS.Application.Options;
 using MineOS.Domain.Entities;
-using MineOS.Infrastructure.Persistence;
 using MineOS.Infrastructure.Utilities;
 
 namespace MineOS.Infrastructure.Services;
@@ -54,7 +51,7 @@ public sealed class ModService : IModService
     private readonly IServerService _serverService;
     private readonly IProfileService _profileService;
     private readonly HttpClient _httpClient;
-    private readonly IServiceScopeFactory _scopeFactory;
+    private readonly IModpackRepository _modpackRepo;
 
     public ModService(
         ILogger<ModService> logger,
@@ -65,7 +62,7 @@ public sealed class ModService : IModService
         IServerService serverService,
         IProfileService profileService,
         HttpClient httpClient,
-        IServiceScopeFactory scopeFactory)
+        IModpackRepository modpackRepo)
     {
         _logger = logger;
         _hostOptions = hostOptions.Value;
@@ -75,7 +72,7 @@ public sealed class ModService : IModService
         _serverService = serverService;
         _profileService = profileService;
         _httpClient = httpClient;
-        _scopeFactory = scopeFactory;
+        _modpackRepo = modpackRepo;
     }
 
     public Task<IReadOnlyList<InstalledModDto>> ListModsAsync(string serverName, CancellationToken cancellationToken)
@@ -377,14 +374,7 @@ public sealed class ModService : IModService
         Dictionary<string, InstalledModRecord> installedModsByFileName;
         try
         {
-            using var scope = _scopeFactory.CreateScope();
-            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-
-            var installedMods = await db.InstalledModRecords
-                .AsNoTracking()
-                .Where(r => r.ServerName == serverName)
-                .Include(r => r.Modpack)
-                .ToListAsync(cancellationToken);
+            var installedMods = await _modpackRepo.GetModsByServerWithModpackAsync(serverName, cancellationToken);
 
             installedModsByFileName = installedMods.ToDictionary(
                 m => m.FileName,
@@ -515,13 +505,7 @@ public sealed class ModService : IModService
     {
         try
         {
-            using var scope = _scopeFactory.CreateScope();
-            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-
-            var modpacks = await db.InstalledModpacks
-                .AsNoTracking()
-                .Where(m => m.ServerName == serverName)
-                .ToListAsync(cancellationToken);
+            var modpacks = await _modpackRepo.GetModpacksByServerAsync(serverName, cancellationToken);
 
             // Order on client side (SQLite doesn't support DateTimeOffset in ORDER BY)
             return modpacks
@@ -547,12 +531,7 @@ public sealed class ModService : IModService
         int modpackDbId,
         CancellationToken cancellationToken)
     {
-        using var scope = _scopeFactory.CreateScope();
-        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-
-        var modpack = await db.InstalledModpacks
-            .Include(m => m.Mods)
-            .FirstOrDefaultAsync(m => m.Id == modpackDbId && m.ServerName == serverName, cancellationToken);
+        var modpack = await _modpackRepo.GetModpackWithModsAsync(modpackDbId, serverName, cancellationToken);
 
         if (modpack == null)
         {
@@ -573,8 +552,7 @@ public sealed class ModService : IModService
             }
         }
 
-        db.InstalledModpacks.Remove(modpack);
-        await db.SaveChangesAsync(cancellationToken);
+        await _modpackRepo.RemoveModpackAsync(modpack, cancellationToken);
 
         MarkRestartRequired(GetServerPath(serverName));
         _logger.LogInformation("Uninstalled modpack {ModpackName} ({ModpackId}), removed {Count} mod files",
@@ -795,65 +773,10 @@ public sealed class ModService : IModService
         List<InstalledModRecord> installedModRecords,
         CancellationToken cancellationToken)
     {
-        using var scope = _scopeFactory.CreateScope();
-        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-
-        var source = "curseforge";
-        var sourceProjectId = curseForgeProjectId.ToString();
-
-        var existingModpack = await db.InstalledModpacks
-            .FirstOrDefaultAsync(m => m.ServerName == serverName &&
-                                      m.Source == source &&
-                                      m.SourceProjectId == sourceProjectId,
-                cancellationToken);
-
-        if (existingModpack != null)
-        {
-            existingModpack.CurseForgeProjectId = curseForgeProjectId;
-            existingModpack.Source = source;
-            existingModpack.SourceProjectId = sourceProjectId;
-            existingModpack.Name = modpackName;
-            existingModpack.Version = modpackVersion;
-            existingModpack.LogoUrl = logoUrl;
-            existingModpack.ModCount = installedModRecords.Count;
-            existingModpack.InstalledAt = DateTimeOffset.UtcNow;
-
-            var oldRecords = await db.InstalledModRecords
-                .Where(r => r.ModpackId == existingModpack.Id)
-                .ToListAsync(cancellationToken);
-            db.InstalledModRecords.RemoveRange(oldRecords);
-
-            foreach (var record in installedModRecords)
-            {
-                record.ModpackId = existingModpack.Id;
-            }
-            db.InstalledModRecords.AddRange(installedModRecords);
-        }
-        else
-        {
-            var modpack = new InstalledModpack
-            {
-                ServerName = serverName,
-                CurseForgeProjectId = curseForgeProjectId,
-                Source = source,
-                SourceProjectId = sourceProjectId,
-                Name = modpackName,
-                Version = modpackVersion,
-                LogoUrl = logoUrl,
-                ModCount = installedModRecords.Count,
-                InstalledAt = DateTimeOffset.UtcNow
-            };
-            db.InstalledModpacks.Add(modpack);
-            await db.SaveChangesAsync(cancellationToken);
-
-            foreach (var record in installedModRecords)
-            {
-                record.ModpackId = modpack.Id;
-            }
-            db.InstalledModRecords.AddRange(installedModRecords);
-        }
-
-        await db.SaveChangesAsync(cancellationToken);
+        await _modpackRepo.UpsertModpackAsync(
+            serverName, "curseforge", curseForgeProjectId.ToString(),
+            modpackName, modpackVersion, logoUrl, curseForgeProjectId,
+            installedModRecords, cancellationToken);
     }
 
     private int ExtractOverridesWithTracking(ZipArchive archive, string serverName, IModpackInstallState state)
@@ -953,33 +876,10 @@ public sealed class ModService : IModService
         List<InstalledModRecord> modRecords,
         CancellationToken cancellationToken)
     {
-        using var scope = _scopeFactory.CreateScope();
-        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-
-        var modpack = new InstalledModpack
-        {
-            ServerName = serverName,
-            CurseForgeProjectId = curseForgeProjectId,
-            Source = "curseforge",
-            SourceProjectId = curseForgeProjectId.ToString(),
-            Name = modpackName,
-            Version = modpackVersion,
-            LogoUrl = logoUrl,
-            ModCount = modRecords.Count,
-            InstalledAt = DateTimeOffset.UtcNow
-        };
-
-        db.InstalledModpacks.Add(modpack);
-        await db.SaveChangesAsync(cancellationToken);
-
-        // Associate mods with the modpack
-        foreach (var record in modRecords)
-        {
-            record.ModpackId = modpack.Id;
-        }
-
-        db.InstalledModRecords.AddRange(modRecords);
-        await db.SaveChangesAsync(cancellationToken);
+        await _modpackRepo.AddModpackAsync(
+            serverName, "curseforge", curseForgeProjectId.ToString(),
+            modpackName, modpackVersion, logoUrl, curseForgeProjectId,
+            modRecords, cancellationToken);
     }
 
     private async Task DownloadFileWithStateAsync(
@@ -1437,63 +1337,10 @@ public sealed class ModService : IModService
 
         AddOverrideModRecords(installedRecords, overrideModFiles, serverName);
 
-        using var scope = _scopeFactory.CreateScope();
-        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-
-        var existing = await db.InstalledModpacks
-            .FirstOrDefaultAsync(m => m.ServerName == serverName &&
-                                      m.Source == "modrinth" &&
-                                      m.SourceProjectId == projectId,
-                cancellationToken);
-
-        if (existing != null)
-        {
-            existing.Source = "modrinth";
-            existing.SourceProjectId = projectId;
-            existing.CurseForgeProjectId = null;
-            existing.Name = modpackName;
-            existing.Version = modpackVersion;
-            existing.LogoUrl = logoUrl;
-            existing.ModCount = installedRecords.Count;
-            existing.InstalledAt = DateTimeOffset.UtcNow;
-
-            var oldRecords = await db.InstalledModRecords
-                .Where(r => r.ModpackId == existing.Id)
-                .ToListAsync(cancellationToken);
-            db.InstalledModRecords.RemoveRange(oldRecords);
-
-            foreach (var record in installedRecords)
-            {
-                record.ModpackId = existing.Id;
-            }
-            db.InstalledModRecords.AddRange(installedRecords);
-        }
-        else
-        {
-            var modpack = new InstalledModpack
-            {
-                ServerName = serverName,
-                CurseForgeProjectId = null,
-                Source = "modrinth",
-                SourceProjectId = projectId,
-                Name = modpackName,
-                Version = modpackVersion,
-                LogoUrl = logoUrl,
-                ModCount = installedRecords.Count,
-                InstalledAt = DateTimeOffset.UtcNow
-            };
-
-            db.InstalledModpacks.Add(modpack);
-            await db.SaveChangesAsync(cancellationToken);
-
-            foreach (var record in installedRecords)
-            {
-                record.ModpackId = modpack.Id;
-            }
-            db.InstalledModRecords.AddRange(installedRecords);
-        }
-
-        await db.SaveChangesAsync(cancellationToken);
+        await _modpackRepo.UpsertModpackAsync(
+            serverName, "modrinth", projectId,
+            modpackName, modpackVersion, logoUrl, null,
+            installedRecords, cancellationToken);
 
         var reportPath = await WriteModrinthInstallReportAsync(
             serverName,

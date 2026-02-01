@@ -3,6 +3,7 @@ param(
     [string]$Ref = "main",
     [string]$InstallDir = "mineos",
     [string]$Version = "",
+    [switch]$Preview,
     [string]$BundleUrl = "",
     [string]$CliUrl = "",
     [switch]$NoCli,
@@ -15,6 +16,30 @@ $ErrorActionPreference = "Stop"
 
 function Write-Info { Write-Host "[INFO] $($args -join ' ')" -ForegroundColor Cyan }
 function Write-Error-Custom { Write-Host "[ERR] $($args -join ' ')" -ForegroundColor Red }
+
+# Pause on failure so the user can read the error message.
+# Handles both double-click (.ps1) and piped (iex) execution gracefully.
+function Wait-OnError {
+    param([int]$Code)
+    if ($Code -ne 0) {
+        Write-Host ""
+        Write-Host "Installation failed (exit code $Code)." -ForegroundColor Red
+        try {
+            Write-Host "Press any key to close..." -ForegroundColor Yellow
+            $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+        } catch {
+            # Non-interactive host (e.g., piped via iex) - just pause briefly
+            Start-Sleep -Seconds 1
+        }
+    }
+}
+
+function Get-LatestPrereleaseTag {
+    $api = "https://api.github.com/repos/freeman412/mineos-sveltekit/releases"
+    $releases = Invoke-RestMethod -Uri $api -UseBasicParsing
+    $prerelease = $releases | Where-Object { $_.prerelease -eq $true } | Select-Object -First 1
+    return $prerelease.tag_name
+}
 
 function Get-LatestBundleUrl {
     param(
@@ -129,7 +154,7 @@ function Get-PlatformArch {
 
 if ([string]::IsNullOrWhiteSpace($InstallDir)) {
     Write-Error-Custom "Install directory is required."
-    exit 1
+    return
 }
 
 $forwardArgs = @()
@@ -138,14 +163,14 @@ if ($ForwardArgs) { $forwardArgs += $ForwardArgs }
 if ($Build) {
     if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
         Write-Error-Custom "git is required for -Build."
-        exit 1
+        return
     }
 
     if (Test-Path (Join-Path $InstallDir ".git")) {
         Write-Info "Using existing repo at $InstallDir"
     } elseif (Test-Path $InstallDir -and (Get-ChildItem -Path $InstallDir -Force | Measure-Object).Count -gt 0) {
         Write-Error-Custom "Directory $InstallDir exists and is not empty."
-        exit 1
+        return
     } else {
         Write-Info "Cloning repo..."
         git clone --depth 1 --branch $Ref $RepoUrl $InstallDir
@@ -157,7 +182,7 @@ if ($Build) {
     $cliPath = Resolve-CliPath -InstallDir $InstallDir
     if (-not $cliPath) {
         Write-Error-Custom "mineos-cli not found. Re-run without -NoCli."
-        exit 1
+        return
     }
     $forwardArgs = @("install", "--build") + $forwardArgs
     Push-Location $InstallDir
@@ -166,7 +191,24 @@ if ($Build) {
     } finally {
         Pop-Location
     }
-    exit $LASTEXITCODE
+    Wait-OnError -Code $LASTEXITCODE
+    return
+}
+
+# Resolve -Preview to the latest prerelease tag
+if ($Preview -and [string]::IsNullOrWhiteSpace($Version)) {
+    Write-Info "Looking up latest preview release..."
+    $Version = Get-LatestPrereleaseTag
+    if ([string]::IsNullOrWhiteSpace($Version)) {
+        Write-Error-Custom "No pre-release version found."
+        return
+    }
+    Write-Info "Found preview version: $Version"
+    Write-Host ""
+    Write-Host "[WARN] Preview versions may be unstable, contain bugs, or cause data loss." -ForegroundColor Yellow
+    Write-Host "[WARN] Do not use preview releases in production. Back up your data first." -ForegroundColor Yellow
+    Write-Host ""
+    $forwardArgs = @("--image-tag", "preview") + $forwardArgs
 }
 
 if ([string]::IsNullOrWhiteSpace($BundleUrl)) {
@@ -175,7 +217,7 @@ if ([string]::IsNullOrWhiteSpace($BundleUrl)) {
 
 if ([string]::IsNullOrWhiteSpace($BundleUrl)) {
     Write-Error-Custom "Unable to locate install bundle URL."
-    exit 1
+    return
 }
 
 $tmpDir = Join-Path $env:TEMP ("mineos-" + [Guid]::NewGuid().ToString("n"))
@@ -197,7 +239,7 @@ try {
 $cliPath = Resolve-CliPath -InstallDir $InstallDir
 if (-not $cliPath) {
     Write-Error-Custom "mineos-cli not found. Re-run without -NoCli."
-    exit 1
+    return
 }
 
 $forwardArgs = @("install") + $forwardArgs
@@ -207,4 +249,5 @@ try {
 } finally {
     Pop-Location
 }
-exit $LASTEXITCODE
+
+Wait-OnError -Code $LASTEXITCODE

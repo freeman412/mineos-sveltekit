@@ -28,6 +28,13 @@ public interface IModrinthService
         string? gameVersion,
         CancellationToken cancellationToken);
 
+    Task<ModrinthSearchResultDto> SearchResourcePacksAsync(
+        string query,
+        int index,
+        int pageSize,
+        string? gameVersion,
+        CancellationToken cancellationToken);
+
     Task<ModrinthProjectDto?> GetProjectAsync(string projectId, CancellationToken cancellationToken);
 
     Task<IReadOnlyList<ModrinthVersionDto>> GetProjectVersionsAsync(

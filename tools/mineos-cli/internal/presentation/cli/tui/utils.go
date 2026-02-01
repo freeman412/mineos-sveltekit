@@ -1,4 +1,4 @@
-﻿package tui
+package tui
 
 import (
 	"strings"
@@ -49,14 +49,17 @@ func SanitizeLogLine(line string) string {
 	// Strip ANSI escape codes (colors, cursor movements, etc)
 	stripped := ansi.Strip(line)
 
-	// Remove carriage returns and other control characters
-	// Replace \r with nothing to prevent line overwrites
+	// Remove carriage returns to prevent line overwrites
 	stripped = strings.ReplaceAll(stripped, "\r", "")
 
-	// Remove any remaining control characters (ASCII 0-31 except \t and \n)
+	// Prevent embedded newlines/tabs from breaking layout; normalize to spaces.
+	stripped = strings.ReplaceAll(stripped, "\n", " ")
+	stripped = strings.ReplaceAll(stripped, "\t", "  ")
+
+	// Remove any remaining control characters (ASCII < 32, plus DEL)
 	var result strings.Builder
 	for _, r := range stripped {
-		if r >= 32 || r == '\t' || r == '\n' {
+		if r >= 32 && r != 127 {
 			result.WriteRune(r)
 		}
 	}
