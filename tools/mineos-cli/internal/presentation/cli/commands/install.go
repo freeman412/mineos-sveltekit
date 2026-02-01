@@ -479,7 +479,7 @@ func runInstall(cmd *cobra.Command, opts installOptions) error {
 				errorMsg = installErr.Error()
 			}
 
-			version := opts.imageTag
+			version := resolveImageVersion(opts.imageTag)
 			if version == "" {
 				version = "source"
 			}
@@ -1061,6 +1061,30 @@ func testWriteAccess(dir string) error {
 	}
 	f.Close()
 	return os.Remove(testFile)
+}
+
+// resolveImageVersion inspects the pulled Docker image to get the actual version
+// from OCI labels, rather than using channel names like "latest" or "preview".
+func resolveImageVersion(imageTag string) string {
+	if imageTag == "" {
+		return ""
+	}
+	// If user specified a concrete version (not a channel alias), use it directly
+	tag := strings.ToLower(imageTag)
+	if tag != "latest" && tag != "preview" && tag != "edge" {
+		return imageTag
+	}
+	// Try to read the actual version from the pulled image's OCI labels
+	imageName := fmt.Sprintf("ghcr.io/freeman412/mineos-api:%s", imageTag)
+	out, err := exec.Command("docker", "inspect", "--format",
+		`{{index .Config.Labels "org.opencontainers.image.version"}}`, imageName).Output()
+	if err == nil {
+		version := strings.TrimSpace(string(out))
+		if version != "" && version != "<no value>" {
+			return version
+		}
+	}
+	return imageTag
 }
 
 // appendToEnv appends a KEY=VALUE line to the given .env file.

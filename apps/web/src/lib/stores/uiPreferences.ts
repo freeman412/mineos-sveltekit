@@ -7,7 +7,7 @@ const themeStorageKey = 'mineos_theme';
 export type Theme = 'overworld' | 'nether' | 'end';
 
 function createSheepEnabledStore() {
-	const { subscribe, set } = writable(true);
+	const { subscribe, set } = writable(false);
 
 	if (browser) {
 		const stored = localStorage.getItem(sheepStorageKey);

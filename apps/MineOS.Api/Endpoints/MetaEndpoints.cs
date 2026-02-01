@@ -15,7 +15,9 @@ public static class MetaEndpoints
                     ?? configuration["MINEOS_IMAGE_TAG"]
                     ?? "unknown";
 
-                return Results.Ok(new { version });
+                var installationId = configuration["MINEOS_INSTALLATION_ID"] ?? "";
+
+                return Results.Ok(new { version, installationId });
             })
             .WithName("GetMineOSMeta")
             .WithSummary("Get MineOS version metadata");

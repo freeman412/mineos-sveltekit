@@ -457,6 +457,37 @@
 	{/each}
 {/if}
 
+{#if data.meta}
+	<div class="settings-group">
+		<div class="group-header">
+			<span class="group-icon">ℹ</span>
+			<h2>System</h2>
+		</div>
+		<div class="setting-card">
+			<div class="preference-row">
+				<div class="setting-info">
+					<div class="preference-title">Installation ID</div>
+					<div class="preference-help">Unique identifier for this MineOS installation. Used for telemetry and support.</div>
+					{#if data.meta.installationId}
+						<code class="setting-value-code installation-id">{data.meta.installationId}</code>
+					{:else}
+						<span class="not-configured">Not set</span>
+					{/if}
+				</div>
+				{#if data.meta.installationId}
+					<button
+						class="btn-sm"
+						onclick={() => navigator.clipboard.writeText(data.meta.installationId)}
+						title="Copy to clipboard"
+					>
+						Copy
+					</button>
+				{/if}
+			</div>
+		</div>
+	</div>
+{/if}
+
 <div class="info-section">
 	<div class="info-card">
 		<h3>Setting Sources</h3>
@@ -790,6 +821,13 @@
 		color: #6ab04c;
 		border: 1px solid #2a2f47;
 		margin-top: 8px;
+	}
+
+	.installation-id {
+		font-size: 12px;
+		letter-spacing: 0.03em;
+		word-break: break-all;
+		user-select: all;
 	}
 
 	.not-configured {

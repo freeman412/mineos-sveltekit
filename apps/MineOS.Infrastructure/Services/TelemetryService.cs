@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http.Headers;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -45,6 +46,13 @@ public class TelemetryService : ITelemetryService
         _version = configuration["MINEOS_VERSION"]
                    ?? configuration["MINEOS_IMAGE_TAG"]
                    ?? "unknown";
+
+        // Seed the cache from env var if the CLI installer already obtained a key
+        var envKey = configuration["MINEOS_TELEMETRY_KEY"];
+        if (!string.IsNullOrEmpty(envKey) && _cachedTelemetryKey == null)
+        {
+            _cachedTelemetryKey = envKey;
+        }
     }
 
     public async Task ReportUsageAsync(UsageData data, CancellationToken cancellationToken = default)
@@ -182,7 +190,18 @@ public class TelemetryService : ITelemetryService
     {
         try
         {
-            var registerPayload = new { installation_id = _installationId };
+            var registerPayload = new InstallPayload
+            {
+                InstallationId = _installationId,
+                Os = RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ? "windows"
+                   : RuntimeInformation.IsOSPlatform(OSPlatform.OSX) ? "darwin" : "linux",
+                Architecture = RuntimeInformation.OSArchitecture.ToString().ToLowerInvariant(),
+                MineOSVersion = _version,
+                InstallMethod = "docker",
+                InstallSuccess = true,
+                IsDocker = true,
+                UserAgent = $"MineOS-API/{_version}"
+            };
             var json = JsonSerializer.Serialize(registerPayload, JsonOptions);
             var content = new StringContent(json, Encoding.UTF8, "application/json");
 
@@ -213,6 +232,33 @@ public class TelemetryService : ITelemetryService
             _logger.LogWarning(ex, "Failed to register for telemetry key");
             return null;
         }
+    }
+
+    private class InstallPayload
+    {
+        [JsonPropertyName("installation_id")]
+        public string InstallationId { get; set; } = string.Empty;
+
+        [JsonPropertyName("os")]
+        public string Os { get; set; } = string.Empty;
+
+        [JsonPropertyName("architecture")]
+        public string Architecture { get; set; } = string.Empty;
+
+        [JsonPropertyName("mineos_version")]
+        public string MineOSVersion { get; set; } = string.Empty;
+
+        [JsonPropertyName("install_method")]
+        public string InstallMethod { get; set; } = string.Empty;
+
+        [JsonPropertyName("install_success")]
+        public bool InstallSuccess { get; set; }
+
+        [JsonPropertyName("is_docker")]
+        public bool IsDocker { get; set; }
+
+        [JsonPropertyName("user_agent")]
+        public string UserAgent { get; set; } = string.Empty;
     }
 
     private class InstallResponse
