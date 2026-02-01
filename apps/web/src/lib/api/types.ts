@@ -51,6 +51,10 @@ export type ApiResult<T> = {
 	error: string | null;
 };
 
+export type MineOSMeta = {
+	version: string;
+};
+
 // Server management types
 export type ServerDetail = {
 	name: string;
