@@ -7,6 +7,7 @@ using MineOS.Application.Interfaces;
 using MineOS.Application.Options;
 using MineOS.Domain.Entities;
 using MineOS.Infrastructure.Utilities;
+using ServerStatusStrings = MineOS.Infrastructure.Constants.ServerStatus;
 
 namespace MineOS.Infrastructure.Services;
 
@@ -298,7 +299,7 @@ public class ServerService : IServerService
         }
 
         var processInfo = _processManager.GetServerProcess(name);
-        var status = processInfo?.JavaPid != null ? "running" : "stopped";
+        var status = processInfo?.JavaPid != null ? ServerStatusStrings.Running : ServerStatusStrings.Stopped;
 
         // TODO: Add ping info when we implement MinecraftPing protocol
         // TODO: Add memory info from /proc/{pid}/status

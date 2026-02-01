@@ -7,6 +7,7 @@ using Microsoft.Extensions.Options;
 using MineOS.Application.Dtos;
 using MineOS.Application.Interfaces;
 using MineOS.Application.Options;
+using MineOS.Infrastructure.Constants;
 using MineOS.Infrastructure.Persistence;
 
 namespace MineOS.Infrastructure.Services;
@@ -36,7 +37,7 @@ public sealed class BackupService : IBackupService
     public async Task<IEnumerable<IncrementEntryDto>> ListBackupsAsync(string serverName, CancellationToken cancellationToken)
     {
         var jobBackups = await _db.Jobs.AsNoTracking()
-            .Where(j => j.Type == "backup" && j.ServerName == serverName && j.Status == "completed")
+            .Where(j => j.Type == "backup" && j.ServerName == serverName && j.Status == JobStatus.Completed)
             .ToListAsync(cancellationToken);
 
         var jobEntries = jobBackups
@@ -147,7 +148,7 @@ public sealed class BackupService : IBackupService
         }
 
         var jobBackups = await _db.Jobs
-            .Where(j => j.Type == "backup" && j.ServerName == serverName && j.Status == "completed")
+            .Where(j => j.Type == "backup" && j.ServerName == serverName && j.Status == JobStatus.Completed)
             .ToListAsync(cancellationToken);
 
         var orderedJobs = jobBackups

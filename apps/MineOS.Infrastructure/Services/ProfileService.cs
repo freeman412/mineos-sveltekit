@@ -7,6 +7,7 @@ using Microsoft.Extensions.Options;
 using MineOS.Application.Dtos;
 using MineOS.Application.Interfaces;
 using MineOS.Application.Options;
+using MineOS.Infrastructure.Constants;
 using MineOS.Infrastructure.Utilities;
 
 namespace MineOS.Infrastructure.Services;
@@ -1156,7 +1157,7 @@ public sealed class ProfileService : IProfileService
             Version = version;
             LogPath = logPath;
             StartedAt = startedAt;
-            Status = "running";
+            Status = JobStatus.Running;
         }
 
         public string RunId { get; }
@@ -1173,7 +1174,7 @@ public sealed class ProfileService : IProfileService
         {
             lock (_sync)
             {
-                Status = "completed";
+                Status = JobStatus.Completed;
                 CompletedAt = DateTimeOffset.UtcNow;
             }
         }
@@ -1182,7 +1183,7 @@ public sealed class ProfileService : IProfileService
         {
             lock (_sync)
             {
-                Status = "failed";
+                Status = JobStatus.Failed;
                 Error = error;
                 CompletedAt = DateTimeOffset.UtcNow;
             }

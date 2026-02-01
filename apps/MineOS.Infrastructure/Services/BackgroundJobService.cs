@@ -8,6 +8,7 @@ using MineOS.Application.Dtos;
 using MineOS.Application.Interfaces;
 using MineOS.Application.Services;
 using MineOS.Domain.Entities;
+using MineOS.Infrastructure.Constants;
 
 namespace MineOS.Infrastructure.Services;
 
@@ -90,7 +91,7 @@ public sealed class BackgroundJobService : IBackgroundJobService, IHostedService
     {
         return _jobs.Values
             .Select(j => (State: j, Snap: j.Snapshot()))
-            .Where(x => x.Snap.Status == "queued" || x.Snap.Status == "running")
+            .Where(x => x.Snap.Status == JobStatus.Queued || x.Snap.Status == JobStatus.Running)
             .Select(x => new JobStatusDto(
                 x.State.JobId,
                 x.State.Type,
@@ -148,7 +149,7 @@ public sealed class BackgroundJobService : IBackgroundJobService, IHostedService
         while (!cancellationToken.IsCancellationRequested)
         {
             snap = state.Snapshot();
-            if (snap.Status == "completed" || snap.Status == "failed")
+            if (snap.Status == JobStatus.Completed || snap.Status == JobStatus.Failed)
             {
                 yield return new JobProgressDto(
                     state.JobId, state.Type, state.ServerName,
@@ -370,7 +371,7 @@ public sealed class BackgroundJobService : IBackgroundJobService, IHostedService
         public required string Type { get; init; }
         public required string ServerName { get; init; }
 
-        private string _status = "queued";
+        private string _status = JobStatus.Queued;
         private int _percentage;
         private string? _message;
         private DateTimeOffset _startedAt;
