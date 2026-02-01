@@ -254,3 +254,6 @@ type SettingsToggledMsg struct {
 	Val string
 	Err error
 }
+
+// HealthTickMsg is sent periodically to re-check API health when unhealthy
+type HealthTickMsg struct{}

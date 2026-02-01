@@ -8,6 +8,7 @@ BUNDLE_URL=""
 CLI_URL=""
 INSTALL_CLI=true
 VERSION=""
+PREVIEW=false
 FORWARD_ARGS=()
 
 set -euo pipefail
@@ -27,6 +28,7 @@ Options:
   --dir <path>      Install directory (default: ./mineos)
   --repo <url>      Git repo for --build
   --version <tag>   Download specific release version (e.g., v1.0.0)
+  --preview         Install the latest preview (pre-release) version
   --bundle-url <u>  Override bundle download URL
   --cli-url <u>     Override mineos-cli download URL
   --no-cli          Skip mineos-cli download
@@ -84,6 +86,45 @@ PY
 
     curl -fsSL "$api" | grep -m 1 "\"browser_download_url\": \".*${asset_name}\"" | \
         sed -E 's/.*"([^"]+)".*/\1/'
+}
+
+get_latest_prerelease_tag() {
+    local api="https://api.github.com/repos/freeman412/mineos-sveltekit/releases"
+
+    if command_exists python3; then
+        python3 - <<'PY' "$api"
+import json, sys, urllib.request
+api = sys.argv[1]
+with urllib.request.urlopen(api) as resp:
+    data = json.load(resp)
+for release in data:
+    if release.get("prerelease"):
+        print(release.get("tag_name", ""))
+        break
+PY
+        return
+    fi
+
+    if command_exists python; then
+        python - <<'PY' "$api"
+import json, sys
+try:
+    import urllib2 as urllib
+except ImportError:
+    import urllib.request as urllib
+api = sys.argv[1]
+resp = urllib.urlopen(api)
+data = json.loads(resp.read().decode("utf-8"))
+for release in data:
+    if release.get("prerelease"):
+        print(release.get("tag_name", ""))
+        break
+PY
+        return
+    fi
+
+    # Fallback: use curl + grep
+    curl -fsSL "$api" | grep -m 1 '"tag_name"' | sed -E 's/.*"([^"]+)".*/\1/'
 }
 
 detect_platform() {
@@ -206,6 +247,7 @@ while [ $# -gt 0 ]; do
         --dir) INSTALL_DIR="${2:-}"; shift ;;
         --repo) REPO_URL="${2:-}"; shift ;;
         --version) VERSION="${2:-}"; shift ;;
+        --preview) PREVIEW=true ;;
         --bundle-url) BUNDLE_URL="${2:-}"; shift ;;
         --cli-url) CLI_URL="${2:-}"; shift ;;
         --no-cli) INSTALL_CLI=false ;;
@@ -250,6 +292,22 @@ fi
 if ! command_exists tar; then
     echo "[ERR] tar is required to extract the install bundle."
     exit 1
+fi
+
+# Resolve --preview to the latest prerelease tag
+if [ "$PREVIEW" = true ] && [ -z "$VERSION" ]; then
+    echo "[INFO] Looking up latest preview release..."
+    VERSION=$(get_latest_prerelease_tag)
+    if [ -z "$VERSION" ]; then
+        echo "[ERR] No pre-release version found."
+        exit 1
+    fi
+    echo "[INFO] Found preview version: $VERSION"
+    echo ""
+    echo "[WARN] Preview versions may be unstable, contain bugs, or cause data loss."
+    echo "[WARN] Do not use preview releases in production. Back up your data first."
+    echo ""
+    FORWARD_ARGS+=("--image-tag" "preview")
 fi
 
 if [ -z "$BUNDLE_URL" ]; then

@@ -3,6 +3,7 @@ param(
     [string]$Ref = "main",
     [string]$InstallDir = "mineos",
     [string]$Version = "",
+    [switch]$Preview,
     [string]$BundleUrl = "",
     [string]$CliUrl = "",
     [switch]$NoCli,
@@ -31,6 +32,13 @@ function Wait-OnError {
             Start-Sleep -Seconds 1
         }
     }
+}
+
+function Get-LatestPrereleaseTag {
+    $api = "https://api.github.com/repos/freeman412/mineos-sveltekit/releases"
+    $releases = Invoke-RestMethod -Uri $api -UseBasicParsing
+    $prerelease = $releases | Where-Object { $_.prerelease -eq $true } | Select-Object -First 1
+    return $prerelease.tag_name
 }
 
 function Get-LatestBundleUrl {
@@ -185,6 +193,22 @@ if ($Build) {
     }
     Wait-OnError -Code $LASTEXITCODE
     return
+}
+
+# Resolve -Preview to the latest prerelease tag
+if ($Preview -and [string]::IsNullOrWhiteSpace($Version)) {
+    Write-Info "Looking up latest preview release..."
+    $Version = Get-LatestPrereleaseTag
+    if ([string]::IsNullOrWhiteSpace($Version)) {
+        Write-Error-Custom "No pre-release version found."
+        return
+    }
+    Write-Info "Found preview version: $Version"
+    Write-Host ""
+    Write-Host "[WARN] Preview versions may be unstable, contain bugs, or cause data loss." -ForegroundColor Yellow
+    Write-Host "[WARN] Do not use preview releases in production. Back up your data first." -ForegroundColor Yellow
+    Write-Host ""
+    $forwardArgs = @("--image-tag", "preview") + $forwardArgs
 }
 
 if ([string]::IsNullOrWhiteSpace($BundleUrl)) {

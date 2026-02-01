@@ -40,6 +40,9 @@ func (m TuiModel) RenderSettingsMain(width, height int) []string {
 		channel = StyleError.Render("Preview (Pre-release)")
 	}
 	lines = append(lines, "  Channel: "+channel+"  "+StyleSubtle.Render("[p] toggle"))
+	if m.Cfg.IsPreReleaseEnabled() {
+		lines = append(lines, "  "+StyleError.Render("Warning: Preview builds may be unstable or cause data loss."))
+	}
 	lines = append(lines, "")
 
 	lines = append(lines, StyleSubtle.Render("Use SYSTEM menu to reconfigure or update."))

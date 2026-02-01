@@ -63,9 +63,10 @@ const (
 
 // Timeout constants
 const (
-	DefaultStopAllTimeout    = 300
-	DefaultShutdownTimeout   = 300
-	DefaultAPIHealthTimeout  = 60
+	DefaultStopAllTimeout   = 300
+	DefaultShutdownTimeout  = 300
+	DefaultAPIHealthTimeout = 60
+	HealthPollInterval      = 10 * time.Second // Re-check API when unhealthy
 )
 
 // UI layout constants

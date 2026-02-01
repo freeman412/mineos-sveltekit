@@ -180,6 +180,18 @@ func (m TuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case StreamingFinishedMsg:
 		return m.handleStreamingFinished(msg)
 
+	case HealthTickMsg:
+		// Don't poll if containers are intentionally stopped or already healthy
+		if m.ContainersStopped {
+			return m, nil
+		}
+		if m.ConfigReady && m.ErrMsg == "" {
+			return m, nil
+		}
+		// Re-attempt config and server load
+		m.StatusMsg = "Reconnecting to API..."
+		return m, tea.Batch(m.LoadConfigCmd(), m.LoadServersCmd())
+
 	case SettingsToggledMsg:
 		if msg.Err != nil {
 			m.ErrMsg = "Failed to update setting: " + msg.Err.Error()
@@ -188,7 +200,7 @@ func (m TuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.Key == "MINEOS_CLI_PRERELEASE_UPDATES" {
 			m.Cfg.PreReleaseUpdates = msg.Val
 			if msg.Val == "true" {
-				m.StatusMsg = "Update channel: Preview (pre-release)"
+				m.StatusMsg = "Update channel: Preview — builds may be unstable"
 			} else {
 				m.StatusMsg = "Update channel: Stable"
 			}
@@ -198,6 +210,13 @@ func (m TuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	return m, nil
+}
+
+// scheduleHealthPoll returns a tea.Cmd that sends a HealthTickMsg after HealthPollInterval
+func scheduleHealthPoll() tea.Cmd {
+	return tea.Tick(HealthPollInterval, func(time.Time) tea.Msg {
+		return HealthTickMsg{}
+	})
 }
 
 func (m TuiModel) handleConfigLoaded(msg ConfigLoadedMsg) (tea.Model, tea.Cmd) {
@@ -210,11 +229,14 @@ func (m TuiModel) handleConfigLoaded(msg ConfigLoadedMsg) (tea.Model, tea.Cmd) {
 				return m.LoadConfigCmdWithRetry(msg.RetryCount + 1)()
 			})
 		}
-		return m, nil
+		// All retries exhausted — schedule periodic health poll to recover later
+		m.StatusMsg = "API unavailable, will retry periodically..."
+		return m, scheduleHealthPoll()
 	}
 	m.Cfg = msg.Cfg
 	m.ConfigReady = true
-	m.ErrMsg = "" // Clear previous errors
+	m.ErrMsg = ""     // Clear previous errors
+	m.StatusMsg = ""  // Clear reconnecting status
 	m.RetryCount = 0
 	m.Client = api.NewClientFromConfig(msg.Cfg)
 	return m, m.LoadServersCmd()
@@ -251,6 +273,10 @@ func (m TuiModel) handleServersLoaded(msg ServersLoadedMsg) (tea.Model, tea.Cmd)
 			strings.Contains(errStr, "i/o timeout")
 		if !isTransient {
 			m.ErrMsg = errStr
+		}
+		// Schedule health poll to retry when API comes back
+		if !m.ContainersStopped {
+			return m, scheduleHealthPoll()
 		}
 		return m, nil
 	}
