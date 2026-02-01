@@ -170,11 +170,8 @@ public class ServerService : IServerService
 
         _logger.LogInformation("Created server {ServerName} at {ServerPath}", request.Name, serverPath);
 
-        // Report server creation telemetry
-        _ = _telemetryService.ReportLifecycleEventAsync("server_created", new
-        {
-            profile = request.Profile ?? "unknown"
-        }, CancellationToken.None);
+        // Report server creation telemetry (fire-and-forget)
+        _ = _telemetryService.ReportLifecycleEventAsync("server_created", null, CancellationToken.None);
 
         return await GetServerAsync(request.Name, cancellationToken);
     }
