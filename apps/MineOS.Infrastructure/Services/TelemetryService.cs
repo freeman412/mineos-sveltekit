@@ -60,11 +60,8 @@ public class TelemetryService : ITelemetryService
                 ServerCount = data.ServerCount,
                 ActiveServerCount = data.ActiveServerCount,
                 TotalUserCount = data.TotalUserCount,
-                ActiveUserCount = data.TotalUserCount, // All users considered active for now
-                TotalBackupsCount = data.TotalBackupsCount,
-                TotalWorldsCount = data.TotalWorldsCount,
-                ServersWithModsCount = data.ServersWithModsCount,
-                ServersWithPluginsCount = data.ServersWithPluginsCount
+                ActiveUserCount = data.ActiveUserCount,
+                UptimeSeconds = data.UptimeSeconds
             };
 
             await PostJsonAsync($"{_endpoint}/api/telemetry/usage", payload, cancellationToken);
@@ -88,11 +85,10 @@ public class TelemetryService : ITelemetryService
                 InstallationId = _installationId,
                 EventType = eventType,
                 MineOSVersion = _version,
-                Timestamp = DateTime.UtcNow,
                 Metadata = metadata
             };
 
-            await PostJsonAsync($"{_endpoint}/api/telemetry/event", payload, cancellationToken);
+            await PostJsonAsync($"{_endpoint}/api/telemetry/events", payload, cancellationToken);
             _logger.LogInformation("Lifecycle event {EventType} reported successfully", eventType);
         }
         catch (Exception ex)
@@ -136,20 +132,11 @@ public class TelemetryService : ITelemetryService
         [JsonPropertyName("active_user_count")]
         public int? ActiveUserCount { get; set; }
 
+        [JsonPropertyName("uptime_seconds")]
+        public long UptimeSeconds { get; set; }
+
         [JsonPropertyName("mineos_version")]
         public string MineOSVersion { get; set; } = string.Empty;
-
-        [JsonPropertyName("total_backups_count")]
-        public int? TotalBackupsCount { get; set; }
-
-        [JsonPropertyName("total_worlds_count")]
-        public int? TotalWorldsCount { get; set; }
-
-        [JsonPropertyName("servers_with_mods_count")]
-        public int? ServersWithModsCount { get; set; }
-
-        [JsonPropertyName("servers_with_plugins_count")]
-        public int? ServersWithPluginsCount { get; set; }
     }
 
     private class LifecyclePayload
@@ -162,9 +149,6 @@ public class TelemetryService : ITelemetryService
 
         [JsonPropertyName("mineos_version")]
         public string MineOSVersion { get; set; } = string.Empty;
-
-        [JsonPropertyName("timestamp")]
-        public DateTime Timestamp { get; set; }
 
         [JsonPropertyName("metadata")]
         public object? Metadata { get; set; }

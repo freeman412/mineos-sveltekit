@@ -17,7 +17,5 @@ public record UsageData(
     int ServerCount,
     int ActiveServerCount,
     int TotalUserCount,
-    int TotalBackupsCount,
-    int TotalWorldsCount,
-    int ServersWithModsCount,
-    int ServersWithPluginsCount);
+    int ActiveUserCount,
+    long UptimeSeconds);
