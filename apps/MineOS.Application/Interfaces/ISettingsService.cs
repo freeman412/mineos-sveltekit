@@ -35,4 +35,5 @@ public record SettingInfo(
     string? DisplayName = null,
     string? Options = null,
     int? Min = null,
-    int? Max = null);
+    int? Max = null,
+    bool ComingSoon = false);

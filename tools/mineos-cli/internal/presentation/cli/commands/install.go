@@ -354,6 +354,12 @@ func runInstall(cmd *cobra.Command, opts installOptions) error {
 	}
 	opts.telemetryEnabled = telemetryEnabled
 
+	if !opts.quiet {
+		fmt.Fprintln(out, "")
+		fmt.Fprintln(out, "Note: Integrations like CurseForge API keys can be configured later")
+		fmt.Fprintln(out, "in the web UI under Settings > Integrations.")
+	}
+
 	// Generate installation ID for telemetry tracking
 	installationID := telemetry.GenerateInstallationID()
 
@@ -551,7 +557,6 @@ type envConfig struct {
 func renderEnv(cfg envConfig) string {
 	// Optional integrations are configured via web UI settings
 	curseforgeLine := "# CurseForge__ApiKey="
-	discordLine := "# Discord__WebhookUrl="
 
 	builder := &strings.Builder{}
 	builder.WriteString("# Database Configuration\n")
@@ -584,10 +589,8 @@ func renderEnv(cfg envConfig) string {
 	if cfg.imageTag != "" {
 		builder.WriteString(fmt.Sprintf("MINEOS_IMAGE_TAG=%s\n", cfg.imageTag))
 	}
-	builder.WriteString("\n# Optional: CurseForge Integration\n")
+	builder.WriteString("\n# Optional: CurseForge Integration (configure in web UI Settings > Integrations)\n")
 	builder.WriteString(curseforgeLine + "\n\n")
-	builder.WriteString("# Optional: Discord Integration\n")
-	builder.WriteString(discordLine + "\n\n")
 	builder.WriteString("# Ports\n")
 	builder.WriteString(fmt.Sprintf("API_PORT=%d\n", cfg.apiPort))
 	builder.WriteString(fmt.Sprintf("WEB_PORT=%d\n\n", cfg.webPort))

@@ -17,6 +17,7 @@
 		options: string | null;
 		min: number | null;
 		max: number | null;
+		comingSoon: boolean;
 	}
 
 	let { data }: { data: PageData } = $props();
@@ -208,9 +209,21 @@
 			</div>
 
 			{#each group.settings as setting (setting.key)}
-				<div class="setting-card">
+				<div class="setting-card" class:coming-soon={setting.comingSoon}>
+					<!-- Coming Soon -->
+					{#if setting.comingSoon}
+						<div class="preference-row">
+							<div class="setting-info">
+								<div class="setting-title-row">
+									<div class="preference-title">{displayName(setting)}</div>
+									<span class="coming-soon-badge">Coming Soon</span>
+								</div>
+								<div class="preference-help">{setting.description}</div>
+							</div>
+						</div>
+
 					<!-- Boolean toggle -->
-					{#if setting.type === 'boolean'}
+					{:else if setting.type === 'boolean'}
 						<div class="preference-row">
 							<div class="setting-info">
 								<div class="setting-title-row">
@@ -583,6 +596,23 @@
 		border-radius: 6px;
 		font-size: 11px;
 		font-weight: 500;
+	}
+
+	.coming-soon-badge {
+		display: inline-block;
+		padding: 2px 8px;
+		border-radius: 20px;
+		font-size: 11px;
+		font-weight: 600;
+		text-transform: uppercase;
+		background: rgba(255, 193, 7, 0.15);
+		color: #ffd54f;
+		border: 1px solid rgba(255, 193, 7, 0.3);
+		flex-shrink: 0;
+	}
+
+	.setting-card.coming-soon {
+		opacity: 0.6;
 	}
 
 	/* Preference rows */

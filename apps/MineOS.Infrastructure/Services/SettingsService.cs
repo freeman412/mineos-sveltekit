@@ -29,7 +29,8 @@ public sealed class SettingsService : ISettingsService
         string DisplayName,
         string? Options = null,  // JSON array for select type
         int? Min = null,
-        int? Max = null);
+        int? Max = null,
+        bool ComingSoon = false);
 
     private static readonly Dictionary<string, SettingMeta> SettingsMetadata = new()
     {
@@ -52,7 +53,8 @@ public sealed class SettingsService : ISettingsService
         [Keys.DiscordWebhookUrl] = new(
             "Discord webhook URL for server event notifications (start, stop, crash).",
             false, "Discord__WebhookUrl",
-            "text", "Notifications", "Discord Webhook URL"),
+            "text", "Notifications", "Discord Webhook URL",
+            ComingSoon: true),
 
         [Keys.LogLevel] = new(
             "Minimum log level for the API. Higher levels reduce log volume.",
@@ -175,7 +177,8 @@ public sealed class SettingsService : ISettingsService
                 DisplayName: meta.DisplayName,
                 Options: meta.Options,
                 Min: meta.Min,
-                Max: meta.Max
+                Max: meta.Max,
+                ComingSoon: meta.ComingSoon
             ));
         }
 
