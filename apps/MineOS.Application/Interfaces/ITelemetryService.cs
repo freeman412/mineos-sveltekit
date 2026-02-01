@@ -3,12 +3,21 @@ namespace MineOS.Application.Interfaces;
 public interface ITelemetryService
 {
     /// <summary>
-    /// Reports usage telemetry asynchronously (non-blocking)
+    /// Sends a pre-gathered usage report to the telemetry endpoint.
     /// </summary>
-    Task ReportUsageAsync(CancellationToken cancellationToken = default);
+    Task ReportUsageAsync(UsageData data, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Reports a lifecycle event (startup, shutdown, server_created, etc.)
     /// </summary>
     Task ReportLifecycleEventAsync(string eventType, object? metadata = null, CancellationToken cancellationToken = default);
 }
+
+public record UsageData(
+    int ServerCount,
+    int ActiveServerCount,
+    int TotalUserCount,
+    int TotalBackupsCount,
+    int TotalWorldsCount,
+    int ServersWithModsCount,
+    int ServersWithPluginsCount);

@@ -169,8 +169,6 @@ public class ServerService : IServerService
         OwnershipHelper.TrySetOwnership(archivePath, _options.RunAsUid, _options.RunAsGid, _logger, recursive: true);
 
         _logger.LogInformation("Created server {ServerName} at {ServerPath}", request.Name, serverPath);
-
-        // Report server creation telemetry (fire-and-forget)
         _ = _telemetryService.ReportLifecycleEventAsync("server_created", null, CancellationToken.None);
 
         return await GetServerAsync(request.Name, cancellationToken);
@@ -258,8 +256,6 @@ public class ServerService : IServerService
             Directory.Delete(archivePath, recursive: true);
 
         _logger.LogInformation("Deleted server {ServerName}", name);
-
-        // Report server deletion telemetry
         _ = _telemetryService.ReportLifecycleEventAsync("server_deleted", null, CancellationToken.None);
     }
 
