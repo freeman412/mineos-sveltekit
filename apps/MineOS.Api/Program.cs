@@ -134,16 +134,15 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
 
 builder.Services.AddAuthorization();
 
+var defaultConnectionString = builder.Configuration.GetConnectionString("Default");
 builder.Services.AddDbContext<AppDbContext>(options =>
 {
-    var connectionString = builder.Configuration.GetConnectionString("Default");
-    options.UseSqlite(connectionString);
+    options.UseSqlite(defaultConnectionString);
 });
 builder.Services.AddDbContextFactory<AppDbContext>(options =>
 {
-    var connectionString = builder.Configuration.GetConnectionString("Default");
-    options.UseSqlite(connectionString);
-}, ServiceLifetime.Singleton);
+    options.UseSqlite(defaultConnectionString);
+});
 builder.Services.AddSingleton(typeof(IRepository<>), typeof(Repository<>));
 builder.Services.AddSingleton<IModpackRepository, ModpackRepository>();
 builder.Services.AddScoped<IApiKeyValidator, ApiKeyValidator>();
