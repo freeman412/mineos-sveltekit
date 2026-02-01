@@ -53,7 +53,7 @@ jobs:
           fi
           cp docker-compose.yml docker-compose.host.yml \
             docker-compose.build.yml docker-compose.dev.yml .env.template \
-            uninstall.sh uninstall.ps1 README.md LICENSE.md dist/bundle/
+            README.md LICENSE.md dist/bundle/
           tar -czf dist/mineos-install-bundle.tar.gz -C dist/bundle .
           (cd dist/bundle && zip -r ../mineos-install-bundle.zip .)
 

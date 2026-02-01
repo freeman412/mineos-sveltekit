@@ -63,7 +63,7 @@ type installOptions struct {
 	buildFromSource  bool
 	imageTag         string
 	quiet            bool
-	skipPathInstall  bool
+
 	telemetryEnabled bool
 }
 
@@ -110,7 +110,6 @@ func NewInstallCommand() *cobra.Command {
 	cmd.Flags().BoolVar(&opts.buildFromSource, "build", false, "Build images from source instead of pulling")
 	cmd.Flags().StringVar(&opts.imageTag, "image-tag", "", "Image tag to pull when not building from source")
 	cmd.Flags().BoolVarP(&opts.quiet, "quiet", "q", false, "Non-interactive mode (requires --admin, --password)")
-	cmd.Flags().BoolVar(&opts.skipPathInstall, "skip-path-install", false, "Skip prompting to install CLI to PATH")
 
 	return cmd
 }
@@ -524,33 +523,7 @@ func runInstall(cmd *cobra.Command, opts installOptions) error {
 	fmt.Fprintln(out, styleDim.Render("  Use 'mineos --help' to see all available commands"))
 	fmt.Fprintln(out, "")
 
-	// Prompt to install CLI to PATH (skip in quiet mode or if explicitly skipped)
-	if !opts.quiet && !opts.skipPathInstall {
-		installToPath, err := promptYesNo(reader, out, "Install the 'mineos' command to your system PATH for easy access", true)
-		if err != nil {
-			return err
-		}
-
-		if installToPath {
-			if err := installCLIToPath(out); err != nil {
-				fmt.Fprintf(out, "%s Could not install to PATH: %v\n", styleWarning.Render("Warning:"), err)
-				fmt.Fprintln(out, "You can still use the CLI from this directory.")
-				printLocalCLIInstructions(out)
-			} else {
-				pwd, _ := os.Getwd()
-				fmt.Fprintln(out, "")
-				fmt.Fprintln(out, styleSuccess.Render("CLI installed to system PATH!"))
-				fmt.Fprintln(out, "")
-				fmt.Fprintln(out, styleTitle.Render("  To manage your servers from the terminal:"))
-				fmt.Fprintf(out, "    %s\n", styleInfo.Render(fmt.Sprintf("cd \"%s\"", pwd)))
-				fmt.Fprintf(out, "    %s\n", styleInfo.Render("mineos tui"))
-				fmt.Fprintln(out, "")
-				fmt.Fprintln(out, styleDim.Render("  Note: You must run commands from this directory (or use --env flag)"))
-			}
-		} else {
-			printLocalCLIInstructions(out)
-		}
-	} else if !opts.quiet {
+	if !opts.quiet {
 		printLocalCLIInstructions(out)
 	}
 
@@ -917,150 +890,6 @@ func printLocalCLIInstructions(out io.Writer) {
 		fmt.Fprintf(out, "    %s\n", styleInfo.Render("./mineos tui"))
 	}
 
-	fmt.Fprintln(out, "")
-	fmt.Fprintln(out, styleDim.Render("  (Or run the installer again and choose to install to PATH)"))
-}
-
-func installCLIToPath(out io.Writer) error {
-	// Get current executable path
-	exePath, err := os.Executable()
-	if err != nil {
-		return fmt.Errorf("failed to get executable path: %w", err)
-	}
-
-	if runtime.GOOS == "windows" {
-		return installCLIToPathWindows(out, exePath)
-	}
-	return installCLIToPathUnix(out, exePath)
-}
-
-func installCLIToPathWindows(out io.Writer, exePath string) error {
-	// Install to %LOCALAPPDATA%\Programs\MineOS\mineos.exe
-	localAppData := os.Getenv("LOCALAPPDATA")
-	if localAppData == "" {
-		return errors.New("LOCALAPPDATA environment variable not set")
-	}
-
-	installDir := filepath.Join(localAppData, "Programs", "MineOS")
-	if err := os.MkdirAll(installDir, 0o755); err != nil {
-		return fmt.Errorf("failed to create install directory: %w", err)
-	}
-
-	destPath := filepath.Join(installDir, "mineos.exe")
-
-	// Copy executable
-	if err := copyFile(exePath, destPath); err != nil {
-		return fmt.Errorf("failed to copy executable: %w", err)
-	}
-
-	fmt.Fprintf(out, "%s %s\n", styleSuccess.Render("Installed to:"), styleValue.Render(destPath))
-
-	// Show important note about .env location
-	pwd, _ := os.Getwd()
-	fmt.Fprintln(out, "")
-	fmt.Fprintln(out, styleWarning.Render("IMPORTANT:")+" Your .env file is located at:")
-	fmt.Fprintf(out, "  %s\n", styleValue.Render(pwd+"\\.env"))
-	fmt.Fprintln(out, "")
-	fmt.Fprintln(out, styleDim.Render("You must either:"))
-	fmt.Fprintf(out, "  %s cd to this directory before running mineos commands, OR\n", styleSuccess.Render("1."))
-	fmt.Fprintf(out, "  %s Use the --env flag: %s\n", styleSuccess.Render("2."), styleInfo.Render(fmt.Sprintf("mineos --env \"%s\\.env\" tui", pwd)))
-
-	// Check if directory is in PATH
-	pathEnv := os.Getenv("PATH")
-	if !strings.Contains(strings.ToLower(pathEnv), strings.ToLower(installDir)) {
-		fmt.Fprintln(out, "")
-		fmt.Fprintln(out, styleWarning.Render("⚠  Almost done!")+" The installation directory is not in your PATH.")
-		fmt.Fprintln(out, "")
-		fmt.Fprintln(out, styleDim.Render("To complete the installation, add this directory to your PATH:"))
-		fmt.Fprintf(out, "  %s\n", styleValue.Render(installDir))
-		fmt.Fprintln(out, "")
-		fmt.Fprintln(out, styleTitle.Render("How to add to PATH:"))
-		fmt.Fprintf(out, "  %s Press Win+R, type %s, press Enter\n", styleDim.Render("1."), styleInfo.Render("sysdm.cpl"))
-		fmt.Fprintf(out, "  %s Go to 'Advanced' tab > 'Environment Variables'\n", styleDim.Render("2."))
-		fmt.Fprintf(out, "  %s Under 'User variables', select 'Path' > 'Edit'\n", styleDim.Render("3."))
-		fmt.Fprintf(out, "  %s Click 'New' and paste the directory path above\n", styleDim.Render("4."))
-		fmt.Fprintf(out, "  %s Click 'OK' on all windows\n", styleDim.Render("5."))
-		fmt.Fprintf(out, "  %s Restart your terminal\n", styleDim.Render("6."))
-		fmt.Fprintln(out, "")
-		fmt.Fprintln(out, styleDim.Render("Alternatively, use PowerShell (run as user, not admin):"))
-		fmt.Fprintf(out, "  %s\n", styleInfo.Render("$env:Path += ';"+installDir+"'"))
-		fmt.Fprintf(out, "  %s\n", styleInfo.Render("[Environment]::SetEnvironmentVariable('Path', $env:Path, 'User')"))
-	}
-
-	return nil
-}
-
-func installCLIToPathUnix(out io.Writer, exePath string) error {
-	// Try to install to /usr/local/bin (requires sudo) or ~/.local/bin
-	var destPath string
-	var installDir string
-
-	// Check if we have write access to /usr/local/bin
-	if runtime.GOOS == "linux" || runtime.GOOS == "darwin" {
-		systemBin := "/usr/local/bin/mineos"
-		if err := testWriteAccess("/usr/local/bin"); err == nil {
-			destPath = systemBin
-			installDir = "/usr/local/bin"
-		}
-	}
-
-	// Fall back to user's local bin
-	if destPath == "" {
-		homeDir, err := os.UserHomeDir()
-		if err != nil {
-			return fmt.Errorf("failed to get home directory: %w", err)
-		}
-		installDir = filepath.Join(homeDir, ".local", "bin")
-		if err := os.MkdirAll(installDir, 0o755); err != nil {
-			return fmt.Errorf("failed to create install directory: %w", err)
-		}
-		destPath = filepath.Join(installDir, "mineos")
-	}
-
-	// Copy and make executable
-	if err := copyFile(exePath, destPath); err != nil {
-		return fmt.Errorf("failed to copy executable: %w", err)
-	}
-	if err := os.Chmod(destPath, 0o755); err != nil {
-		return fmt.Errorf("failed to make executable: %w", err)
-	}
-
-	fmt.Fprintf(out, "%s %s\n", styleSuccess.Render("Installed to:"), styleValue.Render(destPath))
-
-	// Show important note about .env location
-	pwd, _ := os.Getwd()
-	fmt.Fprintln(out, "")
-	fmt.Fprintln(out, styleWarning.Render("IMPORTANT:")+" Your .env file is located at:")
-	fmt.Fprintf(out, "  %s\n", styleValue.Render(pwd+"/.env"))
-	fmt.Fprintln(out, "")
-	fmt.Fprintln(out, styleDim.Render("You must either:"))
-	fmt.Fprintf(out, "  %s cd to this directory before running mineos commands, OR\n", styleSuccess.Render("1."))
-	fmt.Fprintf(out, "  %s Use the --env flag: %s\n", styleSuccess.Render("2."), styleInfo.Render(fmt.Sprintf("mineos --env \"%s/.env\" tui", pwd)))
-
-	// Check if directory is in PATH
-	pathEnv := os.Getenv("PATH")
-	if !strings.Contains(pathEnv, installDir) {
-		fmt.Fprintln(out, "")
-		fmt.Fprintln(out, styleWarning.Render("⚠  Almost done!")+" The installation directory is not in your PATH.")
-		fmt.Fprintln(out, "")
-		fmt.Fprintln(out, styleDim.Render("Add this line to your shell profile (~/.bashrc, ~/.zshrc, or ~/.profile):"))
-		fmt.Fprintf(out, "  %s\n", styleInfo.Render(fmt.Sprintf("export PATH=\"%s:$PATH\"", installDir)))
-		fmt.Fprintln(out, "")
-		fmt.Fprintln(out, styleDim.Render("Then reload your shell:"))
-		fmt.Fprintf(out, "  %s\n", styleInfo.Render("source ~/.bashrc  # or ~/.zshrc"))
-	}
-
-	return nil
-}
-
-func testWriteAccess(dir string) error {
-	testFile := filepath.Join(dir, ".write_test_"+strconv.FormatInt(time.Now().UnixNano(), 10))
-	f, err := os.Create(testFile)
-	if err != nil {
-		return err
-	}
-	f.Close()
-	return os.Remove(testFile)
 }
 
 // resolveImageVersion inspects the pulled Docker image to get the actual version

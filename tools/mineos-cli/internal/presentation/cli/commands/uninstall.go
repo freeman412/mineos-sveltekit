@@ -136,56 +136,24 @@ func runUninstall(cmd *cobra.Command, opts uninstallOptions) error {
 			return err
 		}
 
-		// Stop containers and remove data
-		if err := compose.down(shouldRemoveVolumes(opts)); err != nil {
+		// Stop containers and remove volumes
+		if err := compose.down(true); err != nil {
 			fmt.Fprintf(out, "Warning: Failed to stop containers: %v\n", err)
 		}
+
+		// Remove all MineOS data files
 		if err := removeLocalData(out); err != nil {
 			fmt.Fprintf(out, "Warning: Failed to remove data: %v\n", err)
 		}
 
-		// Remove CLI from PATH if requested or asked
-		removeCLI := opts.removeCLI
-		if !removeCLI && !cmd.Flags().Changed("remove-cli") {
-			reader := bufio.NewReader(os.Stdin)
-			remove, err := promptYesNo(reader, out, "Remove 'mineos' command from system PATH", true)
-			if err == nil {
-				removeCLI = remove
-			}
-		}
-
-		if removeCLI {
-			if err := removeCLIFromPath(out); err != nil {
-				fmt.Fprintf(out, "Warning: Failed to remove CLI from PATH: %v\n", err)
-			}
-		}
-
 		// Remove entire installation directory
-		removeDir := opts.removeAll
-		if !removeDir && !cmd.Flags().Changed("remove-all") {
-			fmt.Fprintln(out, "")
-			fmt.Fprintln(out, "⚠️  FINAL STEP: Remove the entire MineOS installation directory?")
-			fmt.Fprintln(out, "This will delete all files including docker-compose.yml, .env, and this CLI.")
-			reader := bufio.NewReader(os.Stdin)
-			remove, err := promptYesNo(reader, out, "Remove installation directory", true)
-			if err == nil {
-				removeDir = remove
-			}
-		}
-
-		if removeDir {
-			if err := removeInstallationDirectory(out); err != nil {
-				return fmt.Errorf("failed to remove installation directory: %w", err)
-			}
+		if err := removeInstallationDirectory(out); err != nil {
+			fmt.Fprintf(out, "Warning: Failed to remove installation directory: %v\n", err)
 		}
 
 		fmt.Fprintln(out, "")
 		fmt.Fprintln(out, "✓ Complete uninstall finished!")
-		fmt.Fprintln(out, "")
-		if removeDir {
-			fmt.Fprintln(out, "MineOS has been completely removed from your system.")
-			fmt.Fprintln(out, "This terminal will close automatically.")
-		}
+		fmt.Fprintln(out, "MineOS has been completely removed from your system.")
 		return nil
 
 	default:
@@ -290,9 +258,20 @@ func backupData(out io.Writer) (string, error) {
 }
 
 func removeLocalData(out io.Writer) error {
-	if _, err := os.Stat("data"); err == nil {
-		fmt.Fprintln(out, "Removing local data folder...")
-		return os.RemoveAll("data")
+	// Remove known MineOS files and directories from the install folder
+	items := []string{
+		"data", "backups", "logs",
+		"docker-compose.yml", "docker-compose.override.yml",
+		".env", ".env.bak",
+	}
+	for _, item := range items {
+		if _, err := os.Stat(item); err == nil {
+			if err := os.RemoveAll(item); err != nil {
+				fmt.Fprintf(out, "Warning: failed to remove %s: %v\n", item, err)
+			} else {
+				fmt.Fprintf(out, "Removed %s\n", item)
+			}
+		}
 	}
 	return nil
 }
@@ -391,6 +370,10 @@ func detectCompose() (composeRunner, error) {
 
 func (c composeRunner) down(withVolumes bool) error {
 	args := append([]string{}, c.baseArgs...)
+	// Explicitly reference docker-compose.yml in the current directory
+	if _, err := os.Stat("docker-compose.yml"); err == nil {
+		args = append(args, "-f", "docker-compose.yml")
+	}
 	args = append(args, "down", "--remove-orphans")
 	if withVolumes {
 		args = append(args, "--volumes")

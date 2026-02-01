@@ -40,11 +40,9 @@ MineOS will start automatically whenever Docker starts. Create servers, install 
 
 ## Uninstall
 
-**Windows:** Run `uninstall.ps1`
+Run `./mineos uninstall` from the installation directory.
 
-**Mac/Linux:** Run `./uninstall.sh`
-
-The uninstall script will ask if you want to keep your server data before removing anything.
+The uninstall will ask if you want to keep your server data before removing anything.
 
 ## Where Are My Files?
 
