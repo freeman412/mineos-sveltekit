@@ -23,7 +23,19 @@ public static class AuthEndpoints
             .AllowAnonymous()
             .WithMetadata(new MineOS.Api.Middleware.SkipApiKeyAttribute());
 
-        auth.MapPost("/logout", () => EndpointHelpers.NotImplementedFeature("auth.logout"))
+        auth.MapPost("/logout", (HttpContext ctx) =>
+            {
+                // JWT is stateless; cookie-based logout is handled by the SvelteKit frontend.
+                // This endpoint exists so API clients get a 200 instead of a 501.
+                ctx.Response.Cookies.Delete("auth_token", new CookieOptions
+                {
+                    Path = "/",
+                    HttpOnly = true,
+                    Secure = ctx.Request.IsHttps,
+                    SameSite = SameSiteMode.Lax
+                });
+                return Results.Ok(new { message = "Logged out" });
+            })
             .AllowAnonymous()
             .WithMetadata(new MineOS.Api.Middleware.SkipApiKeyAttribute());
 

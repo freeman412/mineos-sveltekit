@@ -3,11 +3,9 @@ using System.Diagnostics;
 using System.Text.Json;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
-using Microsoft.Extensions.DependencyInjection;
 using MineOS.Application.Interfaces;
 using MineOS.Application.Options;
 using MineOS.Domain.Entities;
-using MineOS.Infrastructure.Persistence;
 using MineOS.Infrastructure.Utilities;
 
 namespace MineOS.Infrastructure.Services;
@@ -26,17 +24,17 @@ public sealed class ForgeService : IForgeService
     private readonly HttpClient _httpClient;
     private readonly HostOptions _hostOptions;
     private readonly ILogger<ForgeService> _logger;
-    private readonly IServiceScopeFactory _scopeFactory;
+    private readonly IRepository<SystemNotification> _notificationRepo;
 
     public ForgeService(
         HttpClient httpClient,
         IOptions<HostOptions> hostOptions,
-        IServiceScopeFactory scopeFactory,
+        IRepository<SystemNotification> notificationRepo,
         ILogger<ForgeService> logger)
     {
         _httpClient = httpClient;
         _hostOptions = hostOptions.Value;
-        _scopeFactory = scopeFactory;
+        _notificationRepo = notificationRepo;
         _logger = logger;
     }
 
@@ -484,9 +482,7 @@ public sealed class ForgeService : IForgeService
             ? $"Forge install for {state.ServerName} ({version}) completed successfully."
             : $"Forge install for {state.ServerName} ({version}) failed: {error ?? "Unknown error"}.";
 
-        await using var scope = _scopeFactory.CreateAsyncScope();
-        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-        db.SystemNotifications.Add(new SystemNotification
+        await _notificationRepo.AddAsync(new SystemNotification
         {
             Type = type,
             Title = title,
@@ -494,8 +490,7 @@ public sealed class ForgeService : IForgeService
             CreatedAt = DateTimeOffset.UtcNow,
             ServerName = state.ServerName,
             IsRead = false
-        });
-        await db.SaveChangesAsync(cancellationToken);
+        }, cancellationToken);
     }
 
     private sealed class ForgeInstallState

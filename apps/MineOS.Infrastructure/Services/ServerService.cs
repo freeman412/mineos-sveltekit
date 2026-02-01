@@ -67,7 +67,7 @@ public class ServerService : IServerService
         var config = await GetServerConfigAsync(name, cancellationToken);
 
         var status = processInfo?.JavaPid != null ? "running" : "stopped";
-        var eulaAccepted = IsEulaAccepted(serverPath);
+        var eulaAccepted = await IsEulaAcceptedAsync(serverPath, cancellationToken);
         var needsRestart = File.Exists(GetRestartFlagPath(name));
 
         // Get owner info from directory
@@ -203,7 +203,7 @@ public class ServerService : IServerService
         }
 
         Directory.CreateDirectory(targetPath);
-        CopyDirectory(sourcePath, targetPath, cancellationToken, new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        await CopyDirectoryAsync(sourcePath, targetPath, cancellationToken, new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         {
             "logs",
             "crash-reports"
@@ -348,7 +348,7 @@ public class ServerService : IServerService
             throw new InvalidOperationException($"Server '{name}' has no JAR file configured");
         }
 
-        EnsureEulaAccepted(serverPath);
+        await EnsureEulaAcceptedAsync(serverPath, cancellationToken);
         await EnsureExecutableAvailableAsync("screen", "-v", "GNU screen", cancellationToken);
         await EnsureExecutableAvailableAsync(javaBinary, "-version", "Java runtime", cancellationToken);
 
@@ -466,7 +466,7 @@ public class ServerService : IServerService
             throw new InvalidOperationException($"Server '{name}' is not running");
         }
 
-        MarkStopRequested(name);
+        await MarkStopRequestedAsync(name);
 
         var uid = _options.RunAsUid;
         var gid = _options.RunAsGid;
@@ -509,7 +509,7 @@ public class ServerService : IServerService
             throw new InvalidOperationException($"Server '{name}' is not running");
         }
 
-        MarkStopRequested(name);
+        await MarkStopRequestedAsync(name);
         await _processManager.KillProcessAsync(processInfo.JavaPid.Value, cancellationToken);
 
         _logger.LogWarning("Forcefully killed server {ServerName}", name);
@@ -555,7 +555,7 @@ public class ServerService : IServerService
 
         if (worldChanged)
         {
-            MarkRestartRequired(name);
+            await MarkRestartRequiredAsync(name);
         }
 
         _logger.LogInformation("Updated server.properties for {ServerName}", name);
@@ -666,7 +666,7 @@ public class ServerService : IServerService
         var profileChanged = !string.Equals(existing.Minecraft.Profile ?? string.Empty, config.Minecraft.Profile ?? string.Empty, StringComparison.OrdinalIgnoreCase);
         if (jarChanged || profileChanged)
         {
-            MarkRestartRequired(name);
+            await MarkRestartRequiredAsync(name);
         }
 
         _logger.LogInformation("Updated server.config for {ServerName}", name);
@@ -775,7 +775,7 @@ public class ServerService : IServerService
         return Path.Combine(serverPath, trimmed);
     }
 
-    private static void EnsureEulaAccepted(string serverPath)
+    private static async Task EnsureEulaAcceptedAsync(string serverPath, CancellationToken cancellationToken)
     {
         var eulaPath = Path.Combine(serverPath, "eula.txt");
         if (!File.Exists(eulaPath))
@@ -783,7 +783,7 @@ public class ServerService : IServerService
             throw new InvalidOperationException("EULA has not been accepted yet. Call /servers/{name}/eula first.");
         }
 
-        var lines = File.ReadAllLines(eulaPath);
+        var lines = await File.ReadAllLinesAsync(eulaPath, cancellationToken);
         var eulaLine = lines.FirstOrDefault(line => line.TrimStart().StartsWith("eula=", StringComparison.OrdinalIgnoreCase));
         if (eulaLine == null || !eulaLine.Trim().Equals("eula=true", StringComparison.OrdinalIgnoreCase))
         {
@@ -791,7 +791,7 @@ public class ServerService : IServerService
         }
     }
 
-    private static bool IsEulaAccepted(string serverPath)
+    private static async Task<bool> IsEulaAcceptedAsync(string serverPath, CancellationToken cancellationToken)
     {
         var eulaPath = Path.Combine(serverPath, "eula.txt");
         if (!File.Exists(eulaPath))
@@ -799,17 +799,17 @@ public class ServerService : IServerService
             return false;
         }
 
-        var lines = File.ReadAllLines(eulaPath);
+        var lines = await File.ReadAllLinesAsync(eulaPath, cancellationToken);
         var eulaLine = lines.FirstOrDefault(line => line.TrimStart().StartsWith("eula=", StringComparison.OrdinalIgnoreCase));
         return eulaLine != null && eulaLine.Trim().Equals("eula=true", StringComparison.OrdinalIgnoreCase);
     }
 
-    private void MarkRestartRequired(string name)
+    private async Task MarkRestartRequiredAsync(string name)
     {
         var flagPath = GetRestartFlagPath(name);
         try
         {
-            File.WriteAllText(flagPath, DateTimeOffset.UtcNow.ToString("O"));
+            await File.WriteAllTextAsync(flagPath, DateTimeOffset.UtcNow.ToString("O"));
             OwnershipHelper.TrySetOwnership(flagPath, _options.RunAsUid, _options.RunAsGid, _logger);
         }
         catch (Exception ex)
@@ -834,12 +834,12 @@ public class ServerService : IServerService
         }
     }
 
-    private void MarkStopRequested(string name)
+    private async Task MarkStopRequestedAsync(string name)
     {
         var flagPath = GetStopRequestedFlagPath(name);
         try
         {
-            File.WriteAllText(flagPath, DateTimeOffset.UtcNow.ToString("O"));
+            await File.WriteAllTextAsync(flagPath, DateTimeOffset.UtcNow.ToString("O"));
             OwnershipHelper.TrySetOwnership(flagPath, _options.RunAsUid, _options.RunAsGid, _logger);
         }
         catch (Exception ex)
@@ -940,16 +940,17 @@ public class ServerService : IServerService
         }
 
         _logger.LogWarning("Start verification timed out for {ServerName}. Log exists: {HasLog}", name, File.Exists(logPath));
-        var latestLog = File.Exists(logPath) ? ReadLogTail(logPath, 20) : "No latest.log output found.";
-        var startupLog = File.Exists(startupLogPath) ? ReadLogTail(startupLogPath, 40) : "No startup.log output found.";
+        var latestLog = File.Exists(logPath) ? await ReadLogTailAsync(logPath, 20, cancellationToken) : "No latest.log output found.";
+        var startupLog = File.Exists(startupLogPath) ? await ReadLogTailAsync(startupLogPath, 40, cancellationToken) : "No startup.log output found.";
         throw new InvalidOperationException($"Server '{name}' did not start. {latestLog} {startupLog}");
     }
 
-    private static string ReadLogTail(string logPath, int maxLines)
+    private static async Task<string> ReadLogTailAsync(string logPath, int maxLines, CancellationToken cancellationToken)
     {
         try
         {
-            var lines = File.ReadLines(logPath).Reverse().Take(maxLines).Reverse().ToList();
+            var allLines = await File.ReadAllLinesAsync(logPath, cancellationToken);
+            var lines = allLines.TakeLast(maxLines).ToList();
             return lines.Count > 0
                 ? $"Last log lines: {string.Join(" | ", lines)}"
                 : "Log file is empty.";
@@ -1036,7 +1037,7 @@ public class ServerService : IServerService
         return "world";
     }
 
-    private static void CopyDirectory(
+    private static async Task CopyDirectoryAsync(
         string sourcePath,
         string targetPath,
         CancellationToken cancellationToken,
@@ -1053,7 +1054,7 @@ public class ServerService : IServerService
 
             var targetDirectory = Path.Combine(targetPath, directoryName ?? string.Empty);
             Directory.CreateDirectory(targetDirectory);
-            CopyDirectory(directory, targetDirectory, cancellationToken, excludedDirectories);
+            await CopyDirectoryAsync(directory, targetDirectory, cancellationToken, excludedDirectories);
         }
 
         foreach (var file in Directory.GetFiles(sourcePath))
@@ -1061,7 +1062,9 @@ public class ServerService : IServerService
             cancellationToken.ThrowIfCancellationRequested();
             var fileName = Path.GetFileName(file);
             var targetFile = Path.Combine(targetPath, fileName);
-            File.Copy(file, targetFile, overwrite: true);
+            await using var sourceStream = new FileStream(file, FileMode.Open, FileAccess.Read, FileShare.Read, 4096, useAsync: true);
+            await using var targetStream = new FileStream(targetFile, FileMode.Create, FileAccess.Write, FileShare.None, 4096, useAsync: true);
+            await sourceStream.CopyToAsync(targetStream, cancellationToken);
         }
     }
 }

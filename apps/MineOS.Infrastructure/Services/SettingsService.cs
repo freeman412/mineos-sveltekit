@@ -9,6 +9,7 @@ namespace MineOS.Infrastructure.Services;
 
 public sealed class SettingsService : ISettingsService
 {
+
     // Well-known setting keys
     public static class Keys
     {
@@ -89,13 +90,16 @@ public sealed class SettingsService : ISettingsService
         }
 
         // Fall back to configuration (appsettings.json / environment variables)
+        string? value = null;
         if (SettingsMetadata.TryGetValue(key, out var meta) && meta.ConfigPath != null)
         {
-            return _configuration[meta.ConfigPath];
+            value = _configuration[meta.ConfigPath];
         }
 
         // Try the key directly as a config path
-        return _configuration[key];
+        value ??= _configuration[key];
+
+        return value;
     }
 
     public async Task SetAsync(string key, string? value, CancellationToken cancellationToken)
@@ -127,6 +131,7 @@ public sealed class SettingsService : ISettingsService
         }
 
         await _db.SaveChangesAsync(cancellationToken);
+
         _logger.LogInformation("Setting {Key} updated", key);
     }
 
@@ -138,12 +143,12 @@ public sealed class SettingsService : ISettingsService
 
     public async Task<IReadOnlyList<SettingInfo>> GetAllAsync(CancellationToken cancellationToken)
     {
-        var dbSettings = await _db.SystemSettings.ToListAsync(cancellationToken);
+        var dbSettings = await _db.SystemSettings.ToDictionaryAsync(s => s.Key, s => s, cancellationToken);
         var result = new List<SettingInfo>();
 
         foreach (var (key, meta) in SettingsMetadata)
         {
-            var dbSetting = dbSettings.FirstOrDefault(s => s.Key == key);
+            dbSettings.TryGetValue(key, out var dbSetting);
             var dbValue = dbSetting?.Value;
             var configValue = meta.ConfigPath != null ? _configuration[meta.ConfigPath] : null;
 
