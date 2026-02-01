@@ -343,8 +343,8 @@ func runInstall(cmd *cobra.Command, opts installOptions) error {
 		fmt.Fprintln(out, "")
 		fmt.Fprintln(out, "Anonymous Telemetry:")
 		fmt.Fprintln(out, "Help improve MineOS by sharing anonymous usage data (OS, version, server count,")
-		fmt.Fprintln(out, "and approximate location based on IP). No personal information or server names")
-		fmt.Fprintln(out, "are collected.")
+		fmt.Fprintln(out, "approximate location based on IP, and lifecycle events like startup/shutdown/crashes).")
+		fmt.Fprintln(out, "No personal information, player activity, or server names are collected.")
 		fmt.Fprintln(out, "You can opt-out anytime by editing .env (MINEOS_TELEMETRY_ENABLED=false)")
 		value, err := promptYesNo(reader, out, "Enable anonymous telemetry", true)
 		if err != nil {

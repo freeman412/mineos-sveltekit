@@ -34,7 +34,7 @@ public sealed class SettingsService : ISettingsService
     private static readonly Dictionary<string, SettingMeta> SettingsMetadata = new()
     {
         [Keys.TelemetryEnabled] = new(
-            "Send anonymous usage statistics (server count, user count) to help improve MineOS.",
+            "Send anonymous usage statistics (server count, user count, backups, worlds, mods/plugins) and lifecycle events (startup, shutdown, server creation/deletion, crashes) to help improve MineOS. No personal information, player activity, or server names are collected.",
             false, "MINEOS_TELEMETRY_ENABLED",
             "boolean", "General", "Usage Statistics"),
 

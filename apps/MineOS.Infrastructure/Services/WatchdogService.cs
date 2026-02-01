@@ -360,6 +360,13 @@ public sealed class WatchdogService : BackgroundService, IWatchdogService
 
             db.CrashEvents.Add(crashEvent);
             await db.SaveChangesAsync(cancellationToken);
+
+            // Report crash telemetry (fire-and-forget)
+            var telemetryService = scope.ServiceProvider.GetRequiredService<ITelemetryService>();
+            _ = telemetryService.ReportLifecycleEventAsync("crash", new
+            {
+                crash_type = crashType
+            }, CancellationToken.None);
         }
         catch (Exception ex)
         {
