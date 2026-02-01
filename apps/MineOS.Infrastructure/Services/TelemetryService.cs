@@ -102,17 +102,11 @@ public class TelemetryService : ITelemetryService
         var json = JsonSerializer.Serialize(payload, JsonOptions);
         var content = new StringContent(json, Encoding.UTF8, "application/json");
 
-        _logger.LogInformation("Posting telemetry to {Url} for installation {Id}",
+        _logger.LogDebug("Posting telemetry to {Url} for installation {Id}",
             url, _installationId[..8] + "...");
 
         var response = await _httpClient.PostAsync(url, content, cancellationToken);
-
-        if (!response.IsSuccessStatusCode)
-        {
-            var body = await response.Content.ReadAsStringAsync(cancellationToken);
-            _logger.LogWarning("Telemetry request to {Url} failed: {StatusCode} {Body}",
-                url, response.StatusCode, body);
-        }
+        response.EnsureSuccessStatusCode();
     }
 
     private class UsagePayload
