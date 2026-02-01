@@ -319,12 +319,19 @@ func runInstall(cmd *cobra.Command, opts installOptions) error {
 			fmt.Fprintln(out, "")
 			fmt.Fprintln(out, "Version to install:")
 			fmt.Fprintln(out, "- 'latest': Most recent stable version (recommended)")
+			fmt.Fprintln(out, "- 'preview': Latest preview/pre-release version")
 			fmt.Fprintln(out, "- Or specify a version tag like 'v1.0.0' for a specific release")
 			value, err := promptString(reader, out, "Version tag", "latest")
 			if err != nil {
 				return err
 			}
 			opts.imageTag = value
+		}
+		if isPreviewTag(opts.imageTag) && !opts.quiet {
+			fmt.Fprintln(out, "")
+			fmt.Fprintln(out, "WARNING: Preview versions may be unstable, contain bugs, or cause data loss.")
+			fmt.Fprintln(out, "Do not use preview releases in production. Back up your data before upgrading.")
+			fmt.Fprintln(out, "")
 		}
 	} else if !dirExists("apps") {
 		return errors.New("source files not found (./apps missing); use the installer with --build after cloning the repo")
@@ -832,6 +839,11 @@ func ensureDockerRunning() error {
 		return errors.New(msg)
 	}
 	return nil
+}
+
+func isPreviewTag(tag string) bool {
+	t := strings.ToLower(tag)
+	return t == "preview" || strings.Contains(t, "-beta") || strings.Contains(t, "-alpha") || strings.Contains(t, "-rc")
 }
 
 func dirExists(path string) bool {
