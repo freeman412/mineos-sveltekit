@@ -44,13 +44,17 @@ public sealed class UserSeeder
 
         if (existingUser != null)
         {
-            // Update password if it changed (e.g., after reconfigure)
-            if (!_passwordHasher.Verify(seedPassword, existingUser.PasswordHash))
+            // Check if a password reset was explicitly requested via CLI
+            var forceReset = string.Equals(
+                _config["Auth:ForcePasswordReset"], "true", StringComparison.OrdinalIgnoreCase);
+
+            if (forceReset)
             {
                 existingUser.PasswordHash = _passwordHasher.Hash(seedPassword);
                 await _db.SaveChangesAsync(cancellationToken);
-                _logger.LogInformation("Updated password for seed user: {Username}", trimmedUsername);
+                _logger.LogInformation("Password reset applied for user: {Username}", trimmedUsername);
             }
+
             return;
         }
 

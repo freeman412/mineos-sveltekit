@@ -188,9 +188,16 @@ func runReconfigure(cmd *cobra.Command, loadConfig *usecases.LoadConfigUseCase) 
 	if err := setEnvFileValue(envPath, "Auth__SeedUsername", adminUser); err != nil {
 		return err
 	}
+	passwordChanged := false
 	if strings.TrimSpace(adminPass) != "" {
 		if err := setEnvFileValue(envPath, "Auth__SeedPassword", adminPass); err != nil {
 			return err
+		}
+		if adminPass != currentPass {
+			passwordChanged = true
+			if err := setEnvFileValue(envPath, "Auth__ForcePasswordReset", "true"); err != nil {
+				return err
+			}
 		}
 	}
 	if strings.TrimSpace(managementKey) != "" {
@@ -290,6 +297,14 @@ func runReconfigure(cmd *cobra.Command, loadConfig *usecases.LoadConfigUseCase) 
 			return fmt.Errorf("failed to recreate services: %w", err)
 		}
 		fmt.Println("Services recreated successfully with new configuration.")
+
+		// Clear the force password reset flag after services have started
+		if passwordChanged {
+			_ = setEnvFileValue(envPath, "Auth__ForcePasswordReset", "false")
+			fmt.Println("Admin password has been reset.")
+		}
+	} else if passwordChanged {
+		fmt.Println("Note: Password will be reset when services are restarted.")
 	}
 
 	return nil
