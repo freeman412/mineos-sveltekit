@@ -23,6 +23,8 @@ public sealed class TelemetryReporterService : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        _logger.LogInformation("Telemetry reporter started, first report in {Delay} minutes", InitialDelay.TotalMinutes);
+
         // Wait a bit before first report to allow system to stabilize
         try
         {
@@ -45,7 +47,7 @@ public sealed class TelemetryReporterService : BackgroundService
             }
             catch (Exception ex)
             {
-                _logger.LogDebug(ex, "Telemetry reporting cycle failed");
+                _logger.LogWarning(ex, "Telemetry reporting cycle failed");
             }
 
             try
@@ -70,10 +72,11 @@ public sealed class TelemetryReporterService : BackgroundService
 
         if (string.Equals(enabled, "false", StringComparison.OrdinalIgnoreCase))
         {
-            _logger.LogDebug("Telemetry disabled via settings, skipping report");
+            _logger.LogInformation("Telemetry disabled via settings, skipping report");
             return;
         }
 
+        _logger.LogInformation("Sending usage telemetry report...");
         var telemetryService = scope.ServiceProvider.GetRequiredService<ITelemetryService>();
         await telemetryService.ReportUsageAsync(cancellationToken);
     }
