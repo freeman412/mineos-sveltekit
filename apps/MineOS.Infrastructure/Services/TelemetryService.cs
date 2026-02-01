@@ -3,7 +3,6 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using MineOS.Application.Interfaces;
 
@@ -25,13 +24,13 @@ public class TelemetryService : ITelemetryService
         IConfiguration configuration,
         IServerService serverService,
         IUserService userService,
-        IHttpClientFactory httpClientFactory)
+        HttpClient httpClient)
     {
         _logger = logger;
         _configuration = configuration;
         _serverService = serverService;
         _userService = userService;
-        _httpClient = httpClientFactory.CreateClient();
+        _httpClient = httpClient;
         _httpClient.Timeout = TimeSpan.FromSeconds(10);
 
         // Read telemetry configuration
