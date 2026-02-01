@@ -42,9 +42,16 @@ public class TelemetryService : ITelemetryService
 
     public async Task ReportUsageAsync(CancellationToken cancellationToken = default)
     {
-        if (!_enabled || string.IsNullOrEmpty(_installationId))
+        if (!_enabled)
         {
-            return; // Silently skip if disabled or no installation ID
+            _logger.LogInformation("Usage telemetry disabled, skipping report");
+            return;
+        }
+
+        if (string.IsNullOrEmpty(_installationId))
+        {
+            _logger.LogWarning("Usage telemetry skipped: MINEOS_INSTALLATION_ID is not set");
+            return;
         }
 
         try
@@ -55,7 +62,6 @@ public class TelemetryService : ITelemetryService
 
             var serverCount = servers.Count;
             var activeServerCount = 0;
-            var minecraftUsernames = new HashSet<string>();
 
             foreach (var server in servers)
             {
@@ -66,10 +72,6 @@ public class TelemetryService : ITelemetryService
                     {
                         activeServerCount++;
                     }
-
-                    // Collect Minecraft usernames from server config (if available)
-                    // This would typically come from server.properties or whitelist
-                    // For now, we'll leave it empty - implementation can be added later
                 }
                 catch
                 {
@@ -84,7 +86,6 @@ public class TelemetryService : ITelemetryService
                 ActiveServerCount = activeServerCount,
                 TotalUserCount = users.Count,
                 ActiveUserCount = users.Count(u => true), // All users considered active for now
-                MinecraftUsernames = minecraftUsernames.Select(HashUsername).ToList(),
                 MineOSVersion = GetMineOSVersion()
             };
 
@@ -92,8 +93,7 @@ public class TelemetryService : ITelemetryService
         }
         catch (Exception ex)
         {
-            // Log but don't throw - telemetry failures should not affect application
-            _logger.LogDebug(ex, "Failed to send telemetry");
+            _logger.LogWarning(ex, "Failed to send usage telemetry");
         }
     }
 
@@ -110,16 +110,25 @@ public class TelemetryService : ITelemetryService
             var content = new StringContent(json, Encoding.UTF8, "application/json");
             var url = $"{_endpoint}/api/telemetry/usage";
 
+            _logger.LogInformation("Posting usage telemetry to {Url} for installation {Id}",
+                url, _installationId[..8] + "...");
+
             var response = await _httpClient.PostAsync(url, content, cancellationToken);
 
-            if (!response.IsSuccessStatusCode)
+            if (response.IsSuccessStatusCode)
             {
-                _logger.LogDebug("Telemetry request failed with status: {StatusCode}", response.StatusCode);
+                _logger.LogInformation("Usage telemetry reported successfully");
+            }
+            else
+            {
+                var body = await response.Content.ReadAsStringAsync(cancellationToken);
+                _logger.LogWarning("Usage telemetry request failed: {StatusCode} {Body}",
+                    response.StatusCode, body);
             }
         }
         catch (Exception ex)
         {
-            _logger.LogDebug(ex, "Failed to send telemetry request");
+            _logger.LogWarning(ex, "Failed to send usage telemetry request");
         }
     }
 

@@ -26,6 +26,16 @@
 	let saving = $state(false);
 	let numberValues = $state<Record<string, number>>({});
 
+	// Initialize number values when settings data changes
+	$effect(() => {
+		const settings = (data.settings.data ?? []) as SettingInfo[];
+		for (const s of settings) {
+			if (s.type === 'number' && s.hasValue && s.value != null && !(s.key in numberValues)) {
+				numberValues[s.key] = parseInt(s.value) || 0;
+			}
+		}
+	});
+
 	// Group settings by their group field
 	let groupedSettings = $derived.by(() => {
 		const settings = (data.settings.data ?? []) as SettingInfo[];
@@ -36,13 +46,6 @@
 			const group = s.group || 'General';
 			if (!groups[group]) groups[group] = [];
 			groups[group].push(s);
-		}
-
-		// Initialize number values from current settings
-		for (const s of settings) {
-			if (s.type === 'number' && s.hasValue && s.value != null && !(s.key in numberValues)) {
-				numberValues[s.key] = parseInt(s.value) || 0;
-			}
 		}
 
 		return groupOrder

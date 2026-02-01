@@ -12,6 +12,33 @@ import (
 	"github.com/google/uuid"
 )
 
+// geoInfo holds geographic data from an IP geolocation lookup.
+type geoInfo struct {
+	Country  string `json:"country"`
+	Region   string `json:"regionName"`
+	City     string `json:"city"`
+	Timezone string `json:"timezone"`
+}
+
+// lookupGeo queries a free IP geolocation API and returns the result.
+// Returns nil on any error so callers can safely ignore failures.
+func lookupGeo() *geoInfo {
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Get("http://ip-api.com/json/?fields=country,regionName,city,timezone")
+	if err != nil {
+		return nil
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil
+	}
+	var geo geoInfo
+	if err := json.NewDecoder(resp.Body).Decode(&geo); err != nil {
+		return nil
+	}
+	return &geo
+}
+
 type Client struct {
 	baseURL    string
 	httpClient *http.Client
@@ -136,6 +163,22 @@ func BuildInstallEvent(installationID, version string, success bool, durationMs 
 
 	if errorMsg != "" {
 		event.ErrorMessage = &errorMsg
+	}
+
+	// Populate geographic data (best-effort, non-blocking)
+	if geo := lookupGeo(); geo != nil {
+		if geo.Country != "" {
+			event.Country = &geo.Country
+		}
+		if geo.Region != "" {
+			event.Region = &geo.Region
+		}
+		if geo.City != "" {
+			event.City = &geo.City
+		}
+		if geo.Timezone != "" {
+			event.Timezone = &geo.Timezone
+		}
 	}
 
 	return event
