@@ -117,8 +117,8 @@ Full server console in the browser. Send commands, watch logs, see what's happen
 ### Whitelist Management
 Add and remove players right from the UI. No more editing JSON files.
 
-### Discord Notifications
-Get webhook notifications when servers start, stop, or when players join. Because sometimes you just want to know your kid is playing Minecraft instead of doing homework. (I'm kidding. Mostly.)
+### Discord Notifications (Coming Soon)
+Discord webhook notifications are on the way — get pinged when servers start, stop, or when players join. Because sometimes you just want to know your kid is playing Minecraft instead of doing homework. (I'm kidding. Mostly.)
 
 ### Multiple Server Types
 Vanilla, Forge, Fabric, Paper, Spigot, BungeeCord, FTB modpacks... if it runs Java Minecraft, MineOS probably supports it. Bedrock support is coming soon too!
@@ -150,7 +150,7 @@ I personally run it on an old desktop that was collecting dust. Handles 3-4 serv
 
 Okay, here's the part that might raise some eyebrows, but I think it's worth being transparent about: **a massive portion of this project was built with AI.**
 
-I'm not a professional software developer. I'm a dad with some tech skills and a problem to solve. What I *do* have is a clear vision of what I want this thing to do, and the ability to describe it, test it, and steer the ship. The actual code — the SvelteKit frontend, the C# backend, the Docker orchestration — a lot of that was written by Claude (Anthropic's AI) through tools like Claude Code.
+I'm a software developer by trade, but this project lives way outside my day job. I don't write SvelteKit frontends or C# backends for a living — I had a vision for what this tool should be and leaned heavily on Claude (Anthropic's AI) through tools like Claude Code to help me build it. The actual code — the SvelteKit frontend, the C# backend, the Docker orchestration — a huge chunk of that was written with AI assistance.
 
 And honestly? I think that's the future and I'm not embarrassed about it. Here's why:
 
@@ -167,7 +167,7 @@ Think of it like this: AI is the power tool, but I'm still the one building the 
 
 **The result speaks for itself.** The app works. It's well-structured. It has real features that solve real problems. I care more about whether it helps you manage your kid's Minecraft servers than whether every line of code was hand-typed by a human.
 
-If you're a parent or hobbyist who's been intimidated by open source because you're "not a real developer" — this project is proof that you don't have to be. You just need a clear idea, the right tools, and stubbornness. Lots of stubbornness.
+If you're a parent or hobbyist who's been intimidated by open source because you think you're "not skilled enough" — this project is proof that AI levels the playing field. Even as a professional dev, I couldn't have built something this full-featured across this many technologies on my own in this timeframe. You just need a clear idea, the right tools, and stubbornness. Lots of stubbornness.
 
 **Want to contribute?** You don't need to know how to code either. File issues describing what you want. Write detailed bug reports. The AI can help with the implementation — what it *can't* do is tell me what parents actually need. That's where you come in.
 
@@ -179,6 +179,7 @@ This is actively maintained. Some things coming up:
 
 - **Bedrock server support** (for the mobile/console Minecraft crowd)
 - **TrueNAS deployment** (for the NAS-hosting community)
+- **Discord webhook notifications** (server events, player activity)
 - **OAuth login** (sign in with Discord/Google)
 - **Invite links** with auto-whitelist (send a link, friend joins, automatically whitelisted)
 - **Mod dependency auto-resolution** (no more "you need Library X for this mod to work")
