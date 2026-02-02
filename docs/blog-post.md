@@ -91,7 +91,7 @@ curl -fsSL https://mineos.net/install.sh | bash
 iwr https://mineos.net/install.ps1 -useb | iex
 ```
 
-That's it. One line. The installer handles Docker validation, config, database setup, and startup. When it's done, open `http://localhost:3000` and you're in.
+That's it. One line. The installer downloads a Go-based CLI tool that walks you through setup — Docker validation, config, database, startup, the works. When it's done, open `http://localhost:3000` and you're in. You can also use that same CLI to stop, restart, update, or uninstall MineOS later.
 
 No Java to install. No PATH variables to set. No "which JDK version do I need." Docker handles all of that inside the container.
 
@@ -129,7 +129,7 @@ Vanilla, Forge, Fabric, Paper, Spigot, BungeeCord, FTB modpacks... if it runs Ja
 
 That's kind of the whole point. I rebuilt this because I *am* technical and I was still annoyed by how much work it was. If you can install Docker Desktop (it's a normal app installer, next-next-finish style) and double-click a script, you can run MineOS.
 
-And if you ARE technical — the whole thing is open source. SvelteKit frontend, ASP.NET Core API, Docker Compose orchestration. Fork it, hack on it, submit a PR. It's all on GitHub.
+And if you ARE technical — the whole thing is open source. SvelteKit frontend, ASP.NET Core API, Go CLI for installation and management, Docker Compose orchestration. Fork it, hack on it, submit a PR. It's all on GitHub.
 
 ---
 
@@ -150,7 +150,7 @@ I personally run it on an old desktop that was collecting dust. Handles 3-4 serv
 
 Okay, here's the part that might raise some eyebrows, but I think it's worth being transparent about: **a massive portion of this project was built with AI.**
 
-I'm a software developer by trade, but this project lives way outside my day job. I don't write SvelteKit frontends or C# backends for a living — I had a vision for what this tool should be and leaned heavily on Claude (Anthropic's AI) through tools like Claude Code to help me build it. The actual code — the SvelteKit frontend, the C# backend, the Docker orchestration — a huge chunk of that was written with AI assistance.
+I'm a .NET developer by trade, so the C# backend? That's my wheelhouse. But this project also has a SvelteKit frontend, a Go-based CLI installer/management tool, and Docker orchestration — none of which I'd ever touched before. I had a vision for what this tool should be and leaned heavily on Claude (Anthropic's AI) through tools like Claude Code to help me build the parts outside my expertise. The Svelte UI, the Go CLI, the DevOps glue — a huge chunk of that was written with AI assistance.
 
 And honestly? I think that's the future and I'm not embarrassed about it. Here's why:
 
