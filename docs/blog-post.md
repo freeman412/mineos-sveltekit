@@ -79,15 +79,19 @@ It's genuinely been a great way to sneak in some tech education while they think
 
 You need one thing: **Docker**. That's it.
 
-**Mac/Linux:**
+Head over to **[mineos.net](https://mineos.net)** for the full details, but the short version is a single command:
+
+**Linux / macOS:**
 ```bash
-./MineOS.sh
+curl -fsSL https://mineos.net/install.sh | bash
 ```
 
-**Windows:**
-Right-click `MineOS.ps1` → Run with PowerShell
+**Windows (PowerShell):**
+```powershell
+iwr https://mineos.net/install.ps1 -useb | iex
+```
 
-The script handles everything — checks Docker, creates config files, pulls containers, sets up the database. When it's done, open `http://localhost:3000` and you're in.
+That's it. One line. The installer handles Docker validation, config, database setup, and startup. When it's done, open `http://localhost:3000` and you're in.
 
 No Java to install. No PATH variables to set. No "which JDK version do I need." Docker handles all of that inside the container.
 
@@ -186,6 +190,7 @@ This is actively maintained. Some things coming up:
 
 ## Can I See It / Try It?
 
+- **Website:** [mineos.net](https://mineos.net) — install instructions, feature overview, everything you need
 - **GitHub:** [github.com/freeman412/mineos-sveltekit](https://github.com/freeman412/mineos-sveltekit)
 - **License:** Open source and free
 
@@ -217,4 +222,4 @@ A: Yes — set up port forwarding on your router (or use a cloud VM) and you can
 
 *If this helps even one other parent avoid the "dad can you SSH into the server and install OptiFine" phone call at dinner, it was worth it.*
 
-**[GitHub Link](https://github.com/freeman412/mineos-sveltekit)** | **Free & Open Source** | **Star it if you like it** ⭐
+**[mineos.net](https://mineos.net)** | **[GitHub](https://github.com/freeman412/mineos-sveltekit)** | **Free & Open Source** | **Star it if you like it** ⭐
