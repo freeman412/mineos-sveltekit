@@ -4,6 +4,12 @@
 
 ---
 
+## Standing on the Shoulders of Giants
+
+Before I get into my version, I want to give a huge shoutout to **hexparrot** (William Dizon), who created the [original MineOS](https://github.com/hexparrot/mineos-node). That project was a lifesaver for the self-hosting community for *years* and is honestly what inspired me to go down this road in the first place. Hexparrot built the foundation that proved a web-based Minecraft server manager was not only possible but genuinely useful. This project carries the MineOS name forward with his blessing and builds on that legacy with a modern tech stack. So — thank you, hexparrot. Seriously.
+
+---
+
 ## The Origin Story (a.k.a. "Dad, can you add Forge?")
 
 It started the way these things always start. My kid wanted to play Minecraft with friends. Cool, I'll spin up a server. No problem.
@@ -14,7 +20,7 @@ Before I knew it, I was managing multiple Minecraft servers from the command lin
 
 There had to be a better way.
 
-So I built one.
+So I built one. Well — me and a very patient AI.
 
 ---
 
@@ -22,7 +28,7 @@ So I built one.
 
 MineOS is a **web-based Minecraft server manager**. You open it in your browser, and you can:
 
-- **Create servers** in a few clicks (Vanilla, Forge, Paper, Fabric, Spigot, Bedrock — 19 server types total)
+- **Create servers** in a few clicks (Vanilla, Forge, Paper, Fabric, Spigot, and more — with Bedrock support coming soon)
 - **Install mods** directly from CurseForge without touching a file system
 - **Start, stop, restart** servers with buttons instead of terminal commands
 - **Manage players** — whitelist, ban, OP, the works
@@ -104,8 +110,8 @@ Add and remove players right from the UI. No more editing JSON files.
 ### Discord Notifications
 Get webhook notifications when servers start, stop, or when players join. Because sometimes you just want to know your kid is playing Minecraft instead of doing homework. (I'm kidding. Mostly.)
 
-### 19 Server Types
-Vanilla, Forge, Fabric, Paper, Spigot, BungeeCord, Bedrock, FTB modpacks... if it runs Minecraft, MineOS probably supports it.
+### Multiple Server Types
+Vanilla, Forge, Fabric, Paper, Spigot, BungeeCord, FTB modpacks... if it runs Java Minecraft, MineOS probably supports it. Bedrock support is coming soon too!
 
 ---
 
@@ -113,7 +119,7 @@ Vanilla, Forge, Fabric, Paper, Spigot, BungeeCord, Bedrock, FTB modpacks... if i
 
 That's kind of the whole point. I built this because I *am* technical and I was still annoyed by how much work it was. If you can install Docker Desktop (it's a normal app installer, next-next-finish style) and double-click a script, you can run MineOS.
 
-And if you ARE technical — the whole thing is open source. SvelteKit frontend, ASP.NET Core API, Docker Compose orchestration, Caddy reverse proxy with automatic HTTPS. Fork it, hack on it, submit a PR. It's all on GitHub.
+And if you ARE technical — the whole thing is open source. SvelteKit frontend, ASP.NET Core API, Docker Compose orchestration. Fork it, hack on it, submit a PR. It's all on GitHub.
 
 ---
 
@@ -121,7 +127,7 @@ And if you ARE technical — the whole thing is open source. SvelteKit frontend,
 
 Basically anything that runs Docker:
 - **An old laptop** sitting in the corner
-- **A NAS** (TrueNAS support included!)
+- **A NAS** (TrueNAS support coming soon!)
 - **A Raspberry Pi** (if you're feeling adventurous)
 - **A cloud VM** (AWS, Azure, whatever — just open the ports)
 - **Your main PC** (if you don't mind it running in the background)
@@ -130,10 +136,39 @@ I personally run it on an old desktop that was collecting dust. Handles 3-4 serv
 
 ---
 
+## The Secret Weapon: AI-Assisted Development
+
+Okay, here's the part that might raise some eyebrows, but I think it's worth being transparent about: **a massive portion of this project was built with AI.**
+
+I'm not a professional software developer. I'm a dad with some tech skills and a problem to solve. What I *do* have is a clear vision of what I want this thing to do, and the ability to describe it, test it, and steer the ship. The actual code — the SvelteKit frontend, the C# backend, the Docker orchestration — a lot of that was written by Claude (Anthropic's AI) through tools like Claude Code.
+
+And honestly? I think that's the future and I'm not embarrassed about it. Here's why:
+
+**I'm spending real money (tokens) on this project.** Every feature, every bug fix, every refactor — those are API calls that cost actual dollars. I'm investing my own money into making this tool better for everyone. When I say this project is a labor of love, I mean it literally — both my time *and* my wallet.
+
+**AI doesn't replace the human.** I still have to:
+- Decide what to build and why
+- Test everything (AI writes bugs too, trust me)
+- Understand the architecture well enough to know when something is wrong
+- Write the prompts, review the output, iterate
+- Make the judgment calls about UX, priorities, and what "done" looks like
+
+Think of it like this: AI is the power tool, but I'm still the one building the house. You wouldn't say a carpenter "didn't really build it" because they used a nail gun instead of a hammer.
+
+**The result speaks for itself.** The app works. It's well-structured. It has real features that solve real problems. I care more about whether it helps you manage your kid's Minecraft servers than whether every line of code was hand-typed by a human.
+
+If you're a parent or hobbyist who's been intimidated by open source because you're "not a real developer" — this project is proof that you don't have to be. You just need a clear idea, the right tools, and stubbornness. Lots of stubbornness.
+
+**Want to contribute?** You don't need to know how to code either. File issues describing what you want. Write detailed bug reports. The AI can help with the implementation — what it *can't* do is tell me what parents actually need. That's where you come in.
+
+---
+
 ## The Roadmap (a.k.a. Things I'm Working On)
 
 This is actively maintained. Some things coming up:
 
+- **Bedrock server support** (for the mobile/console Minecraft crowd)
+- **TrueNAS deployment** (for the NAS-hosting community)
 - **OAuth login** (sign in with Discord/Google)
 - **Invite links** with auto-whitelist (send a link, friend joins, automatically whitelisted)
 - **Mod dependency auto-resolution** (no more "you need Library X for this mod to work")
@@ -148,7 +183,7 @@ This is actively maintained. Some things coming up:
 - **GitHub:** [github.com/freeman412/mineos-sveltekit](https://github.com/freeman412/mineos-sveltekit)
 - **License:** Open source and free
 
-If you try it out, I'd genuinely love to hear how it goes. File an issue if something breaks, or just drop a comment. I'm one dad building this in my free time (with some help from the community), so every bit of feedback helps.
+If you try it out, I'd genuinely love to hear how it goes. File an issue if something breaks, or just drop a comment. I'm one dad building this in my free time with the help of AI and the community, so every bit of feedback helps.
 
 ---
 
@@ -164,13 +199,13 @@ A: Nope. Free. Open source. No premium tier, no "pay to unlock more than 2 serve
 A: With the right permission settings, the worst they can do is crash their own Minecraft server. Which they will. And that's fine. That's how they learn.
 
 **Q: Does it work with Bedrock / mobile Minecraft?**
-A: Yes! Bedrock server support is included.
+A: Not yet, but Bedrock support is actively being worked on and is coming soon!
 
 **Q: How many servers can I run?**
 A: As many as your hardware can handle. Each Minecraft server wants ~1-2GB of RAM minimum, so plan accordingly.
 
 **Q: Can I access it from outside my house?**
-A: Yes — MineOS includes a Caddy reverse proxy that supports automatic HTTPS. Set up port forwarding on your router (or use a cloud VM) and you can manage your servers from anywhere.
+A: Yes — set up port forwarding on your router (or use a cloud VM) and you can manage your servers from anywhere. You can put a reverse proxy like Nginx or Caddy in front of it for HTTPS too.
 
 ---
 
