@@ -1,12 +1,12 @@
 # I got tired of my kid asking me to "install mods" so I built a whole Minecraft server manager. It's free. You're welcome.
 
-**TL;DR:** I'm a dad who hosts Minecraft servers for my kid and their friends. I got sick of SSH-ing into a box every time someone wanted a new modpack, so I built [MineOS](https://github.com/freeman412/mineos-sveltekit) — a free, open-source web UI that lets you create, manage, and mod Minecraft servers from your browser. One-command install, Docker-based, runs on basically anything. My 13-year-old can use it. Your 13-year-old can probably use it too.
+**TL;DR:** I'm a dad who hosts Minecraft servers for my kid and their friends. I got sick of SSH-ing into a box every time someone wanted a new modpack, so I rebuilt [MineOS](https://github.com/freeman412/mineos-sveltekit) from the ground up — a free, open-source web UI that lets you create, manage, and mod Minecraft servers from your browser. One-command install, Docker-based, runs on basically anything. My 13-year-old can use it. Your 13-year-old can probably use it too.
 
 ---
 
 ## Standing on the Shoulders of Giants
 
-Before I get into my version, I want to give a huge shoutout to **hexparrot** (William Dizon), who created the [original MineOS](https://github.com/hexparrot/mineos-node). That project was a lifesaver for the self-hosting community for *years* and is honestly what inspired me to go down this road in the first place. Hexparrot built the foundation that proved a web-based Minecraft server manager was not only possible but genuinely useful. This project carries the MineOS name forward with his blessing and builds on that legacy with a modern tech stack. So — thank you, hexparrot. Seriously.
+Before I get into my version, I want to give a huge shoutout to **hexparrot** (William Dizon), who created the [original MineOS](https://github.com/hexparrot/mineos-node). That project was a lifesaver for the self-hosting community for *years* and is honestly what got me hooked on the idea of a web-based Minecraft server manager in the first place. Hexparrot has since retired his version, but the impact it had on the community was massive. I decided to rebuild MineOS from scratch with a modern tech stack to carry that torch forward. This is a completely new codebase — not a fork — but the spirit is the same: make Minecraft server hosting accessible to everyone. So — thank you, hexparrot. Your work inspired all of this.
 
 ---
 
@@ -20,7 +20,7 @@ Before I knew it, I was managing multiple Minecraft servers from the command lin
 
 There had to be a better way.
 
-So I built one. Well — me and a very patient AI.
+So I rebuilt one from scratch. Well — me and a very patient AI.
 
 ---
 
@@ -29,7 +29,7 @@ So I built one. Well — me and a very patient AI.
 MineOS is a **web-based Minecraft server manager**. You open it in your browser, and you can:
 
 - **Create servers** in a few clicks (Vanilla, Forge, Paper, Fabric, Spigot, and more — with Bedrock support coming soon)
-- **Install mods** directly from CurseForge without touching a file system
+- **Install mods** directly from CurseForge or Modrinth without touching a file system
 - **Start, stop, restart** servers with buttons instead of terminal commands
 - **Manage players** — whitelist, ban, OP, the works
 - **Back up worlds** and restore them when things go sideways (and they will)
@@ -38,9 +38,9 @@ MineOS is a **web-based Minecraft server manager**. You open it in your browser,
 
 It looks like this:
 
-![Screenshot: Server List — your servers at a glance with status, player counts, and quick actions](docs/screenshots/servers.png)
-
-*All your servers in one place. Green means running. Red means someone crashed it with too many TNT cannons.*
+> **[IMAGE: Server List screenshot]** — All your servers at a glance with status indicators, player counts, and quick-action buttons. Green means running. Red means someone crashed it with too many TNT cannons.
+>
+> *(Upload servers.png here when posting)*
 
 ---
 
@@ -50,15 +50,19 @@ Here's what I'm most proud of: **my teenager can actually use this thing.**
 
 Creating a new server is a guided process. Pick a name, pick a server type, pick a version, done.
 
-![Screenshot: Create Server wizard — step-by-step server creation](docs/screenshots/create-server.png)
+> **[IMAGE: Create Server wizard]** — Step-by-step guided server creation. Pick a name, pick a type, pick a version.
+>
+> **[IMAGE: Server configuration]** — Setting up game properties like difficulty, game mode, max players.
+>
+> **[IMAGE: Profile selection]** — Choose from Vanilla, Forge, Paper, Fabric, and more.
+>
+> *(Upload create-server.png, create-server-2.png, create-server-3.png here when posting)*
 
-![Screenshot: Server configuration — setting up game properties](docs/screenshots/create-server-2.png)
+Want Forge mods? There's a built-in mod browser that pulls from CurseForge and Modrinth. Search for a mod, click install. That's it. No downloading JARs, no dragging files into folders, no "dad it says ClassNotFoundException."
 
-![Screenshot: Profile selection — choose from Vanilla, Forge, Paper, Fabric, and more](docs/screenshots/create-server-3.png)
-
-Want Forge mods? There's a built-in CurseForge browser. Search for a mod, click install. That's it. No downloading JARs, no dragging files into folders, no "dad it says ClassNotFoundException."
-
-![Screenshot: Installing Forge — one-click mod installation from CurseForge](docs/screenshots/installing-forge.png)
+> **[IMAGE: Installing Forge]** — One-click mod installation from CurseForge/Modrinth, right in the browser.
+>
+> *(Upload installing-forge.png here when posting)*
 
 I've actually been using this as a teaching tool. My older kid and a couple of their friends are learning:
 - Basic server administration
@@ -102,7 +106,9 @@ One-click backups. One-click restore. Because *someone* is going to "accidentall
 ### Real-Time Console
 Full server console in the browser. Send commands, watch logs, see what's happening. Useful for debugging, or for catching who *actually* griefed the house.
 
-![Screenshot: Server Dashboard — console, players, performance monitoring all in one place](docs/screenshots/server-page.png)
+> **[IMAGE: Server Dashboard]** — Console, players, performance monitoring all in one place.
+>
+> *(Upload server-page.png here when posting)*
 
 ### Whitelist Management
 Add and remove players right from the UI. No more editing JSON files.
@@ -117,7 +123,7 @@ Vanilla, Forge, Fabric, Paper, Spigot, BungeeCord, FTB modpacks... if it runs Ja
 
 ## "But I'm Not Technical"
 
-That's kind of the whole point. I built this because I *am* technical and I was still annoyed by how much work it was. If you can install Docker Desktop (it's a normal app installer, next-next-finish style) and double-click a script, you can run MineOS.
+That's kind of the whole point. I rebuilt this because I *am* technical and I was still annoyed by how much work it was. If you can install Docker Desktop (it's a normal app installer, next-next-finish style) and double-click a script, you can run MineOS.
 
 And if you ARE technical — the whole thing is open source. SvelteKit frontend, ASP.NET Core API, Docker Compose orchestration. Fork it, hack on it, submit a PR. It's all on GitHub.
 
@@ -190,7 +196,7 @@ If you try it out, I'd genuinely love to hear how it goes. File an issue if some
 ## FAQ
 
 **Q: Is this the same as the old MineOS?**
-A: Same name, completely different project. This is a ground-up rewrite with modern tech. The old MineOS was great for its time, but this is built for 2025 and beyond.
+A: Same name, completely new project. The original MineOS by hexparrot was awesome and inspired this, but he's since retired it. I rebuilt MineOS from scratch with a modern tech stack. Not a fork — a full rewrite for 2025 and beyond.
 
 **Q: Does it cost anything?**
 A: Nope. Free. Open source. No premium tier, no "pay to unlock more than 2 servers," none of that.
