@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
+using System.IO.Compression;
 using System.Runtime.CompilerServices;
 using System.Text.Json;
 using Microsoft.Extensions.Logging;
@@ -87,6 +88,7 @@ public sealed class ProfileService : IProfileService
         var vanillaProfiles = await GetVanillaProfilesAsync(cancellationToken);
         var paperProfiles = await GetPaperProfilesAsync(cancellationToken);
         var buildToolsProfiles = await DiscoverBuildToolsProfilesAsync(cancellationToken);
+        var bedrockProfiles = GetBedrockProfiles();
         var combined = new Dictionary<string, ProfileDto>(StringComparer.OrdinalIgnoreCase);
 
         foreach (var profile in profiles)
@@ -117,6 +119,11 @@ public sealed class ProfileService : IProfileService
                 continue;
             }
 
+            combined[profile.Id] = profile;
+        }
+
+        foreach (var profile in bedrockProfiles)
+        {
             combined[profile.Id] = profile;
         }
 
@@ -194,6 +201,42 @@ public sealed class ProfileService : IProfileService
         if (!Directory.Exists(serverPath))
         {
             throw new DirectoryNotFoundException($"Server '{serverName}' not found");
+        }
+
+        // Handle Bedrock ZIP extraction
+        if (string.Equals(profile.Group, "bedrock-server", StringComparison.OrdinalIgnoreCase) &&
+            profileJarPath.EndsWith(".zip", StringComparison.OrdinalIgnoreCase))
+        {
+            _logger.LogInformation("Extracting Bedrock profile {ProfileId} to {ServerPath}", profileId, serverPath);
+            System.IO.Compression.ZipFile.ExtractToDirectory(profileJarPath, serverPath, overwriteFiles: true);
+
+            // Make bedrock_server binary executable
+            var bedrockBinary = Path.Combine(serverPath, "bedrock_server");
+            if (File.Exists(bedrockBinary))
+            {
+                try
+                {
+                    var psi = new ProcessStartInfo("chmod", $"+x \"{bedrockBinary}\"")
+                    {
+                        UseShellExecute = false,
+                        RedirectStandardOutput = true,
+                        RedirectStandardError = true
+                    };
+                    using var process = Process.Start(psi);
+                    if (process != null)
+                        await process.WaitForExitAsync(cancellationToken);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to chmod bedrock_server for {ServerName}", serverName);
+                }
+            }
+
+            OwnershipHelper.TrySetOwnership(serverPath, _hostOptions.RunAsUid, _hostOptions.RunAsGid, _logger, recursive: true);
+            await MarkRestartRequiredAsync(serverPath, cancellationToken);
+
+            _logger.LogInformation("Extracted Bedrock profile {ProfileId} to server {ServerName}", profileId, serverName);
+            return;
         }
 
         var jarFilename = Path.GetFileName(profileJarPath);
@@ -703,6 +746,50 @@ public sealed class ProfileService : IProfileService
         var json = await File.ReadAllTextAsync(profilesFile, cancellationToken);
         var profiles = JsonSerializer.Deserialize<List<ProfileDto>>(json, JsonOptions) ?? new List<ProfileDto>();
         return profiles;
+    }
+
+    private IReadOnlyList<ProfileDto> GetBedrockProfiles()
+    {
+        // Latest Bedrock Dedicated Server versions for Linux x64
+        var versions = new[]
+        {
+            ("1.21.51.02", "2025-01-15T00:00:00Z"),
+            ("1.21.50.10", "2024-12-11T00:00:00Z"),
+            ("1.21.44.01", "2024-11-13T00:00:00Z"),
+            ("1.21.41.01", "2024-10-30T00:00:00Z"),
+            ("1.21.40.01", "2024-10-08T00:00:00Z"),
+            ("1.21.31.04", "2024-09-11T00:00:00Z"),
+            ("1.21.30.03", "2024-08-14T00:00:00Z"),
+            ("1.21.20.03", "2024-07-10T00:00:00Z"),
+            ("1.21.2.02",  "2024-06-12T00:00:00Z"),
+            ("1.21.1.03",  "2024-05-08T00:00:00Z"),
+            ("1.21.0.03",  "2024-04-10T00:00:00Z"),
+            ("1.20.81.01", "2024-03-13T00:00:00Z"),
+            ("1.20.73.01", "2024-02-07T00:00:00Z"),
+            ("1.20.72.01", "2024-01-24T00:00:00Z"),
+            ("1.20.71.01", "2024-01-10T00:00:00Z"),
+            ("1.20.62.02", "2023-12-06T00:00:00Z"),
+            ("1.20.51.01", "2023-11-08T00:00:00Z"),
+        };
+
+        var profilesPath = GetProfilesPath();
+        return versions.Select(v =>
+        {
+            var (version, releaseTime) = v;
+            var id = $"bedrock-server-{version}";
+            var filename = $"bedrock-server-{version}.zip";
+            var zipPath = Path.Combine(profilesPath, id, filename);
+            return new ProfileDto(
+                id,
+                "bedrock-server",
+                "release",
+                version,
+                releaseTime,
+                $"https://minecraft.azureedge.net/bin-linux/bedrock-server-{version}.zip",
+                filename,
+                File.Exists(zipPath),
+                null);
+        }).ToList();
     }
 
     private async Task<IReadOnlyList<ProfileDto>> GetVanillaProfilesAsync(CancellationToken cancellationToken)

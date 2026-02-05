@@ -40,6 +40,7 @@ public record ServerDetailDto(
     int? JavaPid,
     int? ScreenPid,
     ServerConfigDto? Config,
+    string ServerType,
     bool EulaAccepted,
     bool NeedsRestart);
 
@@ -84,7 +85,7 @@ public record CrashEventDto(
 
 public record ConsoleCommandDto(string Command);
 
-public record CreateServerRequest(string Name, int OwnerUid, int OwnerGid);
+public record CreateServerRequest(string Name, int OwnerUid, int OwnerGid, string ServerType = "java");
 
 public record CloneServerRequest(string NewName);
 

@@ -9,7 +9,7 @@
 	let { data }: { data: PageData } = $props();
 
 	// Server types available
-	type ServerType = 'vanilla' | 'paper' | 'spigot' | 'craftbukkit' | 'forge' | 'curseforge' | 'clone';
+	type ServerType = 'vanilla' | 'paper' | 'spigot' | 'craftbukkit' | 'forge' | 'curseforge' | 'bedrock' | 'clone';
 
 	interface ServerTypeOption {
 		id: ServerType;
@@ -68,6 +68,14 @@
 			icon: '🎯',
 			color: '#a855f7',
 			features: ['Modpacks', 'Easy setup', 'Popular packs']
+		},
+		{
+			id: 'bedrock',
+			name: 'Bedrock',
+			description: 'Official Bedrock Dedicated Server for cross-platform play',
+			icon: '🪨',
+			color: '#3b82f6',
+			features: ['Cross-platform', 'Native binary', 'Mobile/Console']
 		},
 		{
 			id: 'clone',
@@ -143,6 +151,8 @@
 					return p.group === 'spigot';
 				case 'craftbukkit':
 					return p.group === 'craftbukkit' || p.group === 'bukkit';
+				case 'bedrock':
+					return p.group === 'bedrock-server';
 				default:
 					return false;
 			}
@@ -196,7 +206,7 @@
 			if (forgeVersions.length === 0) {
 				await loadForgeVersions();
 			}
-		} else if (['vanilla', 'paper', 'spigot', 'craftbukkit'].includes(type)) {
+		} else if (['vanilla', 'paper', 'spigot', 'craftbukkit', 'bedrock'].includes(type)) {
 			step = 'version';
 		}
 	}
@@ -362,7 +372,8 @@
 			const createResult = await api.createServer(fetch, {
 				name: serverName.trim(),
 				ownerUid: 1000,
-				ownerGid: 1000
+				ownerGid: 1000,
+				serverType: selectedType === 'bedrock' ? 'bedrock' : 'java'
 			});
 
 			if (createResult.error) {
