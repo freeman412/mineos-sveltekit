@@ -461,13 +461,27 @@ public static class ServerEndpoints
 
         var cron = api.MapGroup("/servers/{name}/cron");
         cron.AddEndpointFilter<ServerAccessFilter>();
-        cron.MapGet("/", (string name) => Results.Ok(Array.Empty<CronJobDto>()));
-        cron.MapPost("/", (string name, CreateCronRequest _) =>
-            EndpointHelpers.NotImplementedFeature($"cron.create:{name}"));
-        cron.MapPatch("/{hash}", (string name, string hash, UpdateCronRequest _) =>
-            EndpointHelpers.NotImplementedFeature($"cron.update:{name}:{hash}"));
-        cron.MapDelete("/{hash}", (string name, string hash) =>
-            EndpointHelpers.NotImplementedFeature($"cron.delete:{name}:{hash}"));
+
+        cron.MapGet("/", async (string name, ICronService cronService, CancellationToken ct) =>
+            Results.Ok(await cronService.ListAsync(name, ct)));
+
+        cron.MapPost("/", async (string name, CreateCronRequest request, ICronService cronService, CancellationToken ct) =>
+        {
+            var dto = await cronService.CreateAsync(name, request, ct);
+            return Results.Created($"/api/v1/servers/{name}/cron/{dto.Hash}", dto);
+        });
+
+        cron.MapPatch("/{hash}", async (string name, string hash, UpdateCronRequest request, ICronService cronService, CancellationToken ct) =>
+        {
+            var dto = await cronService.UpdateAsync(name, hash, request, ct);
+            return dto is null ? Results.NotFound() : Results.Ok(dto);
+        });
+
+        cron.MapDelete("/{hash}", async (string name, string hash, ICronService cronService, CancellationToken ct) =>
+        {
+            var deleted = await cronService.DeleteAsync(name, hash, ct);
+            return deleted ? Results.NoContent() : Results.NotFound();
+        });
 
         var logs = api.MapGroup("/servers/{name}/logs");
         logs.AddEndpointFilter<ServerAccessFilter>();

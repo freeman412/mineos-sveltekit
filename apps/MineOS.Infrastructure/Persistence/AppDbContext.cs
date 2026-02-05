@@ -62,6 +62,9 @@ public sealed class AppDbContext : DbContext
     public DbSet<PlayerSession> PlayerSessions => Set<PlayerSession>();
     public DbSet<PlayerActivityEvent> PlayerActivityEvents => Set<PlayerActivityEvent>();
 
+    // Scheduled Tasks
+    public DbSet<CronJob> CronJobs => Set<CronJob>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.Entity<ApiKey>(entity =>
@@ -343,6 +346,28 @@ public sealed class AppDbContext : DbContext
                 .HasConversion(timestampConverter)
                 .HasColumnType("INTEGER");
             entity.Property(x => x.LeftAt)
+                .HasConversion(timestampConverter)
+                .HasColumnType("INTEGER");
+        });
+
+        // Cron Jobs
+        modelBuilder.Entity<CronJob>(entity =>
+        {
+            entity.HasKey(x => x.Id);
+            entity.HasIndex(x => x.ServerName);
+            entity.HasIndex(x => new { x.ServerName, x.Enabled });
+            entity.Property(x => x.ServerName).HasMaxLength(256);
+            entity.Property(x => x.CronExpression).HasMaxLength(128);
+            entity.Property(x => x.Action).HasMaxLength(64);
+            entity.Property(x => x.Message).HasMaxLength(256);
+
+            var timestampConverter = new ValueConverter<DateTimeOffset, long>(
+                value => value.ToUnixTimeSeconds(),
+                value => DateTimeOffset.FromUnixTimeSeconds(value));
+            entity.Property(x => x.CreatedAt)
+                .HasConversion(timestampConverter)
+                .HasColumnType("INTEGER");
+            entity.Property(x => x.LastRunAt)
                 .HasConversion(timestampConverter)
                 .HasColumnType("INTEGER");
         });
