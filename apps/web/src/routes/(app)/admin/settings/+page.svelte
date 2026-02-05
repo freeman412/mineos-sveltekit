@@ -1030,4 +1030,81 @@
 		font-size: 13px;
 		line-height: 1.5;
 	}
+
+	@media (max-width: 768px) {
+		.page-header {
+			margin-bottom: 20px;
+		}
+
+		h1 {
+			font-size: 24px;
+		}
+
+		.setting-card {
+			padding: 16px;
+		}
+
+		.preference-row {
+			flex-direction: column;
+			align-items: stretch;
+			gap: 12px;
+		}
+
+		.preference-row .toggle {
+			align-self: flex-start;
+		}
+
+		.number-control {
+			flex-wrap: wrap;
+			gap: 10px;
+		}
+
+		.number-control input[type='range'] {
+			width: 100%;
+			flex: none;
+		}
+
+		.select-control {
+			flex-wrap: wrap;
+		}
+
+		.setting-actions-vertical {
+			flex-direction: row;
+			gap: 8px;
+		}
+
+		.edit-actions {
+			flex-wrap: wrap;
+		}
+
+		.info-section {
+			grid-template-columns: 1fr;
+		}
+
+		.info-card {
+			padding: 16px;
+		}
+
+		.info-card li {
+			flex-wrap: wrap;
+			gap: 6px;
+		}
+	}
+
+	@media (max-width: 480px) {
+		.setting-card {
+			padding: 14px;
+			border-radius: 10px;
+		}
+
+		.setting-title-row {
+			flex-wrap: wrap;
+			gap: 6px;
+		}
+
+		.btn-primary,
+		.btn-secondary {
+			padding: 10px 16px;
+		}
+	}
 </style>

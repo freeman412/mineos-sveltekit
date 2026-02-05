@@ -10,11 +10,13 @@
 	let {
 		user,
 		servers = [],
-		profiles = []
+		profiles = [],
+		onToggleSidebar
 	}: {
 		user: { username: string; role: string } | null;
 		servers: ServerSummary[] | ServerDetail[];
 		profiles: Profile[];
+		onToggleSidebar?: () => void;
 	} = $props();
 
 	let query = $state('');
@@ -336,6 +338,15 @@
 <svelte:window onclick={handleClickOutside} />
 
 <div class="topbar">
+	{#if onToggleSidebar}
+		<button class="hamburger-btn" onclick={onToggleSidebar} aria-label="Toggle navigation menu">
+			<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+				<line x1="3" y1="6" x2="21" y2="6" />
+				<line x1="3" y1="12" x2="21" y2="12" />
+				<line x1="3" y1="18" x2="21" y2="18" />
+			</svg>
+		</button>
+	{/if}
 	<div class="topbar-search">
 		<input
 			bind:this={searchInput}
@@ -811,19 +822,55 @@
 		font-weight: 500;
 	}
 
+	.hamburger-btn {
+		display: none;
+		background: none;
+		border: none;
+		color: #eef0f8;
+		cursor: pointer;
+		padding: 6px;
+		border-radius: 6px;
+		flex-shrink: 0;
+		transition: background 0.2s;
+	}
+
+	.hamburger-btn:hover {
+		background: rgba(255, 255, 255, 0.08);
+	}
+
+	.hamburger-btn svg {
+		width: 24px;
+		height: 24px;
+		display: block;
+	}
+
 	@media (max-width: 768px) {
+		.hamburger-btn {
+			display: flex;
+			align-items: center;
+			justify-content: center;
+		}
+
 		.topbar {
-			flex-direction: column;
 			gap: 12px;
 		}
 
 		.topbar-search {
-			max-width: 100%;
+			max-width: none;
+			flex: 1;
+			min-width: 0;
 		}
 
 		.topbar-actions {
-			width: 100%;
-			justify-content: space-between;
+			gap: 10px;
+		}
+
+		.version-pill {
+			display: none;
+		}
+
+		.username {
+			display: none;
 		}
 	}
 </style>
