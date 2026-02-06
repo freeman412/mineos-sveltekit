@@ -201,6 +201,7 @@ builder.Services.AddDataProtection();
 builder.Services.AddHttpClient<DeviceAuthService>();
 builder.Services.AddSingleton<IDeviceAuthService>(sp =>
     sp.GetRequiredService<DeviceAuthService>());
+builder.Services.AddSingleton<IFeatureUsageTracker, FeatureUsageTracker>();
 
 var allowedOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>() ?? Array.Empty<string>();
 
