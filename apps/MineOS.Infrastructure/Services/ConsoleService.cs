@@ -13,15 +13,18 @@ public sealed class ConsoleService : IConsoleService
     private readonly ILogger<ConsoleService> _logger;
     private readonly IProcessManager _processManager;
     private readonly HostOptions _hostOptions;
+    private readonly IFeatureUsageTracker _featureTracker;
 
     public ConsoleService(
         ILogger<ConsoleService> logger,
         IProcessManager processManager,
-        IOptions<HostOptions> hostOptions)
+        IOptions<HostOptions> hostOptions,
+        IFeatureUsageTracker featureTracker)
     {
         _logger = logger;
         _processManager = processManager;
         _hostOptions = hostOptions.Value;
+        _featureTracker = featureTracker;
     }
 
     private string GetServerPath(string serverName) =>
@@ -45,6 +48,7 @@ public sealed class ConsoleService : IConsoleService
             _hostOptions.RunAsGid,
             cancellationToken);
         _logger.LogInformation("Sent command '{Command}' to server {ServerName}", command, serverName);
+        _featureTracker.Increment("console_commands");
     }
 
     public Task ClearLogsAsync(string serverName, ConsoleLogSource source, CancellationToken cancellationToken)

@@ -16,15 +16,18 @@ public sealed class BackupService : IBackupService
     private readonly ILogger<BackupService> _logger;
     private readonly HostOptions _hostOptions;
     private readonly AppDbContext _db;
+    private readonly IFeatureUsageTracker _featureTracker;
 
     public BackupService(
         ILogger<BackupService> logger,
         IOptions<HostOptions> hostOptions,
-        AppDbContext db)
+        AppDbContext db,
+        IFeatureUsageTracker featureTracker)
     {
         _logger = logger;
         _hostOptions = hostOptions.Value;
         _db = db;
+        _featureTracker = featureTracker;
     }
 
     private string GetServerPath(string serverName) =>
@@ -99,6 +102,7 @@ public sealed class BackupService : IBackupService
         }
 
         _logger.LogInformation("Created backup for server {ServerName}", serverName);
+        _featureTracker.Increment("backups_created");
     }
 
     public async Task RestoreBackupAsync(string serverName, string timestamp, CancellationToken cancellationToken)
