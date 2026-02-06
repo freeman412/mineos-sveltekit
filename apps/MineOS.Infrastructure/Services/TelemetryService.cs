@@ -252,6 +252,155 @@ public class TelemetryService : ITelemetryService
         }
     }
 
+    private static string? _cachedJavaVersion;
+    private static readonly object JavaVersionLock = new();
+
+    private string? GetJavaVersion()
+    {
+        lock (JavaVersionLock)
+        {
+            if (_cachedJavaVersion != null)
+                return _cachedJavaVersion;
+
+            try
+            {
+                var psi = new System.Diagnostics.ProcessStartInfo
+                {
+                    FileName = "java",
+                    Arguments = "-version",
+                    RedirectStandardError = true,
+                    RedirectStandardOutput = true,
+                    UseShellExecute = false,
+                    CreateNoWindow = true
+                };
+
+                using var process = System.Diagnostics.Process.Start(psi);
+                if (process == null) return null;
+
+                // java -version outputs to stderr
+                var stderr = process.StandardError.ReadToEnd();
+                process.WaitForExit(5000);
+
+                // Parse version from output like: openjdk version "17.0.2" 2022-01-18
+                var match = System.Text.RegularExpressions.Regex.Match(
+                    stderr, @"(?:openjdk|java) version ""([^""]+)""");
+
+                if (match.Success)
+                {
+                    _cachedJavaVersion = match.Groups[1].Value;
+                    if (_cachedJavaVersion.Length > 50)
+                        _cachedJavaVersion = _cachedJavaVersion[..50];
+                    return _cachedJavaVersion;
+                }
+
+                // Try alternate format: openjdk 17.0.2 2022-01-18
+                match = System.Text.RegularExpressions.Regex.Match(
+                    stderr, @"(?:openjdk|java) (\d+[\d._-]*)");
+
+                if (match.Success)
+                {
+                    _cachedJavaVersion = match.Groups[1].Value;
+                    if (_cachedJavaVersion.Length > 50)
+                        _cachedJavaVersion = _cachedJavaVersion[..50];
+                    return _cachedJavaVersion;
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Failed to get Java version");
+            }
+
+            return null;
+        }
+    }
+
+    private (int? totalGb, int? availableGb) GetDiskSpace(string? baseDirectory)
+    {
+        try
+        {
+            var path = baseDirectory ?? "/var/games/minecraft";
+            if (!Directory.Exists(path))
+                path = "/";
+
+            var driveInfo = new DriveInfo(Path.GetPathRoot(path) ?? "/");
+            var totalGb = (int)(driveInfo.TotalSize / (1024 * 1024 * 1024));
+            var availableGb = (int)(driveInfo.AvailableFreeSpace / (1024 * 1024 * 1024));
+            return (totalGb, availableGb);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Failed to get disk space");
+            return (null, null);
+        }
+    }
+
+    private (string? engine, string? version) GetContainerInfo()
+    {
+        try
+        {
+            // Check for Docker
+            if (File.Exists("/.dockerenv"))
+            {
+                var version = GetContainerVersion("docker");
+                return ("docker", version);
+            }
+
+            // Check for Podman
+            if (File.Exists("/run/.containerenv"))
+            {
+                var version = GetContainerVersion("podman");
+                return ("podman", version);
+            }
+
+            // Check cgroups for container detection
+            if (File.Exists("/proc/1/cgroup"))
+            {
+                var cgroup = File.ReadAllText("/proc/1/cgroup");
+                if (cgroup.Contains("docker"))
+                    return ("docker", GetContainerVersion("docker"));
+                if (cgroup.Contains("lxc"))
+                    return ("lxc", null);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Failed to detect container engine");
+        }
+
+        return (null, null);
+    }
+
+    private string? GetContainerVersion(string engine)
+    {
+        try
+        {
+            var psi = new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = engine,
+                Arguments = "--version",
+                RedirectStandardOutput = true,
+                UseShellExecute = false,
+                CreateNoWindow = true
+            };
+
+            using var process = System.Diagnostics.Process.Start(psi);
+            if (process == null) return null;
+
+            var output = process.StandardOutput.ReadToEnd();
+            process.WaitForExit(5000);
+
+            // Parse version from "Docker version 24.0.7, build afdd53b"
+            var match = System.Text.RegularExpressions.Regex.Match(
+                output, @"version (\d+\.\d+\.\d+)");
+
+            return match.Success ? match.Groups[1].Value : null;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
     private class InstallPayload
     {
         [JsonPropertyName("installation_id")]
