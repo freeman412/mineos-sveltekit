@@ -121,6 +121,73 @@ public class TelemetryService : ITelemetryService
         }
     }
 
+    public async Task ReportErrorAsync(
+        string errorCode,
+        string errorMessage,
+        string? stackTrace = null,
+        string severity = "medium",
+        string? serverName = null,
+        CancellationToken cancellationToken = default)
+    {
+        if (!_enabled || string.IsNullOrEmpty(_installationId))
+            return;
+
+        // Validate severity
+        var validSeverities = new[] { "low", "medium", "high", "critical" };
+        if (!validSeverities.Contains(severity.ToLowerInvariant()))
+            severity = "medium";
+
+        // Hash server name for privacy
+        string? serverIdHash = null;
+        if (!string.IsNullOrEmpty(serverName))
+        {
+            using var sha256 = System.Security.Cryptography.SHA256.Create();
+            var hashBytes = sha256.ComputeHash(Encoding.UTF8.GetBytes(serverName));
+            serverIdHash = Convert.ToHexString(hashBytes)[..12].ToLowerInvariant();
+        }
+
+        var metadata = new Dictionary<string, object?>
+        {
+            ["error_code"] = errorCode,
+            ["error_message"] = errorMessage.Length > 500 ? errorMessage[..500] : errorMessage,
+            ["severity"] = severity.ToLowerInvariant()
+        };
+
+        if (!string.IsNullOrEmpty(stackTrace))
+            metadata["stack_trace"] = stackTrace.Length > 500 ? stackTrace[..500] : stackTrace;
+
+        if (!string.IsNullOrEmpty(serverIdHash))
+            metadata["server_id_hash"] = serverIdHash;
+
+        await ReportLifecycleEventAsync("error", metadata, cancellationToken);
+    }
+
+    public async Task ReportUpdateEventAsync(
+        string eventType,
+        string fromVersion,
+        string toVersion,
+        CancellationToken cancellationToken = default)
+    {
+        if (!_enabled || string.IsNullOrEmpty(_installationId))
+            return;
+
+        // Only allow specific update event types
+        var validTypes = new[] { "update_available", "update_declined" };
+        if (!validTypes.Contains(eventType))
+        {
+            _logger.LogWarning("Invalid update event type: {EventType}", eventType);
+            return;
+        }
+
+        var metadata = new Dictionary<string, string>
+        {
+            ["from_version"] = fromVersion,
+            ["to_version"] = toVersion
+        };
+
+        await ReportLifecycleEventAsync(eventType, metadata, cancellationToken);
+    }
+
     /// <summary>
     /// Sends a JSON payload with Bearer auth. On 401, invalidates the cached key, re-registers, and retries once.
     /// </summary>
