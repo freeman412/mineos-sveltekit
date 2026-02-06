@@ -16,15 +16,21 @@ public sealed class BackupService : IBackupService
     private readonly ILogger<BackupService> _logger;
     private readonly HostOptions _hostOptions;
     private readonly AppDbContext _db;
+    private readonly IFeatureUsageTracker _featureTracker;
+    private readonly ITelemetryService _telemetryService;
 
     public BackupService(
         ILogger<BackupService> logger,
         IOptions<HostOptions> hostOptions,
-        AppDbContext db)
+        AppDbContext db,
+        IFeatureUsageTracker featureTracker,
+        ITelemetryService telemetryService)
     {
         _logger = logger;
         _hostOptions = hostOptions.Value;
         _db = db;
+        _featureTracker = featureTracker;
+        _telemetryService = telemetryService;
     }
 
     private string GetServerPath(string serverName) =>
@@ -60,45 +66,60 @@ public sealed class BackupService : IBackupService
 
     public async Task CreateBackupAsync(string serverName, CancellationToken cancellationToken)
     {
-        var serverPath = GetServerPath(serverName);
-        var backupPath = GetBackupPath(serverName);
-
-        if (!Directory.Exists(serverPath))
+        try
         {
-            throw new DirectoryNotFoundException($"Server '{serverName}' not found");
+            var serverPath = GetServerPath(serverName);
+            var backupPath = GetBackupPath(serverName);
+
+            if (!Directory.Exists(serverPath))
+            {
+                throw new DirectoryNotFoundException($"Server '{serverName}' not found");
+            }
+
+            _logger.LogInformation("Creating backup for server {ServerName} at {BackupPath}", serverName, backupPath);
+
+            // Ensure backup directory exists
+            Directory.CreateDirectory(backupPath);
+
+            // Use rdiff-backup to create incremental backup
+            var psi = new ProcessStartInfo
+            {
+                FileName = "rdiff-backup",
+                Arguments = $"backup \"{serverPath}\" \"{backupPath}\"",
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true
+            };
+
+            using var process = Process.Start(psi);
+            if (process == null)
+            {
+                throw new InvalidOperationException("Failed to start rdiff-backup process");
+            }
+
+            await process.WaitForExitAsync(cancellationToken);
+
+            if (process.ExitCode != 0)
+            {
+                var error = await process.StandardError.ReadToEndAsync(cancellationToken);
+                throw new InvalidOperationException($"Backup failed: {error}");
+            }
+
+            _logger.LogInformation("Created backup for server {ServerName}", serverName);
+            _featureTracker.Increment("backups_created");
         }
-
-        _logger.LogInformation("Creating backup for server {ServerName} at {BackupPath}", serverName, backupPath);
-
-        // Ensure backup directory exists
-        Directory.CreateDirectory(backupPath);
-
-        // Use rdiff-backup to create incremental backup
-        var psi = new ProcessStartInfo
+        catch (Exception ex)
         {
-            FileName = "rdiff-backup",
-            Arguments = $"backup \"{serverPath}\" \"{backupPath}\"",
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            UseShellExecute = false,
-            CreateNoWindow = true
-        };
-
-        using var process = Process.Start(psi);
-        if (process == null)
-        {
-            throw new InvalidOperationException("Failed to start rdiff-backup process");
+            await _telemetryService.ReportErrorAsync(
+                "BACKUP_FAILED",
+                ex.Message,
+                ex.StackTrace,
+                "high",
+                serverName,
+                cancellationToken);
+            throw;
         }
-
-        await process.WaitForExitAsync(cancellationToken);
-
-        if (process.ExitCode != 0)
-        {
-            var error = await process.StandardError.ReadToEndAsync(cancellationToken);
-            throw new InvalidOperationException($"Backup failed: {error}");
-        }
-
-        _logger.LogInformation("Created backup for server {ServerName}", serverName);
     }
 
     public async Task RestoreBackupAsync(string serverName, string timestamp, CancellationToken cancellationToken)

@@ -62,6 +62,9 @@ public sealed class AppDbContext : DbContext
     public DbSet<PlayerSession> PlayerSessions => Set<PlayerSession>();
     public DbSet<PlayerActivityEvent> PlayerActivityEvents => Set<PlayerActivityEvent>();
 
+    // Linked Accounts (mineos.net)
+    public DbSet<LinkedAccount> LinkedAccounts => Set<LinkedAccount>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.Entity<ApiKey>(entity =>
@@ -365,6 +368,30 @@ public sealed class AppDbContext : DbContext
                 value => value.ToUnixTimeSeconds(),
                 value => DateTimeOffset.FromUnixTimeSeconds(value));
             entity.Property(x => x.Timestamp)
+                .HasConversion(timestampConverter)
+                .HasColumnType("INTEGER");
+        });
+
+        // Linked Accounts
+        modelBuilder.Entity<LinkedAccount>(entity =>
+        {
+            entity.HasKey(x => x.Id);
+            entity.HasIndex(x => x.InstallationId).IsUnique();
+            entity.Property(x => x.AccessToken).IsRequired();
+            entity.Property(x => x.TokenType).HasMaxLength(32);
+            entity.Property(x => x.UserId).HasMaxLength(64);
+            entity.Property(x => x.InstallationId).HasMaxLength(64);
+
+            var timestampConverter = new ValueConverter<DateTimeOffset, long>(
+                value => value.ToUnixTimeSeconds(),
+                value => DateTimeOffset.FromUnixTimeSeconds(value));
+            entity.Property(x => x.ExpiresAt)
+                .HasConversion(timestampConverter)
+                .HasColumnType("INTEGER");
+            entity.Property(x => x.CreatedAt)
+                .HasConversion(timestampConverter)
+                .HasColumnType("INTEGER");
+            entity.Property(x => x.UpdatedAt)
                 .HasConversion(timestampConverter)
                 .HasColumnType("INTEGER");
         });

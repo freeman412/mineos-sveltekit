@@ -197,6 +197,11 @@ builder.Services.AddScoped<ApiKeySeeder>();
 builder.Services.AddScoped<UserSeeder>();
 builder.Services.AddScoped<ISettingsService, SettingsService>();
 builder.Services.AddHttpClient<ITelemetryService, TelemetryService>();
+builder.Services.AddDataProtection();
+builder.Services.AddHttpClient<DeviceAuthService>();
+builder.Services.AddSingleton<IDeviceAuthService>(sp =>
+    sp.GetRequiredService<DeviceAuthService>());
+builder.Services.AddSingleton<IFeatureUsageTracker, FeatureUsageTracker>();
 
 var allowedOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>() ?? Array.Empty<string>();
 

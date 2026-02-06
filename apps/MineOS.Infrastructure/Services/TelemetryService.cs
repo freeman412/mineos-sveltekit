@@ -79,7 +79,13 @@ public class TelemetryService : ITelemetryService
                 ActiveServerCount = data.ActiveServerCount,
                 TotalUserCount = data.TotalUserCount,
                 ActiveUserCount = data.ActiveUserCount,
-                UptimeSeconds = data.UptimeSeconds
+                UptimeSeconds = data.UptimeSeconds,
+                // New fields
+                ServerTypes = data.ServerTypes,
+                BackupCount = data.BackupCount,
+                LastBackupSuccess = data.LastBackupSuccess,
+                BackupTotalSizeMb = data.BackupTotalSizeMb,
+                FeatureUsage = data.FeatureUsage?.Count > 0 ? data.FeatureUsage : null
             };
 
             await SendWithAuthAsync($"{_endpoint}/api/telemetry/usage", payload, cancellationToken);
@@ -113,6 +119,73 @@ public class TelemetryService : ITelemetryService
         {
             _logger.LogWarning(ex, "Failed to send lifecycle event {EventType}", eventType);
         }
+    }
+
+    public async Task ReportErrorAsync(
+        string errorCode,
+        string errorMessage,
+        string? stackTrace = null,
+        string severity = "medium",
+        string? serverName = null,
+        CancellationToken cancellationToken = default)
+    {
+        if (!_enabled || string.IsNullOrEmpty(_installationId))
+            return;
+
+        // Validate severity
+        var validSeverities = new[] { "low", "medium", "high", "critical" };
+        if (!validSeverities.Contains(severity.ToLowerInvariant()))
+            severity = "medium";
+
+        // Hash server name for privacy
+        string? serverIdHash = null;
+        if (!string.IsNullOrEmpty(serverName))
+        {
+            using var sha256 = System.Security.Cryptography.SHA256.Create();
+            var hashBytes = sha256.ComputeHash(Encoding.UTF8.GetBytes(serverName));
+            serverIdHash = Convert.ToHexString(hashBytes)[..12].ToLowerInvariant();
+        }
+
+        var metadata = new Dictionary<string, object?>
+        {
+            ["error_code"] = errorCode,
+            ["error_message"] = errorMessage.Length > 500 ? errorMessage[..500] : errorMessage,
+            ["severity"] = severity.ToLowerInvariant()
+        };
+
+        if (!string.IsNullOrEmpty(stackTrace))
+            metadata["stack_trace"] = stackTrace.Length > 500 ? stackTrace[..500] : stackTrace;
+
+        if (!string.IsNullOrEmpty(serverIdHash))
+            metadata["server_id_hash"] = serverIdHash;
+
+        await ReportLifecycleEventAsync("error", metadata, cancellationToken);
+    }
+
+    public async Task ReportUpdateEventAsync(
+        string eventType,
+        string fromVersion,
+        string toVersion,
+        CancellationToken cancellationToken = default)
+    {
+        if (!_enabled || string.IsNullOrEmpty(_installationId))
+            return;
+
+        // Only allow specific update event types
+        var validTypes = new[] { "update_available", "update_declined" };
+        if (!validTypes.Contains(eventType))
+        {
+            _logger.LogWarning("Invalid update event type: {EventType}", eventType);
+            return;
+        }
+
+        var metadata = new Dictionary<string, string>
+        {
+            ["from_version"] = fromVersion,
+            ["to_version"] = toVersion
+        };
+
+        await ReportLifecycleEventAsync(eventType, metadata, cancellationToken);
     }
 
     /// <summary>
@@ -190,6 +263,9 @@ public class TelemetryService : ITelemetryService
     {
         try
         {
+            var (diskTotal, diskAvailable) = GetDiskSpace(null);
+            var (containerEngine, containerVersion) = GetContainerInfo();
+
             var registerPayload = new InstallPayload
             {
                 InstallationId = _installationId,
@@ -199,8 +275,14 @@ public class TelemetryService : ITelemetryService
                 MineOSVersion = _version,
                 InstallMethod = "docker",
                 InstallSuccess = true,
-                IsDocker = true,
-                UserAgent = $"MineOS-API/{_version}"
+                IsDocker = containerEngine == "docker",
+                UserAgent = $"MineOS-API/{_version}",
+                // New fields
+                JavaVersion = GetJavaVersion(),
+                DiskTotalGb = diskTotal,
+                DiskAvailableGb = diskAvailable,
+                ContainerEngine = containerEngine,
+                ContainerVersion = containerVersion
             };
             var json = JsonSerializer.Serialize(registerPayload, JsonOptions);
             var content = new StringContent(json, Encoding.UTF8, "application/json");
@@ -252,6 +334,155 @@ public class TelemetryService : ITelemetryService
         }
     }
 
+    private static string? _cachedJavaVersion;
+    private static readonly object JavaVersionLock = new();
+
+    private string? GetJavaVersion()
+    {
+        lock (JavaVersionLock)
+        {
+            if (_cachedJavaVersion != null)
+                return _cachedJavaVersion;
+
+            try
+            {
+                var psi = new System.Diagnostics.ProcessStartInfo
+                {
+                    FileName = "java",
+                    Arguments = "-version",
+                    RedirectStandardError = true,
+                    RedirectStandardOutput = true,
+                    UseShellExecute = false,
+                    CreateNoWindow = true
+                };
+
+                using var process = System.Diagnostics.Process.Start(psi);
+                if (process == null) return null;
+
+                // java -version outputs to stderr
+                var stderr = process.StandardError.ReadToEnd();
+                process.WaitForExit(5000);
+
+                // Parse version from output like: openjdk version "17.0.2" 2022-01-18
+                var match = System.Text.RegularExpressions.Regex.Match(
+                    stderr, @"(?:openjdk|java) version ""([^""]+)""");
+
+                if (match.Success)
+                {
+                    _cachedJavaVersion = match.Groups[1].Value;
+                    if (_cachedJavaVersion.Length > 50)
+                        _cachedJavaVersion = _cachedJavaVersion[..50];
+                    return _cachedJavaVersion;
+                }
+
+                // Try alternate format: openjdk 17.0.2 2022-01-18
+                match = System.Text.RegularExpressions.Regex.Match(
+                    stderr, @"(?:openjdk|java) (\d+[\d._-]*)");
+
+                if (match.Success)
+                {
+                    _cachedJavaVersion = match.Groups[1].Value;
+                    if (_cachedJavaVersion.Length > 50)
+                        _cachedJavaVersion = _cachedJavaVersion[..50];
+                    return _cachedJavaVersion;
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Failed to get Java version");
+            }
+
+            return null;
+        }
+    }
+
+    private (int? totalGb, int? availableGb) GetDiskSpace(string? baseDirectory)
+    {
+        try
+        {
+            var path = baseDirectory ?? "/var/games/minecraft";
+            if (!Directory.Exists(path))
+                path = "/";
+
+            var driveInfo = new DriveInfo(Path.GetPathRoot(path) ?? "/");
+            var totalGb = (int)(driveInfo.TotalSize / (1024 * 1024 * 1024));
+            var availableGb = (int)(driveInfo.AvailableFreeSpace / (1024 * 1024 * 1024));
+            return (totalGb, availableGb);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Failed to get disk space");
+            return (null, null);
+        }
+    }
+
+    private (string? engine, string? version) GetContainerInfo()
+    {
+        try
+        {
+            // Check for Docker
+            if (File.Exists("/.dockerenv"))
+            {
+                var version = GetContainerVersion("docker");
+                return ("docker", version);
+            }
+
+            // Check for Podman
+            if (File.Exists("/run/.containerenv"))
+            {
+                var version = GetContainerVersion("podman");
+                return ("podman", version);
+            }
+
+            // Check cgroups for container detection
+            if (File.Exists("/proc/1/cgroup"))
+            {
+                var cgroup = File.ReadAllText("/proc/1/cgroup");
+                if (cgroup.Contains("docker"))
+                    return ("docker", GetContainerVersion("docker"));
+                if (cgroup.Contains("lxc"))
+                    return ("lxc", null);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Failed to detect container engine");
+        }
+
+        return (null, null);
+    }
+
+    private string? GetContainerVersion(string engine)
+    {
+        try
+        {
+            var psi = new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = engine,
+                Arguments = "--version",
+                RedirectStandardOutput = true,
+                UseShellExecute = false,
+                CreateNoWindow = true
+            };
+
+            using var process = System.Diagnostics.Process.Start(psi);
+            if (process == null) return null;
+
+            var output = process.StandardOutput.ReadToEnd();
+            process.WaitForExit(5000);
+
+            // Parse version from "Docker version 24.0.7, build afdd53b"
+            var match = System.Text.RegularExpressions.Regex.Match(
+                output, @"version (\d+\.\d+\.\d+)");
+
+            return match.Success ? match.Groups[1].Value : null;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
     private class InstallPayload
     {
         [JsonPropertyName("installation_id")]
@@ -277,6 +508,22 @@ public class TelemetryService : ITelemetryService
 
         [JsonPropertyName("user_agent")]
         public string UserAgent { get; set; } = string.Empty;
+
+        // New fields - add these after UserAgent
+        [JsonPropertyName("java_version")]
+        public string? JavaVersion { get; set; }
+
+        [JsonPropertyName("disk_total_gb")]
+        public int? DiskTotalGb { get; set; }
+
+        [JsonPropertyName("disk_available_gb")]
+        public int? DiskAvailableGb { get; set; }
+
+        [JsonPropertyName("container_engine")]
+        public string? ContainerEngine { get; set; }
+
+        [JsonPropertyName("container_version")]
+        public string? ContainerVersion { get; set; }
     }
 
     private class InstallResponse
@@ -307,6 +554,22 @@ public class TelemetryService : ITelemetryService
 
         [JsonPropertyName("mineos_version")]
         public string MineOSVersion { get; set; } = string.Empty;
+
+        // New fields - add these after MineOSVersion
+        [JsonPropertyName("server_types")]
+        public string[]? ServerTypes { get; set; }
+
+        [JsonPropertyName("backup_count")]
+        public int? BackupCount { get; set; }
+
+        [JsonPropertyName("last_backup_success")]
+        public bool? LastBackupSuccess { get; set; }
+
+        [JsonPropertyName("backup_total_size_mb")]
+        public int? BackupTotalSizeMb { get; set; }
+
+        [JsonPropertyName("feature_usage")]
+        public Dictionary<string, int>? FeatureUsage { get; set; }
     }
 
     private class LifecyclePayload
