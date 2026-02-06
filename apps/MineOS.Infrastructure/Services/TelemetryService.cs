@@ -79,7 +79,13 @@ public class TelemetryService : ITelemetryService
                 ActiveServerCount = data.ActiveServerCount,
                 TotalUserCount = data.TotalUserCount,
                 ActiveUserCount = data.ActiveUserCount,
-                UptimeSeconds = data.UptimeSeconds
+                UptimeSeconds = data.UptimeSeconds,
+                // New fields
+                ServerTypes = data.ServerTypes,
+                BackupCount = data.BackupCount,
+                LastBackupSuccess = data.LastBackupSuccess,
+                BackupTotalSizeMb = data.BackupTotalSizeMb,
+                FeatureUsage = data.FeatureUsage?.Count > 0 ? data.FeatureUsage : null
             };
 
             await SendWithAuthAsync($"{_endpoint}/api/telemetry/usage", payload, cancellationToken);
@@ -481,6 +487,22 @@ public class TelemetryService : ITelemetryService
 
         [JsonPropertyName("mineos_version")]
         public string MineOSVersion { get; set; } = string.Empty;
+
+        // New fields - add these after MineOSVersion
+        [JsonPropertyName("server_types")]
+        public string[]? ServerTypes { get; set; }
+
+        [JsonPropertyName("backup_count")]
+        public int? BackupCount { get; set; }
+
+        [JsonPropertyName("last_backup_success")]
+        public bool? LastBackupSuccess { get; set; }
+
+        [JsonPropertyName("backup_total_size_mb")]
+        public int? BackupTotalSizeMb { get; set; }
+
+        [JsonPropertyName("feature_usage")]
+        public Dictionary<string, int>? FeatureUsage { get; set; }
     }
 
     private class LifecyclePayload
