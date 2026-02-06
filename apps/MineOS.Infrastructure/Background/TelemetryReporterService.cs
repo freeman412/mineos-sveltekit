@@ -80,11 +80,15 @@ public sealed class TelemetryReporterService : BackgroundService
 
         var serverService = scope.ServiceProvider.GetRequiredService<IServerService>();
         var userService = scope.ServiceProvider.GetRequiredService<IUserService>();
+        var backupService = scope.ServiceProvider.GetRequiredService<IBackupService>();
+        var featureTracker = scope.ServiceProvider.GetRequiredService<IFeatureUsageTracker>();
 
         var servers = await serverService.ListServersAsync(cancellationToken);
         var users = await userService.ListUsersAsync(cancellationToken);
 
         var activeServerCount = 0;
+        var serverTypes = new List<string>();
+
         foreach (var server in servers)
         {
             try
@@ -92,6 +96,11 @@ public sealed class TelemetryReporterService : BackgroundService
                 var status = await serverService.GetServerStatusAsync(server.Name, cancellationToken);
                 if (status.Status == "up")
                     activeServerCount++;
+
+                // Extract server type from profile (e.g., "paper", "vanilla", "forge")
+                var profile = server.Config?.Minecraft?.Profile;
+                if (!string.IsNullOrEmpty(profile))
+                    serverTypes.Add(profile.ToLowerInvariant());
             }
             catch
             {
@@ -99,14 +108,56 @@ public sealed class TelemetryReporterService : BackgroundService
             }
         }
 
+        // Gather backup health
+        int? backupCount = null;
+        bool? lastBackupSuccess = null;
+        int? backupTotalSizeMb = null;
+
+        try
+        {
+            var allBackups = new List<(bool success, long sizeBytes)>();
+            foreach (var server in servers)
+            {
+                try
+                {
+                    var backups = await backupService.ListBackupsAsync(server.Name, cancellationToken);
+                    foreach (var backup in backups)
+                    {
+                        allBackups.Add((true, backup.Size ?? 0));
+                    }
+                }
+                catch
+                {
+                    // Ignore per-server backup errors
+                }
+            }
+
+            if (allBackups.Count > 0)
+            {
+                backupCount = allBackups.Count;
+                lastBackupSuccess = true; // If we can list them, they exist
+                backupTotalSizeMb = (int)(allBackups.Sum(b => b.sizeBytes) / (1024 * 1024));
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Failed to gather backup health");
+        }
+
         var uptimeSeconds = (long)Stopwatch.GetElapsedTime(StartTimestamp).TotalSeconds;
+        var featureUsage = featureTracker.GetAndReset();
 
         var data = new UsageData(
             ServerCount: servers.Count,
             ActiveServerCount: activeServerCount,
             TotalUserCount: users.Count,
             ActiveUserCount: users.Count,
-            UptimeSeconds: uptimeSeconds);
+            UptimeSeconds: uptimeSeconds,
+            ServerTypes: serverTypes.Count > 0 ? serverTypes.ToArray() : null,
+            BackupCount: backupCount,
+            LastBackupSuccess: lastBackupSuccess,
+            BackupTotalSizeMb: backupTotalSizeMb,
+            FeatureUsage: featureUsage.Count > 0 ? featureUsage : null);
 
         _logger.LogInformation("Sending usage telemetry report...");
         var telemetryService = scope.ServiceProvider.GetRequiredService<ITelemetryService>();
