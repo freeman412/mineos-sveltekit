@@ -18,4 +18,10 @@ public record UsageData(
     int ActiveServerCount,
     int TotalUserCount,
     int ActiveUserCount,
-    long UptimeSeconds);
+    long UptimeSeconds,
+    // New fields
+    string[]? ServerTypes = null,
+    int? BackupCount = null,
+    bool? LastBackupSuccess = null,
+    int? BackupTotalSizeMb = null,
+    Dictionary<string, int>? FeatureUsage = null);
