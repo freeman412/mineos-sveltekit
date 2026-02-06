@@ -190,6 +190,9 @@ public class TelemetryService : ITelemetryService
     {
         try
         {
+            var (diskTotal, diskAvailable) = GetDiskSpace(null);
+            var (containerEngine, containerVersion) = GetContainerInfo();
+
             var registerPayload = new InstallPayload
             {
                 InstallationId = _installationId,
@@ -199,8 +202,14 @@ public class TelemetryService : ITelemetryService
                 MineOSVersion = _version,
                 InstallMethod = "docker",
                 InstallSuccess = true,
-                IsDocker = true,
-                UserAgent = $"MineOS-API/{_version}"
+                IsDocker = containerEngine == "docker",
+                UserAgent = $"MineOS-API/{_version}",
+                // New fields
+                JavaVersion = GetJavaVersion(),
+                DiskTotalGb = diskTotal,
+                DiskAvailableGb = diskAvailable,
+                ContainerEngine = containerEngine,
+                ContainerVersion = containerVersion
             };
             var json = JsonSerializer.Serialize(registerPayload, JsonOptions);
             var content = new StringContent(json, Encoding.UTF8, "application/json");
@@ -426,6 +435,22 @@ public class TelemetryService : ITelemetryService
 
         [JsonPropertyName("user_agent")]
         public string UserAgent { get; set; } = string.Empty;
+
+        // New fields - add these after UserAgent
+        [JsonPropertyName("java_version")]
+        public string? JavaVersion { get; set; }
+
+        [JsonPropertyName("disk_total_gb")]
+        public int? DiskTotalGb { get; set; }
+
+        [JsonPropertyName("disk_available_gb")]
+        public int? DiskAvailableGb { get; set; }
+
+        [JsonPropertyName("container_engine")]
+        public string? ContainerEngine { get; set; }
+
+        [JsonPropertyName("container_version")]
+        public string? ContainerVersion { get; set; }
     }
 
     private class InstallResponse
