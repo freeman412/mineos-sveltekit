@@ -148,6 +148,7 @@ export type CreateServerRequest = {
 	name: string;
 	ownerUid: number;
 	ownerGid: number;
+	serverType?: string;
 };
 
 export type CloneServerRequest = {

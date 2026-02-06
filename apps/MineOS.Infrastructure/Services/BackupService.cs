@@ -7,6 +7,7 @@ using Microsoft.Extensions.Options;
 using MineOS.Application.Dtos;
 using MineOS.Application.Interfaces;
 using MineOS.Application.Options;
+using MineOS.Infrastructure.Constants;
 using MineOS.Infrastructure.Persistence;
 
 namespace MineOS.Infrastructure.Services;
@@ -42,7 +43,7 @@ public sealed class BackupService : IBackupService
     public async Task<IEnumerable<IncrementEntryDto>> ListBackupsAsync(string serverName, CancellationToken cancellationToken)
     {
         var jobBackups = await _db.Jobs.AsNoTracking()
-            .Where(j => j.Type == "backup" && j.ServerName == serverName && j.Status == "completed")
+            .Where(j => j.Type == "backup" && j.ServerName == serverName && j.Status == JobStatus.Completed)
             .ToListAsync(cancellationToken);
 
         var jobEntries = jobBackups
@@ -168,7 +169,7 @@ public sealed class BackupService : IBackupService
         }
 
         var jobBackups = await _db.Jobs
-            .Where(j => j.Type == "backup" && j.ServerName == serverName && j.Status == "completed")
+            .Where(j => j.Type == "backup" && j.ServerName == serverName && j.Status == JobStatus.Completed)
             .ToListAsync(cancellationToken);
 
         var orderedJobs = jobBackups
@@ -224,11 +225,11 @@ public sealed class BackupService : IBackupService
             return Enumerable.Empty<IncrementEntryDto>();
         }
 
-        // Use rdiff-backup to list increment sizes
+        // Use rdiff-backup v2 syntax to list increment sizes
         var psi = new ProcessStartInfo
         {
             FileName = "rdiff-backup",
-            Arguments = $"--list-increment-sizes \"{backupPath}\"",
+            Arguments = $"list increment-sizes \"{backupPath}\"",
             RedirectStandardOutput = true,
             RedirectStandardError = true,
             UseShellExecute = false,
@@ -355,7 +356,9 @@ public sealed class BackupService : IBackupService
         {
             var trimmed = line.Trim();
             if (string.IsNullOrWhiteSpace(trimmed) ||
-                trimmed.StartsWith("Found ", StringComparison.OrdinalIgnoreCase))
+                trimmed.StartsWith("Found ", StringComparison.OrdinalIgnoreCase) ||
+                trimmed.StartsWith("Time", StringComparison.OrdinalIgnoreCase) ||
+                trimmed.StartsWith("---"))
             {
                 continue;
             }
@@ -374,10 +377,22 @@ public sealed class BackupService : IBackupService
             }
 
             var remainder = trimmed[(match.Index + match.Length)..];
-            var sizeMatch = Regex.Match(remainder, @"\b(\d+)\b");
-            if (!sizeMatch.Success || !long.TryParse(sizeMatch.Groups[1].Value, out var size))
+
+            // Try parenthesized byte count first (rdiff-backup v2 human-readable format: "1.2 MB (1234567)")
+            // then fall back to first standalone number (raw byte format: "1234567")
+            var parenMatch = Regex.Match(remainder, @"\((\d+)\)");
+            long size;
+            if (parenMatch.Success && long.TryParse(parenMatch.Groups[1].Value, out size))
             {
-                continue;
+                // Found byte count in parentheses
+            }
+            else
+            {
+                var sizeMatch = Regex.Match(remainder, @"\b(\d+)\b");
+                if (!sizeMatch.Success || !long.TryParse(sizeMatch.Groups[1].Value, out size))
+                {
+                    continue;
+                }
             }
 
             cumulativeSize += size;

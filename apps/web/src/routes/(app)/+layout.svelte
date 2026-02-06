@@ -8,6 +8,21 @@
 	import { sheepEnabled, theme } from '$lib/stores/uiPreferences';
 
 	let { data, children }: { data: LayoutData; children: any } = $props();
+	let sidebarOpen = $state(false);
+
+	function toggleSidebar() {
+		sidebarOpen = !sidebarOpen;
+	}
+
+	function closeSidebar() {
+		sidebarOpen = false;
+	}
+
+	// Close sidebar on navigation
+	$effect(() => {
+		$page.url.pathname;
+		sidebarOpen = false;
+	});
 
 	const logoSrc = $derived(
 		$theme === 'nether' ? '/mineos-logo-nether.svg' :
@@ -85,7 +100,11 @@
 <svelte:window onkeydown={handleKeyboardShortcut} />
 
 <div class="app-container" data-theme={$theme}>
-	<nav class="sidebar">
+	{#if sidebarOpen}
+		<!-- svelte-ignore a11y_no_static_element_interactions -->
+		<div class="sidebar-overlay" onclick={closeSidebar} onkeydown={(e) => e.key === 'Escape' && closeSidebar()}></div>
+	{/if}
+	<nav class="sidebar" class:open={sidebarOpen}>
 		<div class="sidebar-header">
 			<a href="/dashboard" class="logo-wrap logo-link" aria-label="Go to dashboard">
 				<img src={logoSrc} alt="MineOS logo" class="logo-icon" />
@@ -134,7 +153,7 @@
 	</nav>
 
 	<div class="main-wrapper">
-		<TopBar user={data.user} servers={data.servers} profiles={data.profiles} />
+		<TopBar user={data.user} servers={data.servers} profiles={data.profiles} onToggleSidebar={toggleSidebar} />
 		<main class="main-content">
 			{@render children()}
 		</main>
@@ -1823,15 +1842,35 @@
 		transition: background 0.4s ease, background-color 0.4s ease, border-color 0.4s ease, color 0.4s ease, box-shadow 0.4s ease;
 	}
 
+	.sidebar-overlay {
+		display: none;
+	}
+
 	@media (max-width: 768px) {
 		.sidebar {
-			width: 200px;
+			width: 260px;
+			transform: translateX(-100%);
+			transition: transform 0.3s ease;
+			z-index: 200;
+		}
+
+		.sidebar.open {
+			transform: translateX(0);
+		}
+
+		.sidebar-overlay {
+			display: block;
+			position: fixed;
+			inset: 0;
+			background: rgba(0, 0, 0, 0.6);
+			z-index: 150;
+			backdrop-filter: blur(2px);
 		}
 
 		.main-wrapper {
-			margin-left: 200px;
-			width: calc(100vw - 200px);
-			max-width: calc(100vw - 200px);
+			margin-left: 0;
+			width: 100vw;
+			max-width: 100vw;
 		}
 
 		.main-content {
@@ -1841,7 +1880,11 @@
 
 	@media (max-width: 480px) {
 		.main-content {
-			padding: 16px;
+			padding: 14px;
+		}
+
+		.sidebar {
+			width: 240px;
 		}
 	}
 </style>

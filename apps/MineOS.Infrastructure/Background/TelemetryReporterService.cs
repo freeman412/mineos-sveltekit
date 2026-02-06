@@ -3,6 +3,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using MineOS.Application.Interfaces;
+using ServerStatusStrings = MineOS.Infrastructure.Constants.ServerStatus;
 
 namespace MineOS.Infrastructure.Background;
 
@@ -94,7 +95,7 @@ public sealed class TelemetryReporterService : BackgroundService
             try
             {
                 var status = await serverService.GetServerStatusAsync(server.Name, cancellationToken);
-                if (status.Status == "up")
+                if (status.Status == ServerStatusStrings.Running)
                     activeServerCount++;
 
                 // Extract server type from profile (e.g., "paper", "vanilla", "forge")
@@ -102,9 +103,10 @@ public sealed class TelemetryReporterService : BackgroundService
                 if (!string.IsNullOrEmpty(profile))
                     serverTypes.Add(profile.ToLowerInvariant());
             }
-            catch
+            catch (Exception ex)
             {
-                // Ignore errors for individual servers
+                // Log but don't fail telemetry for individual server errors
+                _logger.LogDebug(ex, "Failed to get status for server {ServerName}", server.Name);
             }
         }
 

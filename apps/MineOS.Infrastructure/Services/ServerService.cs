@@ -7,6 +7,7 @@ using MineOS.Application.Interfaces;
 using MineOS.Application.Options;
 using MineOS.Domain.Entities;
 using MineOS.Infrastructure.Utilities;
+using ServerStatusStrings = MineOS.Infrastructure.Constants.ServerStatus;
 
 namespace MineOS.Infrastructure.Services;
 
@@ -40,11 +41,32 @@ public class ServerService : IServerService
     private string GetArchivePath(string name) =>
         Path.Combine(_options.BaseDirectory, "archive", name);
 
+    private const string ServerTypeFile = ".mineos-server-type";
+
     private string GetPropertiesPath(string name) =>
         Path.Combine(GetServerPath(name), "server.properties");
 
     private string GetConfigPath(string name) =>
         Path.Combine(GetServerPath(name), "server.config");
+
+    private string GetServerTypePath(string name) =>
+        Path.Combine(GetServerPath(name), ServerTypeFile);
+
+    private string DetectServerType(string name)
+    {
+        var typeFile = GetServerTypePath(name);
+        if (File.Exists(typeFile))
+        {
+            var content = File.ReadAllText(typeFile).Trim();
+            if (!string.IsNullOrWhiteSpace(content))
+                return content;
+        }
+        // Check for bedrock_server binary
+        var serverPath = GetServerPath(name);
+        if (File.Exists(Path.Combine(serverPath, "bedrock_server")))
+            return "bedrock";
+        return "java";
+    }
 
     private string GetRestartFlagPath(string name) =>
         Path.Combine(GetServerPath(name), RestartFlagFile);
@@ -64,10 +86,11 @@ public class ServerService : IServerService
         var dirInfo = new DirectoryInfo(serverPath);
         var processInfo = _processManager.GetServerProcess(name);
 
+        var serverType = DetectServerType(name);
         var config = await GetServerConfigAsync(name, cancellationToken);
 
         var status = processInfo?.JavaPid != null ? "running" : "stopped";
-        var eulaAccepted = await IsEulaAcceptedAsync(serverPath, cancellationToken);
+        var eulaAccepted = serverType == "bedrock" || await IsEulaAcceptedAsync(serverPath, cancellationToken);
         var needsRestart = File.Exists(GetRestartFlagPath(name));
 
         // Get owner info from directory
@@ -89,6 +112,7 @@ public class ServerService : IServerService
             processInfo?.JavaPid,
             processInfo?.ScreenPid,
             config,
+            serverType,
             eulaAccepted,
             needsRestart
         );
@@ -113,56 +137,133 @@ public class ServerService : IServerService
         Directory.CreateDirectory(backupPath);
         Directory.CreateDirectory(archivePath);
 
+        // Write server type marker
+        var serverType = string.IsNullOrWhiteSpace(request.ServerType) ? "java" : request.ServerType.ToLowerInvariant();
+        await File.WriteAllTextAsync(
+            Path.Combine(serverPath, ServerTypeFile), serverType, cancellationToken);
+
         // Create default files
         var propertiesPath = GetPropertiesPath(request.Name);
         var configPath = GetConfigPath(request.Name);
 
         var usedPorts = await GetUsedPortsAsync(excludeName: null, cancellationToken);
-        var defaultPort = GetNextAvailablePort(usedPorts, 25565);
 
-        // Write default server.properties
-        var defaultProperties = new Dictionary<string, string>
+        if (serverType == "bedrock")
         {
-            ["server-port"] = defaultPort.ToString(),
-            ["max-players"] = "20",
-            ["level-seed"] = "",
-            ["gamemode"] = "0",
-            ["difficulty"] = "1",
-            ["level-type"] = "DEFAULT",
-            ["level-name"] = "world",
-            ["max-build-height"] = "256",
-            ["generate-structures"] = "true",
-            ["generator-settings"] = "",
-            ["server-ip"] = "0.0.0.0",
-            ["enable-query"] = "false",
-            ["white-list"] = "true",
-            ["enforce-whitelist"] = "true"
-        };
+            var defaultPort = GetNextAvailablePort(usedPorts, 19132);
 
-        await File.WriteAllTextAsync(propertiesPath, IniParser.WriteSimple(defaultProperties), cancellationToken);
+            // Bedrock server.properties
+            var bedrockProperties = new Dictionary<string, string>
+            {
+                ["server-name"] = request.Name,
+                ["gamemode"] = "survival",
+                ["force-gamemode"] = "false",
+                ["difficulty"] = "easy",
+                ["allow-cheats"] = "false",
+                ["max-players"] = "10",
+                ["online-mode"] = "true",
+                ["allow-list"] = "true",
+                ["server-port"] = defaultPort.ToString(),
+                ["server-portv6"] = (defaultPort + 1).ToString(),
+                ["view-distance"] = "32",
+                ["tick-distance"] = "4",
+                ["player-idle-timeout"] = "30",
+                ["max-threads"] = "8",
+                ["level-name"] = "Bedrock level",
+                ["level-seed"] = "",
+                ["level-type"] = "DEFAULT",
+                ["default-player-permission-level"] = "member",
+                ["texturepack-required"] = "false",
+                ["content-log-file-enabled"] = "false",
+                ["compression-threshold"] = "1",
+                ["compression-algorithm"] = "zlib",
+                ["server-authoritative-movement"] = "server-auth",
+                ["player-movement-score-threshold"] = "20",
+                ["player-movement-action-direction-threshold"] = "0.85",
+                ["player-movement-distance-threshold"] = "0.3",
+                ["player-movement-duration-threshold-in-ms"] = "500",
+                ["correct-player-movement"] = "false",
+                ["server-authoritative-block-breaking"] = "false",
+                ["chat-restriction"] = "None",
+                ["disable-player-interaction"] = "false",
+                ["client-side-chunk-generation-enabled"] = "true",
+                ["block-network-ids-are-hashes"] = "true",
+                ["disable-persona"] = "false",
+                ["disable-custom-skins"] = "false",
+                ["emit-server-telemetry"] = "false"
+            };
 
-        // Write default server.config
-        var defaultConfig = new Dictionary<string, Dictionary<string, string>>
+            await File.WriteAllTextAsync(propertiesPath, IniParser.WriteSimple(bedrockProperties), cancellationToken);
+
+            // Bedrock server.config (minimal - no Java section needed for operation, but kept for compatibility)
+            var bedrockConfig = new Dictionary<string, Dictionary<string, string>>
+            {
+                ["bedrock"] = new()
+                {
+                    ["binary"] = "./bedrock_server"
+                },
+                ["minecraft"] = new()
+                {
+                    ["profile"] = "",
+                    ["unconventional"] = "false",
+                    ["lan_broadcast"] = "false"
+                },
+                ["onreboot"] = new()
+                {
+                    ["start"] = "false"
+                }
+            };
+
+            await File.WriteAllTextAsync(configPath, IniParser.WriteWithSections(bedrockConfig), cancellationToken);
+        }
+        else
         {
-            ["java"] = new()
-            {
-                ["java_binary"] = "",
-                ["java_xmx"] = "4096",
-                ["java_xms"] = "4096"
-            },
-            ["minecraft"] = new()
-            {
-                ["profile"] = "",
-                ["unconventional"] = "false",
-                ["lan_broadcast"] = "false"
-            },
-            ["onreboot"] = new()
-            {
-                ["start"] = "false"
-            }
-        };
+            var defaultPort = GetNextAvailablePort(usedPorts, 25565);
 
-        await File.WriteAllTextAsync(configPath, IniParser.WriteWithSections(defaultConfig), cancellationToken);
+            // Write default server.properties
+            var defaultProperties = new Dictionary<string, string>
+            {
+                ["server-port"] = defaultPort.ToString(),
+                ["max-players"] = "20",
+                ["level-seed"] = "",
+                ["gamemode"] = "0",
+                ["difficulty"] = "1",
+                ["level-type"] = "DEFAULT",
+                ["level-name"] = "world",
+                ["max-build-height"] = "256",
+                ["generate-structures"] = "true",
+                ["generator-settings"] = "",
+                ["server-ip"] = "0.0.0.0",
+                ["enable-query"] = "false",
+                ["white-list"] = "true",
+                ["enforce-whitelist"] = "true"
+            };
+
+            await File.WriteAllTextAsync(propertiesPath, IniParser.WriteSimple(defaultProperties), cancellationToken);
+
+            // Write default server.config
+            var defaultConfig = new Dictionary<string, Dictionary<string, string>>
+            {
+                ["java"] = new()
+                {
+                    ["java_binary"] = "",
+                    ["java_xmx"] = "4096",
+                    ["java_xms"] = "4096"
+                },
+                ["minecraft"] = new()
+                {
+                    ["profile"] = "",
+                    ["unconventional"] = "false",
+                    ["lan_broadcast"] = "false"
+                },
+                ["onreboot"] = new()
+                {
+                    ["start"] = "false"
+                }
+            };
+
+            await File.WriteAllTextAsync(configPath, IniParser.WriteWithSections(defaultConfig), cancellationToken);
+        }
 
         OwnershipHelper.TrySetOwnership(serverPath, _options.RunAsUid, _options.RunAsGid, _logger, recursive: true);
         OwnershipHelper.TrySetOwnership(backupPath, _options.RunAsUid, _options.RunAsGid, _logger, recursive: true);
@@ -298,7 +399,7 @@ public class ServerService : IServerService
         }
 
         var processInfo = _processManager.GetServerProcess(name);
-        var status = processInfo?.JavaPid != null ? "running" : "stopped";
+        var status = processInfo?.JavaPid != null ? ServerStatusStrings.Running : ServerStatusStrings.Stopped;
 
         // TODO: Add ping info when we implement MinecraftPing protocol
         // TODO: Add memory info from /proc/{pid}/status
@@ -330,110 +431,146 @@ public class ServerService : IServerService
 
         ClearStopRequested(name);
 
-        // Read server config to build start arguments
-        var config = await GetServerConfigAsync(name, cancellationToken);
-        var javaBinary = string.IsNullOrEmpty(config.Java.JavaBinary) ? "java" : config.Java.JavaBinary;
-        var jarFile = config.Java.JarFile;
+        var serverType = DetectServerType(name);
+        var uid = _options.RunAsUid;
+        var gid = _options.RunAsGid;
 
-        _logger.LogInformation(
-            "Server config for {ServerName}: javaBinary={JavaBinary} jarFile={JarFile} xmx={Xmx} xms={Xms}",
-            name,
-            javaBinary,
-            jarFile ?? "<null>",
-            config.Java.JavaXmx,
-            config.Java.JavaXms);
-
-        if (string.IsNullOrEmpty(jarFile))
-        {
-            throw new InvalidOperationException($"Server '{name}' has no JAR file configured");
-        }
-
-        await EnsureEulaAcceptedAsync(serverPath, cancellationToken);
         await EnsureExecutableAvailableAsync("screen", "-v", "GNU screen", cancellationToken);
-        await EnsureExecutableAvailableAsync(javaBinary, "-version", "Java runtime", cancellationToken);
-
-        // Check if using modern Forge @argfile syntax (e.g., "@user_jvm_args.txt @libraries/.../unix_args.txt")
-        var isArgFileSyntax = jarFile.TrimStart().StartsWith("@");
-
-        if (isArgFileSyntax)
-        {
-            // Validate that each referenced arg file exists
-            var argFiles = jarFile.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-            foreach (var argFile in argFiles)
-            {
-                var filePath = Path.Combine(serverPath, argFile.TrimStart('@'));
-                if (!File.Exists(filePath))
-                {
-                    throw new InvalidOperationException($"Forge argument file not found: {filePath}");
-                }
-            }
-            _logger.LogInformation("Using Forge @argfile syntax for {ServerName}: {ArgFiles}", name, jarFile);
-        }
-        else
-        {
-            var resolvedJarPath = ResolveJarPath(serverPath, jarFile);
-            _logger.LogInformation("Resolved JAR path for {ServerName}: {JarPath}", name, resolvedJarPath);
-            if (!File.Exists(resolvedJarPath))
-            {
-                throw new InvalidOperationException($"Configured JAR file not found: {resolvedJarPath}");
-            }
-        }
 
         var logDir = Path.Combine(serverPath, "logs");
         Directory.CreateDirectory(logDir);
-
-        // Change ownership of logs directory to minecraft user so it can write logs
-        var uid = _options.RunAsUid;
-        var gid = _options.RunAsGid;
         await OwnershipHelper.ChangeOwnershipAsync(logDir, uid, gid, _logger, cancellationToken);
-
         var startupLogPath = Path.Combine(logDir, "startup.log");
 
-        // Build Java command arguments
-        var javaArgs = new List<string>
-        {
-            javaBinary,
-            "-server",
-            $"-Dmineos.server={name}"
-        };
+        string shellCommand;
+        var startTime = DateTimeOffset.UtcNow;
+        var startupStamp = $"[{startTime:O}] Launching {name}";
+        var startupLogArg = EscapeBashArgument(startupLogPath);
+        var escapedServerPath = EscapeBashArgument(serverPath);
 
-        if (config.Java.JavaXmx > 0)
-            javaArgs.Add($"-Xmx{config.Java.JavaXmx}M");
-        if (config.Java.JavaXms > 0)
-            javaArgs.Add($"-Xms{config.Java.JavaXms}M");
-
-        if (!string.IsNullOrEmpty(config.Java.JavaTweaks))
+        if (serverType == "bedrock")
         {
-            javaArgs.AddRange(config.Java.JavaTweaks.Split(' ', StringSplitOptions.RemoveEmptyEntries));
-        }
+            var bedrockBinary = Path.Combine(serverPath, "bedrock_server");
+            if (!File.Exists(bedrockBinary))
+            {
+                throw new InvalidOperationException($"Bedrock server binary not found at {bedrockBinary}. Download a Bedrock server profile first.");
+            }
 
-        // Modern Forge uses @argfile syntax instead of -jar
-        if (isArgFileSyntax)
-        {
-            // Add each @argfile reference
-            javaArgs.AddRange(jarFile.Split(' ', StringSplitOptions.RemoveEmptyEntries));
+            // Ensure binary is executable
+            try
+            {
+                var chmodPsi = new ProcessStartInfo("chmod", $"+x {EscapeBashArgument(bedrockBinary)}")
+                {
+                    UseShellExecute = false,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true
+                };
+                using var chmodProcess = Process.Start(chmodPsi);
+                if (chmodProcess != null)
+                    await chmodProcess.WaitForExitAsync(cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to chmod bedrock_server for {ServerName}", name);
+            }
+
+            _logger.LogInformation("Starting Bedrock server {ServerName} with binary {Binary}", name, bedrockBinary);
+
+            // Bedrock needs LD_LIBRARY_PATH set to its own directory
+            var ldPath = $"LD_LIBRARY_PATH={escapedServerPath}";
+            var envVar = $"MINEOS_SERVER={EscapeBashArgument(name)}";
+            shellCommand = $"cd {escapedServerPath} && echo {EscapeBashArgument(startupStamp)} >> {startupLogArg}; export {ldPath}; export {envVar}; exec ./bedrock_server >> {startupLogArg} 2>&1";
         }
         else
         {
-            javaArgs.Add("-jar");
-            javaArgs.Add(ResolveJarPath(serverPath, jarFile));
-        }
+            // Read server config to build start arguments
+            var config = await GetServerConfigAsync(name, cancellationToken);
+            var javaBinary = string.IsNullOrEmpty(config.Java.JavaBinary) ? "java" : config.Java.JavaBinary;
+            var jarFile = config.Java.JarFile;
 
-        if (!string.IsNullOrEmpty(config.Java.JarArgs))
-        {
-            javaArgs.AddRange(config.Java.JarArgs.Split(' ', StringSplitOptions.RemoveEmptyEntries));
-        }
-        else if (!config.Minecraft.Unconventional)
-        {
-            javaArgs.Add("nogui");
-        }
+            _logger.LogInformation(
+                "Server config for {ServerName}: javaBinary={JavaBinary} jarFile={JarFile} xmx={Xmx} xms={Xms}",
+                name,
+                javaBinary,
+                jarFile ?? "<null>",
+                config.Java.JavaXmx,
+                config.Java.JavaXms);
 
-        var startTime = DateTimeOffset.UtcNow;
-        var startupStamp = $"[{startTime:O}] Launching {name}";
-        var javaCommand = string.Join(" ", javaArgs.Select(EscapeBashArgument));
-        var startupLogArg = EscapeBashArgument(startupLogPath);
-        var escapedServerPath = EscapeBashArgument(serverPath);
-        var shellCommand = $"cd {escapedServerPath} && echo {EscapeBashArgument(startupStamp)} >> {startupLogArg}; exec {javaCommand} >> {startupLogArg} 2>&1";
+            if (string.IsNullOrEmpty(jarFile))
+            {
+                throw new InvalidOperationException($"Server '{name}' has no JAR file configured");
+            }
+
+            await EnsureEulaAcceptedAsync(serverPath, cancellationToken);
+            await EnsureExecutableAvailableAsync(javaBinary, "-version", "Java runtime", cancellationToken);
+
+            // Check if using modern Forge @argfile syntax
+            var isArgFileSyntax = jarFile.TrimStart().StartsWith("@");
+
+            if (isArgFileSyntax)
+            {
+                var argFiles = jarFile.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+                foreach (var argFile in argFiles)
+                {
+                    var filePath = Path.Combine(serverPath, argFile.TrimStart('@'));
+                    if (!File.Exists(filePath))
+                    {
+                        throw new InvalidOperationException($"Forge argument file not found: {filePath}");
+                    }
+                }
+                _logger.LogInformation("Using Forge @argfile syntax for {ServerName}: {ArgFiles}", name, jarFile);
+            }
+            else
+            {
+                var resolvedJarPath = ResolveJarPath(serverPath, jarFile);
+                _logger.LogInformation("Resolved JAR path for {ServerName}: {JarPath}", name, resolvedJarPath);
+                if (!File.Exists(resolvedJarPath))
+                {
+                    throw new InvalidOperationException($"Configured JAR file not found: {resolvedJarPath}");
+                }
+            }
+
+            // Build Java command arguments
+            var javaArgs = new List<string>
+            {
+                javaBinary,
+                "-server",
+                $"-Dmineos.server={name}"
+            };
+
+            if (config.Java.JavaXmx > 0)
+                javaArgs.Add($"-Xmx{config.Java.JavaXmx}M");
+            if (config.Java.JavaXms > 0)
+                javaArgs.Add($"-Xms{config.Java.JavaXms}M");
+
+            if (!string.IsNullOrEmpty(config.Java.JavaTweaks))
+            {
+                javaArgs.AddRange(config.Java.JavaTweaks.Split(' ', StringSplitOptions.RemoveEmptyEntries));
+            }
+
+            if (isArgFileSyntax)
+            {
+                javaArgs.AddRange(jarFile.Split(' ', StringSplitOptions.RemoveEmptyEntries));
+            }
+            else
+            {
+                javaArgs.Add("-jar");
+                javaArgs.Add(ResolveJarPath(serverPath, jarFile));
+            }
+
+            if (!string.IsNullOrEmpty(config.Java.JarArgs))
+            {
+                javaArgs.AddRange(config.Java.JarArgs.Split(' ', StringSplitOptions.RemoveEmptyEntries));
+            }
+            else if (!config.Minecraft.Unconventional)
+            {
+                javaArgs.Add("nogui");
+            }
+
+            var javaCommand = string.Join(" ", javaArgs.Select(EscapeBashArgument));
+            _logger.LogInformation("Java command: {JavaCommand}", javaCommand);
+            shellCommand = $"cd {escapedServerPath} && echo {EscapeBashArgument(startupStamp)} >> {startupLogArg}; exec {javaCommand} >> {startupLogArg} 2>&1";
+        }
 
         var args = new List<string>
         {
@@ -450,7 +587,6 @@ public class ServerService : IServerService
             serverPath,
             string.Join(' ', args));
         _logger.LogInformation("Startup log file: {StartupLogPath}", startupLogPath);
-        _logger.LogInformation("Java command: {JavaCommand}", javaCommand);
         await _processManager.StartScreenSessionAsync(name, args.ToArray(), uid, gid, serverPath, cancellationToken);
 
         await VerifyServerStartedAsync(name, serverPath, startTime, startupLogPath, cancellationToken);

@@ -26,6 +26,7 @@
 	const ramSeries = $derived(samples.map((sample) => sample.ramUsedMb));
 	const tpsSeries = $derived(samples.map((sample) => sample.tps ?? 0));
 	const playerSeries = $derived(samples.map((sample) => sample.playerCount));
+	const timestampSeries = $derived(samples.map((sample) => sample.timestamp));
 
 	function formatMemory(usedMb: number, totalMb: number) {
 		const used = usedMb >= 1024 ? `${(usedMb / 1024).toFixed(1)} GB` : `${usedMb} MB`;
@@ -124,10 +125,10 @@
 	</section>
 
 	<section class="charts-grid">
-		<PerformanceChart title="CPU" unit="%" color="#7ae68d" points={cpuSeries} maxValue={100} />
-		<PerformanceChart title="Memory" unit="MB" color="#7fb3ff" points={ramSeries} />
-		<PerformanceChart title="TPS" unit="" color="#f5c97a" points={tpsSeries} maxValue={20} minValue={0} />
-		<PerformanceChart title="Players" unit="" color="#d98cff" points={playerSeries} minValue={0} />
+		<PerformanceChart title="CPU" unit="%" color="#7ae68d" points={cpuSeries} timestamps={timestampSeries} maxValue={100} />
+		<PerformanceChart title="Memory" unit="MB" color="#7fb3ff" points={ramSeries} timestamps={timestampSeries} />
+		<PerformanceChart title="TPS" unit="" color="#f5c97a" points={tpsSeries} timestamps={timestampSeries} maxValue={20} minValue={0} />
+		<PerformanceChart title="Players" unit="" color="#d98cff" points={playerSeries} timestamps={timestampSeries} minValue={0} />
 	</section>
 
 	{#if sparkStatus?.installed}

@@ -2,37 +2,78 @@
 
 A simple web interface to create and manage Minecraft servers. Run as many servers as you want, install mods with one click, and manage everything from your browser.
 
-## MineOS Script (Setup + Management)
+## Quick Install
 
 **What you need:**
 - [Docker Desktop](https://www.docker.com/products/docker-desktop) (Windows/Mac) or Docker + Docker Compose (Linux)
 - That's it!
 
-**Run the script:**
+### Automatic Installation (Recommended)
 
-**Windows:** Right-click `MineOS.ps1` -> Run with PowerShell
-
-**Mac/Linux:** Open Terminal, run `./MineOS.sh`
-
-The script can:
-- Check Docker + Docker Compose
-- Create all necessary files and folders
-- Start/stop/restart MineOS
-- Rebuild or update when needed
-
-**Access MineOS:** Open [http://localhost:3000](http://localhost:3000) in your browser (served by the built-in reverse proxy)
-
-## Script Usage
-
-Once configured, use the MineOS script to manage services:
+**Linux/macOS:**
+```bash
+curl -fsSL https://mineos.net/install.sh | bash
+```
 
 **Windows (PowerShell):**
-- `MineOS.ps1` (interactive menu)
-- `MineOS.ps1 -Dev` (API only + web dev env setup)
+```powershell
+iwr https://mineos.net/install.ps1 -useb | iex
+```
 
-**Mac/Linux:**
-- `./MineOS.sh` (interactive menu)
-- `./MineOS.sh --dev` (API only + web dev env setup)
+The installer will:
+- Check Docker + Docker Compose
+- Create all necessary files and folders
+- Configure environment settings
+- Start MineOS automatically
+
+**Access MineOS:** Open [http://localhost:3000](http://localhost:3000) in your browser
+
+### Manual Installation
+
+If you prefer to install manually or need offline installation:
+
+1. **Download the install bundle** from the [latest GitHub release](https://github.com/hexparrot/mineos-sveltekit/releases/latest):
+   - `mineos-install-bundle.tar.gz` (Linux/macOS)
+   - `mineos-install-bundle.zip` (Windows)
+
+2. **Extract the bundle:**
+   ```bash
+   # Linux/macOS
+   tar -xzf mineos-install-bundle.tar.gz
+   cd mineos
+
+   # Windows (PowerShell)
+   Expand-Archive mineos-install-bundle.zip -DestinationPath mineos
+   cd mineos
+   ```
+
+3. **Configure environment:**
+   ```bash
+   cp .env.template .env
+   # Edit .env with your preferred settings
+   ```
+
+4. **Start MineOS:**
+   ```bash
+   docker compose up -d
+   ```
+
+5. **Access MineOS:** Open [http://localhost:3000](http://localhost:3000)
+
+## Management
+
+Use the `mineos` CLI tool to manage your installation:
+
+```bash
+mineos status      # Check service status
+mineos stop        # Stop all services
+mineos start       # Start all services
+mineos restart     # Restart all services
+mineos logs        # View logs
+mineos update      # Update to latest version
+```
+
+The CLI is automatically installed during setup.
 
 ## That's It!
 
@@ -40,7 +81,9 @@ MineOS will start automatically whenever Docker starts. Create servers, install 
 
 ## Uninstall
 
-Run `./mineos uninstall` from the installation directory.
+```bash
+mineos uninstall
+```
 
 The uninstall will ask if you want to keep your server data before removing anything.
 
@@ -51,46 +94,14 @@ The uninstall will ask if you want to keep your server data before removing anyt
 
 ## Troubleshooting
 
-**Script won't run on Windows?**
-Open PowerShell as Administrator and run:
-```powershell
-Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
-```
-Then try running `MineOS.ps1` again.
-
-**Script won't run on Mac/Linux?**
-```bash
-chmod +x MineOS.sh uninstall.sh
-```
-
 **Need to change ports?**
 Edit `.env` and run `docker compose restart`
 
-## CI
-
-**Manually run the Node.js CI workflow:**
-1. GitHub → Actions → "Node.js CI"
-2. Click "Run workflow" and choose the `main` branch.
-
 **Want Minecraft LAN discovery?**
-Re-run the setup script and enable **host networking**. This is Linux-only and disables Docker network isolation (containers bind directly to `API_PORT`/`WEB_PORT` on the host). The setup script automatically adds `docker-compose.host.yml` when needed.
+Re-run the installer and enable **host networking** when prompted. This is Linux-only and disables Docker network isolation (containers bind directly to `API_PORT`/`WEB_PORT` on the host). The installer automatically configures `docker-compose.host.yml` when needed.
 
-## Reverse Proxy (Recommended)
-
-MineOS now includes a Caddy reverse proxy to keep the API private and provide a single public origin for the UI + WebSocket admin shell.
-
-**Common settings in `.env`:**
-- `WEB_ORIGIN_PROD` → the public URL users will visit (e.g. `https://mineos.example.com`)
-- `PUBLIC_API_BASE_URL` → set to the same value as `WEB_ORIGIN_PROD`
-- `CADDY_SITE` → your domain (no scheme) for automatic HTTPS, or `http://host` to disable HTTPS
-- `CADDY_EMAIL` → email for TLS certificates (optional but recommended)
-- `WEB_PORT` → public HTTP port for the proxy (default: 3000)
-- `PROXY_HTTPS_PORT` → public HTTPS port for the proxy (default: 443)
-
-The proxy serves the UI and forwards `/api/*` (including WebSockets) to the API container.
-
-**Copy Address shows localhost in production?**
-Set `PUBLIC_MINECRAFT_HOST` in `.env` and rebuild so the UI uses your public host.
+**Docker not found?**
+Make sure Docker Desktop (Windows/Mac) or Docker + Docker Compose (Linux) is installed and running before installing MineOS.
 
 ## Screenshots
 

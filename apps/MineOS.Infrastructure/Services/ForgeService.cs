@@ -6,6 +6,7 @@ using Microsoft.Extensions.Options;
 using MineOS.Application.Interfaces;
 using MineOS.Application.Options;
 using MineOS.Domain.Entities;
+using MineOS.Infrastructure.Constants;
 using MineOS.Infrastructure.Utilities;
 
 namespace MineOS.Infrastructure.Services;
@@ -475,10 +476,10 @@ public sealed class ForgeService : IForgeService
         string? error,
         CancellationToken cancellationToken)
     {
-        var type = outcome == "completed" ? "success" : "error";
-        var title = outcome == "completed" ? "Forge Install Completed" : "Forge Install Failed";
+        var type = outcome == JobStatus.Completed ? "success" : "error";
+        var title = outcome == JobStatus.Completed ? "Forge Install Completed" : "Forge Install Failed";
         var version = $"Minecraft {state.MinecraftVersion} / Forge {state.ForgeVersion}";
-        var message = outcome == "completed"
+        var message = outcome == JobStatus.Completed
             ? $"Forge install for {state.ServerName} ({version}) completed successfully."
             : $"Forge install for {state.ServerName} ({version}) failed: {error ?? "Unknown error"}.";
 
@@ -512,7 +513,7 @@ public sealed class ForgeService : IForgeService
             ServerName = serverName;
             ServerPath = serverPath;
             StartedAt = startedAt;
-            Status = "running";
+            Status = JobStatus.Running;
             Progress = 0;
         }
 
@@ -557,7 +558,7 @@ public sealed class ForgeService : IForgeService
         {
             lock (_lock)
             {
-                Status = "completed";
+                Status = JobStatus.Completed;
                 Progress = 100;
                 CompletedAt = DateTimeOffset.UtcNow;
             }
@@ -567,7 +568,7 @@ public sealed class ForgeService : IForgeService
         {
             lock (_lock)
             {
-                Status = "failed";
+                Status = JobStatus.Failed;
                 Error = error;
                 CompletedAt = DateTimeOffset.UtcNow;
             }

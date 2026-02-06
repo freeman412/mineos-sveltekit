@@ -164,6 +164,8 @@ builder.Services.AddScoped<ICurseForgeService, CurseForgeService>();
 builder.Services.AddScoped<IWorldService, WorldService>();
 builder.Services.AddScoped<IPlayerService, PlayerService>();
 builder.Services.AddScoped<IPlayerActivityService, PlayerActivityService>();
+builder.Services.AddScoped<ICronService, CronService>();
+builder.Services.AddHostedService<CronSchedulerService>();
 builder.Services.AddHttpClient<IForgeService, ForgeService>();
 builder.Services.AddHttpClient<IMojangApiService, MojangApiService>();
 builder.Services.AddMemoryCache();
