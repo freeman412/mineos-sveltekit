@@ -20,10 +20,6 @@
 		'/favicon.svg'
 	);
 
-	async function handleLogout() {
-		window.location.href = '/logout';
-	}
-
 	const navItems = [
 		{ href: '/dashboard', label: 'Dashboard', icon: '[D]' },
 		{ href: '/servers', label: 'Servers', icon: '[S]' },
@@ -128,10 +124,12 @@
 			<span class="icon">[☕]</span>
 			<span>Buy Me a Coffee</span>
 		</a>
-		<button class="logout-btn" onclick={handleLogout}>
-			<span class="icon">[X]</span>
-			<span>Logout</span>
-		</button>
+		<form action="/logout" method="POST" style="display: contents;">
+			<button type="submit" class="logout-btn">
+				<span class="icon">[X]</span>
+				<span>Logout</span>
+			</button>
+		</form>
 	</div>
 	</nav>
 

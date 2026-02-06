@@ -4,7 +4,6 @@ import * as api from '$lib/api/client';
 
 export const load: LayoutServerLoad = async ({ cookies, fetch, url }) => {
 	const token = cookies.get('auth_token');
-	const userJson = cookies.get('auth_user');
 
 	if (!token) {
 		throw redirect(303, '/login');
@@ -19,16 +18,13 @@ export const load: LayoutServerLoad = async ({ cookies, fetch, url }) => {
 			throw redirect(303, '/login');
 		}
 	} catch {
-		// Ignore network/API errors and fall back to cookie data.
+		// Network/API error - redirect to login
+		throw redirect(303, '/login');
 	}
 
-	if (!user && userJson) {
-		try {
-			user = JSON.parse(userJson);
-		} catch {
-			// Invalid user data, force re-login
-			throw redirect(303, '/login');
-		}
+	if (!user) {
+		// Could not get user info, force re-login
+		throw redirect(303, '/login');
 	}
 
 	if (url.pathname.startsWith('/profiles/buildtools')) {

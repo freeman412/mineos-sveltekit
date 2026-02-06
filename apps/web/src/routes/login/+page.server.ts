@@ -39,6 +39,7 @@ export const actions = {
 			const secure = url.protocol === 'https:';
 
 			// Set httpOnly cookie with the JWT token
+			// User info is loaded server-side via /api/auth/me in layout.server.ts
 			cookies.set('auth_token', result.accessToken, {
 				httpOnly: true,
 				secure,
@@ -46,19 +47,6 @@ export const actions = {
 				maxAge: result.expiresInSeconds,
 				path: '/'
 			});
-
-			// Set user info cookie for client-side access
-			cookies.set(
-				'auth_user',
-				JSON.stringify({ username: result.username, role: result.role }),
-				{
-					httpOnly: false, // Client can read this
-					secure,
-					sameSite: 'lax',
-					maxAge: result.expiresInSeconds,
-					path: '/'
-				}
-			);
 
 			throw redirect(303, '/servers');
 		} catch (err) {

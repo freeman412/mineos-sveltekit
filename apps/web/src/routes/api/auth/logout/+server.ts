@@ -7,7 +7,4 @@ export const POST: RequestHandler = async ({ cookies, url }) => {
 	return json({ success: true });
 };
 
-export const GET: RequestHandler = async ({ cookies, url }) => {
-	clearAuthCookies(cookies, url);
-	return json({ success: true });
-};
+// GET logout removed - state-changing operations must use POST to prevent CSRF attacks
