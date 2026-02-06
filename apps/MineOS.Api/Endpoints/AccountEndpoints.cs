@@ -29,7 +29,7 @@ public static class AccountEndpoints
             {
                 return Results.BadRequest(new { error = ex.Message });
             }
-            catch (HttpRequestException ex)
+            catch (HttpRequestException)
             {
                 return Results.StatusCode(502);
             }
