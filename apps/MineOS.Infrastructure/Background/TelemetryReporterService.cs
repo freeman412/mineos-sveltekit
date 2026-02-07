@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Threading.Channels;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -7,14 +8,15 @@ using ServerStatusStrings = MineOS.Infrastructure.Constants.ServerStatus;
 
 namespace MineOS.Infrastructure.Background;
 
-public sealed class TelemetryReporterService : BackgroundService
+public sealed class TelemetryReporterService : BackgroundService, ITelemetryReportTrigger
 {
-    private static readonly TimeSpan ReportInterval = TimeSpan.FromHours(24);
-    private static readonly TimeSpan InitialDelay = TimeSpan.FromMinutes(5);
+    private static readonly TimeSpan ReportInterval = TimeSpan.FromHours(4);
+    private static readonly TimeSpan InitialDelay = TimeSpan.FromSeconds(30);
     private static readonly long StartTimestamp = Stopwatch.GetTimestamp();
 
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly ILogger<TelemetryReporterService> _logger;
+    private readonly Channel<bool> _triggerChannel;
 
     public TelemetryReporterService(
         IServiceScopeFactory scopeFactory,
@@ -22,11 +24,20 @@ public sealed class TelemetryReporterService : BackgroundService
     {
         _scopeFactory = scopeFactory;
         _logger = logger;
+        _triggerChannel = Channel.CreateBounded<bool>(new BoundedChannelOptions(1)
+        {
+            FullMode = BoundedChannelFullMode.DropOldest
+        });
+    }
+
+    public void RequestImmediateReport()
+    {
+        _triggerChannel.Writer.TryWrite(true);
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        _logger.LogInformation("Telemetry reporter started, first report in {Delay} minutes", InitialDelay.TotalMinutes);
+        _logger.LogInformation("Telemetry reporter started, first report in {Delay} seconds", InitialDelay.TotalSeconds);
 
         try
         {
@@ -54,16 +65,21 @@ public sealed class TelemetryReporterService : BackgroundService
 
             try
             {
-                await Task.Delay(ReportInterval, stoppingToken);
+                using var cts = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
+                cts.CancelAfter(ReportInterval);
+                await _triggerChannel.Reader.ReadAsync(cts.Token);
+                _logger.LogInformation("Immediate telemetry report triggered");
             }
             catch (OperationCanceledException)
             {
-                break;
+                if (stoppingToken.IsCancellationRequested)
+                    break;
+                // Interval elapsed without a trigger — normal periodic report
             }
         }
     }
 
-    private async Task ReportTelemetryAsync(CancellationToken cancellationToken)
+    public async Task ReportTelemetryAsync(CancellationToken cancellationToken)
     {
         using var scope = _scopeFactory.CreateScope();
 

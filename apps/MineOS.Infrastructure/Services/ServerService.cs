@@ -19,17 +19,20 @@ public class ServerService : IServerService
     private readonly HostOptions _options;
     private readonly ILogger<ServerService> _logger;
     private readonly ITelemetryService _telemetryService;
+    private readonly ITelemetryReportTrigger _telemetryReportTrigger;
 
     public ServerService(
         IProcessManager processManager,
         IOptions<HostOptions> options,
         ILogger<ServerService> logger,
-        ITelemetryService telemetryService)
+        ITelemetryService telemetryService,
+        ITelemetryReportTrigger telemetryReportTrigger)
     {
         _processManager = processManager;
         _options = options.Value;
         _logger = logger;
         _telemetryService = telemetryService;
+        _telemetryReportTrigger = telemetryReportTrigger;
     }
 
     private string GetServerPath(string name) =>
@@ -270,7 +273,15 @@ public class ServerService : IServerService
         OwnershipHelper.TrySetOwnership(archivePath, _options.RunAsUid, _options.RunAsGid, _logger, recursive: true);
 
         _logger.LogInformation("Created server {ServerName} at {ServerPath}", request.Name, serverPath);
-        _ = _telemetryService.ReportLifecycleEventAsync("server_created", null, CancellationToken.None);
+        try
+        {
+            await _telemetryService.ReportLifecycleEventAsync("server_created", null, cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to report server_created telemetry event");
+        }
+        _telemetryReportTrigger.RequestImmediateReport();
 
         return await GetServerAsync(request.Name, cancellationToken);
     }
@@ -330,6 +341,16 @@ public class ServerService : IServerService
         OwnershipHelper.TrySetOwnership(archivePath, _options.RunAsUid, _options.RunAsGid, _logger, recursive: true);
 
         _logger.LogInformation("Cloned server {SourceServer} to {TargetServer}", sourceName, newName);
+        try
+        {
+            await _telemetryService.ReportLifecycleEventAsync("server_created", new { clone = true }, cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to report server_created telemetry event for clone");
+        }
+        _telemetryReportTrigger.RequestImmediateReport();
+
         return await GetServerAsync(newName, cancellationToken);
     }
 
@@ -357,7 +378,15 @@ public class ServerService : IServerService
             Directory.Delete(archivePath, recursive: true);
 
         _logger.LogInformation("Deleted server {ServerName}", name);
-        _ = _telemetryService.ReportLifecycleEventAsync("server_deleted", null, CancellationToken.None);
+        try
+        {
+            await _telemetryService.ReportLifecycleEventAsync("server_deleted", null, cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to report server_deleted telemetry event");
+        }
+        _telemetryReportTrigger.RequestImmediateReport();
     }
 
     public async Task<List<ServerDetailDto>> ListServersAsync(CancellationToken cancellationToken)

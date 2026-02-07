@@ -179,8 +179,10 @@ builder.Services.AddHostedService(sp => sp.GetRequiredService<BackgroundJobServi
 builder.Services.AddHostedService<PerformanceCollectorService>();
 builder.Services.AddHostedService<LanBroadcastService>();
 builder.Services.AddHostedService<StartupServerService>();
+builder.Services.AddSingleton<TelemetryReporterService>();
+builder.Services.AddSingleton<ITelemetryReportTrigger>(sp => sp.GetRequiredService<TelemetryReporterService>());
+builder.Services.AddHostedService(sp => sp.GetRequiredService<TelemetryReporterService>());
 builder.Services.AddHostedService<ApplicationLifetimeService>();
-builder.Services.AddHostedService<TelemetryReporterService>();
 builder.Services.AddSingleton<WatchdogService>();
 builder.Services.AddSingleton<IWatchdogService>(sp => sp.GetRequiredService<WatchdogService>());
 builder.Services.AddHostedService(sp => sp.GetRequiredService<WatchdogService>());
