@@ -442,6 +442,64 @@ export async function getForgeInstallStatus(
 	return { data: result.data?.data ?? null, error: null };
 }
 
+// Fabric API
+export async function getFabricGameVersions(
+	fetcher: Fetcher
+): Promise<ApiResult<import('./types').FabricGameVersion[]>> {
+	const result = await apiFetch<{ data: import('./types').FabricGameVersion[] }>(
+		fetcher,
+		'/api/fabric/game-versions'
+	);
+	if (result.error) {
+		return { data: null, error: result.error };
+	}
+	return { data: result.data?.data ?? null, error: null };
+}
+
+export async function getFabricLoaderVersions(
+	fetcher: Fetcher
+): Promise<ApiResult<import('./types').FabricLoaderVersion[]>> {
+	const result = await apiFetch<{ data: import('./types').FabricLoaderVersion[] }>(
+		fetcher,
+		'/api/fabric/loader-versions'
+	);
+	if (result.error) {
+		return { data: null, error: result.error };
+	}
+	return { data: result.data?.data ?? null, error: null };
+}
+
+export async function installFabric(
+	fetcher: Fetcher,
+	minecraftVersion: string,
+	loaderVersion: string,
+	serverName: string
+): Promise<ApiResult<import('./types').FabricInstallResult>> {
+	const result = await apiFetch<{ data: import('./types').FabricInstallResult }>(fetcher, '/api/fabric/install', {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify({ minecraftVersion, loaderVersion, serverName })
+	});
+	if (result.error) {
+		return { data: null, error: result.error };
+	}
+	return { data: result.data?.data ?? null, error: null };
+}
+
+export async function getFabricInstallStatus(
+	fetcher: Fetcher,
+	installId: string
+): Promise<ApiResult<import('./types').FabricInstallStatus>> {
+	const result = await apiFetch<{ data: import('./types').FabricInstallStatus }>(
+		fetcher,
+		`/api/fabric/install/${encodeURIComponent(installId)}`
+	);
+	if (result.error) {
+		return { data: null, error: result.error };
+	}
+	return { data: result.data?.data ?? null, error: null };
+}
+
 // Watchdog / Crash Detection
 export async function getServerCrashEvents(
 	fetcher: Fetcher,

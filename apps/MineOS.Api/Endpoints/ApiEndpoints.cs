@@ -17,6 +17,7 @@ public static class ApiEndpoints
         api.MapJobEndpoints();
         api.MapCurseForgeEndpoints();
         api.MapForgeEndpoints();
+        api.MapFabricEndpoints();
         api.MapAdminEndpoints();
         api.MapNotificationEndpoints();
         api.MapSettingsEndpoints();

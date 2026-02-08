@@ -165,6 +165,7 @@ builder.Services.AddScoped<IWorldService, WorldService>();
 builder.Services.AddScoped<IPlayerService, PlayerService>();
 builder.Services.AddScoped<IPlayerActivityService, PlayerActivityService>();
 builder.Services.AddHttpClient<IForgeService, ForgeService>();
+builder.Services.AddHttpClient<IFabricService, FabricService>();
 builder.Services.AddHttpClient<IMojangApiService, MojangApiService>();
 builder.Services.AddMemoryCache();
 builder.Services.AddScoped<IAdminShellSession, AdminShellService>();

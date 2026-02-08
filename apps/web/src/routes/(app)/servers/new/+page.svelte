@@ -2,14 +2,14 @@
 	import { goto, invalidateAll } from '$app/navigation';
 	import type { PageData } from './$types';
 	import * as api from '$lib/api/client';
-	import type { CurseForgeSearchResult, ForgeVersion } from '$lib/api/types';
+	import type { CurseForgeSearchResult, ForgeVersion, FabricGameVersion, FabricLoaderVersion } from '$lib/api/types';
 	import ProgressBar from '$lib/components/ProgressBar.svelte';
 	import StatusBadge from '$lib/components/StatusBadge.svelte';
 
 	let { data }: { data: PageData } = $props();
 
 	// Server types available
-	type ServerType = 'vanilla' | 'paper' | 'spigot' | 'craftbukkit' | 'forge' | 'curseforge' | 'clone';
+	type ServerType = 'vanilla' | 'paper' | 'spigot' | 'craftbukkit' | 'forge' | 'fabric' | 'curseforge' | 'clone';
 
 	interface ServerTypeOption {
 		id: ServerType;
@@ -60,6 +60,14 @@
 			icon: '🔥',
 			color: '#ef4444',
 			features: ['Mods', 'Modpacks', 'Extensive']
+		},
+		{
+			id: 'fabric',
+			name: 'Fabric',
+			description: 'Lightweight modding toolchain',
+			icon: '🧵',
+			color: '#c4b5a4',
+			features: ['Mods', 'Lightweight', 'Fast updates']
 		},
 		{
 			id: 'curseforge',
@@ -115,6 +123,22 @@
 	let forgeInstallCompleted = $state(false);
 	let forgeWatchError = $state('');
 
+	// Fabric state
+	let fabricGameVersions = $state<FabricGameVersion[]>([]);
+	let fabricLoaderVersions = $state<FabricLoaderVersion[]>([]);
+	let fabricLoading = $state(false);
+	let fabricError = $state('');
+	let selectedFabricMcVersion = $state('');
+	let selectedFabricLoaderVersion = $state('');
+	let fabricInstallId = $state('');
+	let fabricInstallProgress = $state(0);
+	let fabricInstallStep = $state('');
+	let fabricInstallOutput = $state('');
+	let fabricOutputExpanded = $state(false);
+	let fabricWatching = $state(false);
+	let fabricInstallCompleted = $state(false);
+	let fabricWatchError = $state('');
+
 	// Modpack install state
 	let modpackInstallJobId = $state('');
 	let modpackInstallProgress = $state(0);
@@ -168,6 +192,18 @@
 		return forgeVersions.filter(v => v.minecraftVersion === selectedForgeMcVersion);
 	});
 
+	// Available Fabric Minecraft versions (stable only by default)
+	const fabricStableGameVersions = $derived.by(() => {
+		if (!fabricGameVersions.length) return [];
+		return fabricGameVersions.filter(v => v.isStable);
+	});
+
+	// Available Fabric loader versions (stable only)
+	const fabricStableLoaderVersions = $derived.by(() => {
+		if (!fabricLoaderVersions.length) return [];
+		return fabricLoaderVersions.filter(v => v.isStable);
+	});
+
 	const cloneServers = $derived.by(() => {
 		if (!data.servers?.data) return [];
 		return [...data.servers.data].sort((a, b) => a.name.localeCompare(b.name));
@@ -182,6 +218,9 @@
 		selectedForgeMcVersion = '';
 		selectedForgeVersion = null;
 		forgeError = '';
+		selectedFabricMcVersion = '';
+		selectedFabricLoaderVersion = '';
+		fabricError = '';
 		serverName = '';
 		cloneSource = '';
 
@@ -195,6 +234,12 @@
 			// Fetch Forge versions if not already loaded
 			if (forgeVersions.length === 0) {
 				await loadForgeVersions();
+			}
+		} else if (type === 'fabric') {
+			step = 'version';
+			// Fetch Fabric versions if not already loaded
+			if (fabricGameVersions.length === 0) {
+				await loadFabricVersions();
 			}
 		} else if (['vanilla', 'paper', 'spigot', 'craftbukkit'].includes(type)) {
 			step = 'version';
@@ -216,6 +261,44 @@
 		} finally {
 			forgeLoading = false;
 		}
+	}
+
+	async function loadFabricVersions() {
+		fabricLoading = true;
+		fabricError = '';
+		try {
+			const [gameResult, loaderResult] = await Promise.all([
+				api.getFabricGameVersions(fetch),
+				api.getFabricLoaderVersions(fetch)
+			]);
+			if (gameResult.error) {
+				fabricError = gameResult.error;
+			} else if (gameResult.data) {
+				fabricGameVersions = gameResult.data;
+			}
+			if (loaderResult.error) {
+				fabricError = loaderResult.error;
+			} else if (loaderResult.data) {
+				fabricLoaderVersions = loaderResult.data;
+				// Auto-select first stable loader version
+				const stableLoader = loaderResult.data.find(v => v.isStable);
+				if (stableLoader) {
+					selectedFabricLoaderVersion = stableLoader.version;
+				}
+			}
+		} catch (err) {
+			fabricError = err instanceof Error ? err.message : 'Failed to load Fabric versions';
+		} finally {
+			fabricLoading = false;
+		}
+	}
+
+	function selectFabricMcVersion(version: string) {
+		selectedFabricMcVersion = version;
+	}
+
+	function selectFabricLoaderVersion(version: string) {
+		selectedFabricLoaderVersion = version;
 	}
 
 	function selectForgeMcVersion(version: string) {
@@ -296,6 +379,9 @@
 		}
 		if (selectedType === 'forge') {
 			return selectedForgeVersion !== null;
+		}
+		if (selectedType === 'fabric') {
+			return selectedFabricMcVersion !== '' && selectedFabricLoaderVersion !== '';
 		}
 		return selectedProfileId !== '';
 	}
@@ -410,6 +496,31 @@
 				}
 			}
 
+			// Handle Fabric installation
+			if (selectedType === 'fabric' && selectedFabricMcVersion && selectedFabricLoaderVersion) {
+				fabricInstallStep = 'Starting Fabric installation...';
+				fabricInstallProgress = 0;
+				fabricInstallCompleted = false;
+				fabricWatchError = '';
+
+				const installResult = await api.installFabric(
+					fetch,
+					selectedFabricMcVersion,
+					selectedFabricLoaderVersion,
+					serverName.trim()
+				);
+
+				if (installResult.error) {
+					throw new Error(installResult.error);
+				}
+
+				if (installResult.data) {
+					fabricInstallId = installResult.data.installId;
+					await invalidateAll();
+					return;
+				}
+			}
+
 			// Handle CurseForge modpack installation
 			if (selectedType === 'curseforge' && selectedModpack) {
 				modpackInstallStep = 'Starting modpack installation...';
@@ -448,6 +559,10 @@
 			forgeWatching = false;
 			forgeInstallCompleted = false;
 			forgeWatchError = '';
+			fabricInstallId = '';
+			fabricWatching = false;
+			fabricInstallCompleted = false;
+			fabricWatchError = '';
 		}
 	}
 
@@ -494,6 +609,52 @@
 
 	function sendForgeToBackground() {
 		forgeWatching = false;
+		goto('/servers');
+	}
+
+	async function pollFabricInstallation(installId: string) {
+		while (true) {
+			const statusResult = await api.getFabricInstallStatus(fetch, installId);
+
+			if (statusResult.error) {
+				throw new Error(statusResult.error);
+			}
+
+			if (statusResult.data) {
+				fabricInstallProgress = statusResult.data.progress;
+				fabricInstallStep = statusResult.data.currentStep || 'Installing...';
+				if (statusResult.data.output) {
+					fabricInstallOutput = statusResult.data.output;
+				}
+
+				if (statusResult.data.status === 'completed') {
+					return;
+				}
+
+				if (statusResult.data.status === 'failed') {
+					throw new Error(statusResult.data.error || 'Fabric installation failed');
+				}
+			}
+
+			await new Promise((resolve) => setTimeout(resolve, 1000));
+		}
+	}
+
+	function startFabricWatch() {
+		if (!fabricInstallId || fabricWatching) return;
+		fabricWatching = true;
+		fabricWatchError = '';
+		pollFabricInstallation(fabricInstallId)
+			.then(() => {
+				fabricInstallCompleted = true;
+			})
+			.catch((err) => {
+				fabricWatchError = err instanceof Error ? err.message : 'Fabric installation failed';
+			});
+	}
+
+	function sendFabricToBackground() {
+		fabricWatching = false;
 		goto('/servers');
 	}
 
@@ -801,6 +962,77 @@
 							{/if}
 						{/if}
 
+					{:else if selectedType === 'fabric'}
+						<!-- Fabric Version Selection -->
+						<h2>Choose Fabric Version</h2>
+						<p class="step-description">
+							Select a Minecraft version and Fabric loader version
+						</p>
+
+						{#if fabricLoading}
+							<div class="loading-section">
+								<div class="spinner small"></div>
+								<span>Loading Fabric versions...</span>
+							</div>
+						{:else if fabricError}
+							<div class="error-box">{fabricError}</div>
+							<button class="btn-secondary" onclick={loadFabricVersions}>Try Again</button>
+						{:else if fabricStableGameVersions.length === 0}
+							<div class="empty-results">
+								<p>No Fabric versions available. Try again later.</p>
+							</div>
+						{:else}
+							<div class="forge-selector">
+								<!-- Minecraft Version Column -->
+								<div class="forge-column">
+									<h3>Minecraft Version</h3>
+									<div class="forge-version-list">
+										{#each fabricStableGameVersions as version}
+											<button
+												class="forge-version-item"
+												class:selected={selectedFabricMcVersion === version.version}
+												onclick={() => selectFabricMcVersion(version.version)}
+											>
+												<span class="version-number">{version.version}</span>
+											</button>
+										{/each}
+									</div>
+								</div>
+
+								<!-- Fabric Loader Column -->
+								<div class="forge-column">
+									<h3>Fabric Loader</h3>
+									{#if fabricStableLoaderVersions.length === 0}
+										<div class="empty-column">
+											<p>No loader versions available</p>
+										</div>
+									{:else}
+										<div class="forge-version-list">
+											{#each fabricStableLoaderVersions as version}
+												<button
+													class="forge-version-item"
+													class:selected={selectedFabricLoaderVersion === version.version}
+													onclick={() => selectFabricLoaderVersion(version.version)}
+												>
+													<span class="forge-build">{version.version}</span>
+													{#if version === fabricStableLoaderVersions[0]}
+														<span class="badge latest">Latest</span>
+													{/if}
+												</button>
+											{/each}
+										</div>
+									{/if}
+								</div>
+							</div>
+
+							{#if selectedFabricMcVersion && selectedFabricLoaderVersion}
+								<div class="forge-selection-summary">
+									<span class="summary-label">Selected:</span>
+									<span class="summary-value">Minecraft {selectedFabricMcVersion} with Fabric Loader {selectedFabricLoaderVersion}</span>
+								</div>
+							{/if}
+						{/if}
+
 					{:else}
 						<!-- Standard Version Selection -->
 						<h2>Choose {getSelectedTypeInfo()?.name} Version</h2>
@@ -856,6 +1088,8 @@
 									<span>{selectedModpack.name}</span>
 								{:else if selectedType === 'forge' && selectedForgeVersion}
 									<span>Minecraft {selectedForgeVersion.minecraftVersion} - Forge {selectedForgeVersion.forgeVersion}</span>
+								{:else if selectedType === 'fabric' && selectedFabricMcVersion}
+									<span>Minecraft {selectedFabricMcVersion} - Fabric Loader {selectedFabricLoaderVersion}</span>
 								{:else if selectedType === 'clone' && cloneSource}
 									<span>Template: {cloneSource}</span>
 								{:else if selectedProfileId}
@@ -896,6 +1130,8 @@
 							Downloading server JAR...
 						{:else if forgeInstallId}
 							Installing Forge...
+						{:else if fabricInstallId}
+							Installing Fabric...
 						{:else if modpackInstallJobId}
 							Installing Modpack...
 						{:else}
@@ -907,6 +1143,8 @@
 							{buildToolsProgress || 'This may take several minutes'}
 						{:else if forgeInstallId}
 							{forgeInstallStep || 'Preparing installation...'}
+						{:else if fabricInstallId}
+							{fabricInstallStep || 'Preparing installation...'}
 						{:else if modpackInstallJobId}
 							{modpackInstallStep || 'Preparing modpack installation...'}
 						{:else}
@@ -1005,6 +1243,50 @@
 							{#if forgeOutputExpanded}
 								<div class="output-content">
 									<pre>{forgeInstallOutput}</pre>
+								</div>
+							{/if}
+						</div>
+					{/if}
+
+					<!-- Fabric installation progress -->
+					{#if fabricInstallId}
+						<p class="step-hint">
+							Fabric install runs in the background. You can leave this page and track it in
+							Notifications.
+						</p>
+					{/if}
+					{#if fabricInstallId && fabricInstallProgress > 0}
+						<ProgressBar value={fabricInstallProgress} color="green" size="md" showLabel />
+					{/if}
+					{#if fabricInstallId}
+						<div class="install-actions">
+							{#if !fabricWatching && !fabricInstallCompleted}
+								<button class="btn-secondary" onclick={startFabricWatch}>
+									Stay and watch
+								</button>
+							{/if}
+							<button class="btn-primary" onclick={sendFabricToBackground}>
+								{fabricInstallCompleted ? 'Complete Install' : 'Send to background'}
+							</button>
+						</div>
+					{/if}
+					{#if fabricInstallCompleted}
+						<div class="success-box">Fabric install completed.</div>
+					{:else if fabricWatchError}
+						<div class="error-box">{fabricWatchError}</div>
+					{/if}
+					{#if fabricInstallId && fabricInstallOutput}
+						<div class="output-section">
+							<button
+								class="output-toggle"
+								onclick={() => fabricOutputExpanded = !fabricOutputExpanded}
+							>
+								<span class="toggle-icon">{fabricOutputExpanded ? '▼' : '▶'}</span>
+								<span>Installer Output</span>
+							</button>
+							{#if fabricOutputExpanded}
+								<div class="output-content">
+									<pre>{fabricInstallOutput}</pre>
 								</div>
 							{/if}
 						</div>

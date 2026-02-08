@@ -374,6 +374,37 @@ export type ForgeInstallStatus = {
 	completedAt: string | null;
 };
 
+// Fabric types
+export type FabricGameVersion = {
+	version: string;
+	isStable: boolean;
+};
+
+export type FabricLoaderVersion = {
+	version: string;
+	isStable: boolean;
+};
+
+export type FabricInstallResult = {
+	installId: string;
+	status: string;
+	error: string | null;
+};
+
+export type FabricInstallStatus = {
+	installId: string;
+	minecraftVersion: string;
+	loaderVersion: string;
+	serverName: string;
+	status: string;
+	progress: number;
+	currentStep: string | null;
+	error: string | null;
+	output: string | null;
+	startedAt: string;
+	completedAt: string | null;
+};
+
 // Modpack types
 export type ModpackInstallProgress = {
 	jobId: string;
