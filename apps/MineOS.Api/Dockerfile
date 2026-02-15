@@ -49,7 +49,8 @@ RUN apt-get update -o Acquire::Check-Valid-Until=false && apt-get install -y --n
     && rm -rf /var/lib/apt/lists/*
 
 # Default to JDK 21 for toolchains like BuildTools; servers can still target other Java versions.
-ENV JAVA_HOME=/usr/lib/jvm/temurin-21-jdk-amd64
+ARG TARGETARCH
+ENV JAVA_HOME=/usr/lib/jvm/temurin-21-jdk-${TARGETARCH}
 ENV PATH="${JAVA_HOME}/bin:${PATH}"
 
 # Create minecraft user with UID 1000 and GID 1000
