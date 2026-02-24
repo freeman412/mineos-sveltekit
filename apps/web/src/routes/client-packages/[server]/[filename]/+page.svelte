@@ -3,7 +3,8 @@
 
 	let { params }: { params: { server: string; filename: string } } = $props();
 
-	// Use $derived since params come from route and won't change during component lifetime
+	const isMrpack = $derived(params.filename.endsWith('.mrpack'));
+
 	const downloadPath = $derived(
 		`/api/servers/${encodeURIComponent(params.server)}/client-packages/${encodeURIComponent(params.filename)}/download?raw=1`
 	);
@@ -21,22 +22,34 @@
 		<h1>Install the Minecraft Pack</h1>
 		<p class="lead">Your download should start automatically.</p>
 
-		<div class="steps">
-			<h2>Steps (CurseForge App)</h2>
-			<ol>
-				<li>Open the CurseForge app.</li>
-				<li>Click <strong>Create Custom Profile</strong>.</li>
-				<li>Choose <strong>Import</strong> and pick the downloaded zip.</li>
-				<li>Launch the profile and join the server.</li>
-			</ol>
-		</div>
+		{#if isMrpack}
+			<div class="steps">
+				<h2>Steps (Prism / MultiMC / ATLauncher / Modrinth App)</h2>
+				<ol>
+					<li>Open your launcher (Prism Launcher, MultiMC, ATLauncher, or Modrinth App).</li>
+					<li>Click <strong>Add Instance</strong> or <strong>Import</strong>.</li>
+					<li>Select the downloaded <strong>.mrpack</strong> file.</li>
+					<li>Launch the instance and join the server.</li>
+				</ol>
+			</div>
+		{:else}
+			<div class="steps">
+				<h2>Steps (CurseForge App)</h2>
+				<ol>
+					<li>Open the CurseForge app.</li>
+					<li>Click <strong>Create Custom Profile</strong>.</li>
+					<li>Choose <strong>Import</strong> and pick the downloaded zip.</li>
+					<li>Launch the profile and join the server.</li>
+				</ol>
+			</div>
+		{/if}
 
 		<div class="actions">
 			<a class="btn-primary" href={downloadPath}>Download Again</a>
 		</div>
 
 		<p class="hint">
-			If you don’t see the download, check your browser downloads or click “Download Again.”
+			If you don't see the download, check your browser downloads or click "Download Again."
 		</p>
 	</div>
 </div>

@@ -40,10 +40,18 @@ export type ArchiveEntry = {
 	filename: string;
 };
 
+export type CreateClientPackageRequest = {
+	format?: 'curseforge' | 'mrpack';
+	minecraftVersion?: string;
+	modLoader?: string;
+	modLoaderVersion?: string;
+};
+
 export type ClientPackageEntry = {
 	time: string;
 	size: number;
 	filename: string;
+	format: string | null;
 };
 
 export type ApiResult<T> = {

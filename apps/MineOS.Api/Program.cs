@@ -135,10 +135,6 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
 builder.Services.AddAuthorization();
 
 var defaultConnectionString = builder.Configuration.GetConnectionString("Default");
-builder.Services.AddDbContext<AppDbContext>(options =>
-{
-    options.UseSqlite(defaultConnectionString);
-});
 builder.Services.AddDbContextFactory<AppDbContext>(options =>
 {
     options.UseSqlite(defaultConnectionString);

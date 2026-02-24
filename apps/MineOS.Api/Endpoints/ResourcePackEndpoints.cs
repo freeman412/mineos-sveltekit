@@ -19,6 +19,7 @@ public static class ResourcePackEndpoints
             [FromQuery] int? pageSize,
             [FromQuery] string? gameVersion,
             [FromQuery] string? projectType,
+            [FromQuery] string? sortBy,
             IModrinthService modrinthService,
             IServerService serverService,
             IProfileService profileService,
@@ -42,6 +43,7 @@ public static class ResourcePackEndpoints
                 index ?? 0,
                 pageSize ?? 20,
                 effectiveVersion,
+                sortBy,
                 cancellationToken);
 
             return Results.Ok(result);

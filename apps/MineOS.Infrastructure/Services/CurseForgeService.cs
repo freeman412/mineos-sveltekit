@@ -25,6 +25,7 @@ public sealed class CurseForgeService : ICurseForgeService
         string? sort,
         string? order,
         long? minDownloads,
+        string? gameVersion,
         CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(query))
@@ -43,6 +44,11 @@ public sealed class CurseForgeService : ICurseForgeService
         if (classId.HasValue)
         {
             parameters.Add($"classId={classId.Value}");
+        }
+
+        if (!string.IsNullOrWhiteSpace(gameVersion))
+        {
+            parameters.Add($"gameVersion={Uri.EscapeDataString(gameVersion)}");
         }
 
         var sortField = ResolveSortField(sort);

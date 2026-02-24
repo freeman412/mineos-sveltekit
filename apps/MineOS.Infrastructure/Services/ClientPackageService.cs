@@ -23,13 +23,13 @@ public sealed class ClientPackageService : IClientPackageService
         "kubejs"
     };
 
+    private static readonly string[] PackageExtensions = { ".zip", ".mrpack" };
+
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
         WriteIndented = true
     };
-
-    private const string PackageExtension = ".zip";
 
     private readonly ILogger<ClientPackageService> _logger;
     private readonly HostOptions _hostOptions;
@@ -57,22 +57,26 @@ public sealed class ClientPackageService : IClientPackageService
         }
 
         var packages = new List<ClientPackageEntryDto>();
-        var files = Directory.GetFiles(packagePath, $"*{PackageExtension}");
-
-        foreach (var file in files)
+        foreach (var ext in PackageExtensions)
         {
-            var fileInfo = new FileInfo(file);
-            packages.Add(new ClientPackageEntryDto(
-                fileInfo.LastWriteTimeUtc,
-                fileInfo.Length,
-                fileInfo.Name
-            ));
+            var files = Directory.GetFiles(packagePath, $"*{ext}");
+            foreach (var file in files)
+            {
+                var fileInfo = new FileInfo(file);
+                var format = DetectFormat(fileInfo.Name);
+                packages.Add(new ClientPackageEntryDto(
+                    fileInfo.LastWriteTimeUtc,
+                    fileInfo.Length,
+                    fileInfo.Name,
+                    format
+                ));
+            }
         }
 
         return await Task.FromResult(packages.OrderByDescending(p => p.Time));
     }
 
-    public Task<string> CreateClientPackageAsync(string serverName, CancellationToken cancellationToken)
+    public Task<string> CreateClientPackageAsync(string serverName, CreateClientPackageRequest? request, CancellationToken cancellationToken)
     {
         var serverPath = GetServerPath(serverName);
         if (!Directory.Exists(serverPath))
@@ -80,7 +84,8 @@ public sealed class ClientPackageService : IClientPackageService
             throw new DirectoryNotFoundException($"Server '{serverName}' not found");
         }
 
-        var metadata = ResolveCurseForgeMetadata(serverPath);
+        var metadata = ResolveMetadata(serverPath, serverName, request);
+        var isMrpack = string.Equals(request?.Format, "mrpack", StringComparison.OrdinalIgnoreCase);
 
         var packagePath = GetClientPackagePath(serverName);
         Directory.CreateDirectory(packagePath);
@@ -88,7 +93,9 @@ public sealed class ClientPackageService : IClientPackageService
 
         var timestamp = DateTime.UtcNow.ToString("yyyy-MM-dd_HH-mm-ss");
         var suffix = Guid.NewGuid().ToString("N")[..8];
-        var packageFilename = $"{serverName}_curseforge_{timestamp}_{suffix}{PackageExtension}";
+        var packageFilename = isMrpack
+            ? $"{serverName}_mrpack_{timestamp}_{suffix}.mrpack"
+            : $"{serverName}_curseforge_{timestamp}_{suffix}.zip";
         var packageFullPath = Path.Combine(packagePath, packageFilename);
 
         var sourceFolders = ClientOverrideFolders
@@ -99,7 +106,12 @@ public sealed class ClientPackageService : IClientPackageService
         var clientModsPath = Path.Combine(serverPath, "client-mods", "mods");
         if (Directory.Exists(clientModsPath))
         {
-            sourceFolders.Add(new PackageSource(clientModsPath, Path.Combine("overrides", "mods")));
+            // For .mrpack, client-only mods go into client-overrides/ so they're
+            // only applied on client installs, not server installs.
+            var clientModsRoot = isMrpack
+                ? Path.Combine("client-overrides", "mods")
+                : Path.Combine("overrides", "mods");
+            sourceFolders.Add(new PackageSource(clientModsPath, clientModsRoot));
         }
 
         if (sourceFolders.Count == 0)
@@ -107,13 +119,16 @@ public sealed class ClientPackageService : IClientPackageService
             throw new InvalidOperationException("No client assets found to package.");
         }
 
-        var manifest = BuildCurseForgeManifest(serverName, metadata);
         var addedFiles = 0;
         var addedEntries = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         try
         {
             using var archive = ZipFile.Open(packageFullPath, ZipArchiveMode.Create);
-            AddManifestToArchive(archive, manifest);
+
+            if (isMrpack)
+                AddMrpackIndexToArchive(archive, metadata);
+            else
+                AddCurseForgeManifestToArchive(archive, metadata);
 
             foreach (var folder in sourceFolders)
             {
@@ -148,7 +163,7 @@ public sealed class ClientPackageService : IClientPackageService
         var packagePath = GetClientPackagePath(serverName);
         var fullPath = Path.Combine(packagePath, filename);
 
-        if (Path.GetFileName(filename) != filename || !filename.EndsWith(PackageExtension, StringComparison.OrdinalIgnoreCase))
+        if (Path.GetFileName(filename) != filename || !HasValidPackageExtension(filename))
         {
             throw new ArgumentException("Invalid client package filename");
         }
@@ -169,7 +184,7 @@ public sealed class ClientPackageService : IClientPackageService
         var packagePath = GetClientPackagePath(serverName);
         var fullPath = Path.Combine(packagePath, filename);
 
-        if (Path.GetFileName(filename) != filename || !filename.EndsWith(PackageExtension, StringComparison.OrdinalIgnoreCase))
+        if (Path.GetFileName(filename) != filename || !HasValidPackageExtension(filename))
         {
             throw new ArgumentException("Invalid client package filename");
         }
@@ -182,25 +197,58 @@ public sealed class ClientPackageService : IClientPackageService
         return Task.FromResult(fullPath);
     }
 
-    private CurseForgeMetadata ResolveCurseForgeMetadata(string serverPath)
+    // --- Metadata resolution (never throws) ---
+
+    private PackageMetadata ResolveMetadata(string serverPath, string serverName, CreateClientPackageRequest? request)
     {
-        var modpackMetadata = TryReadModpackManifest(serverPath);
-        if (modpackMetadata != null)
+        string? detectedMcVersion = null;
+        string? detectedLoaderType = null;
+        string? detectedLoaderVersion = null;
+        string? detectedPackName = null;
+        string? detectedPackVersion = null;
+
+        // Try modpack manifest first (CurseForge-installed packs)
+        var modpackMeta = TryReadModpackManifest(serverPath);
+        if (modpackMeta != null)
         {
-            return modpackMetadata;
+            detectedMcVersion = modpackMeta.MinecraftVersion;
+            (detectedLoaderType, detectedLoaderVersion) = SplitLoaderId(modpackMeta.ModLoaderId);
+            detectedPackName = modpackMeta.PackName;
+            detectedPackVersion = modpackMeta.PackVersion;
         }
 
-        if (TryResolveFromServerConfig(serverPath, out var metadata))
+        // Fallback: parse jar filename from server.config
+        if (string.IsNullOrWhiteSpace(detectedMcVersion) &&
+            TryResolveFromServerConfig(serverPath, out var configMeta))
         {
-            return metadata;
+            detectedMcVersion = configMeta.MinecraftVersion;
+            (detectedLoaderType, detectedLoaderVersion) = SplitLoaderId(configMeta.ModLoaderId);
         }
 
-        throw new InvalidOperationException(
-            "Unable to determine Minecraft version and mod loader for this server. " +
-            "Install a CurseForge modpack or ensure the server jar filename includes the loader and game version.");
+        // Merge: request overrides > auto-detected > defaults
+        return new PackageMetadata(
+            MinecraftVersion: request?.MinecraftVersion ?? detectedMcVersion ?? "Unknown",
+            ModLoaderType: request?.ModLoader ?? detectedLoaderType ?? "forge",
+            ModLoaderVersion: request?.ModLoaderVersion ?? detectedLoaderVersion ?? "0.0.0",
+            PackName: detectedPackName ?? $"{serverName} Client Pack",
+            PackVersion: detectedPackVersion ?? DateTime.UtcNow.ToString("yyyy.MM.dd.HHmm")
+        );
     }
 
-    private CurseForgeMetadata? TryReadModpackManifest(string serverPath)
+    private static (string Type, string Version) SplitLoaderId(string loaderId)
+    {
+        // "forge-47.2.0" → ("forge", "47.2.0")
+        var idx = loaderId.IndexOf('-');
+        if (idx > 0 && idx < loaderId.Length - 1)
+            return (loaderId[..idx], loaderId[(idx + 1)..]);
+        return (loaderId, "0.0.0");
+    }
+
+    // --- Auto-detection helpers (unchanged logic, just returns nullable) ---
+
+    private record DetectedMetadata(string MinecraftVersion, string ModLoaderId, string? PackName, string? PackVersion);
+
+    private DetectedMetadata? TryReadModpackManifest(string serverPath)
     {
         var modpackPath = Path.Combine(serverPath, "modpacks");
         if (!Directory.Exists(modpackPath))
@@ -272,7 +320,7 @@ public sealed class ClientPackageService : IClientPackageService
                     ? versionProp.GetString()
                     : null;
 
-                return new CurseForgeMetadata(minecraftVersion, modLoaderId, name, version);
+                return new DetectedMetadata(minecraftVersion, modLoaderId, name, version);
             }
             catch (Exception ex)
             {
@@ -283,9 +331,9 @@ public sealed class ClientPackageService : IClientPackageService
         return null;
     }
 
-    private bool TryResolveFromServerConfig(string serverPath, out CurseForgeMetadata metadata)
+    private bool TryResolveFromServerConfig(string serverPath, out DetectedMetadata metadata)
     {
-        metadata = new CurseForgeMetadata(string.Empty, string.Empty, null, null);
+        metadata = new DetectedMetadata(string.Empty, string.Empty, null, null);
         var configPath = Path.Combine(serverPath, "server.config");
         if (!File.Exists(configPath))
         {
@@ -307,7 +355,7 @@ public sealed class ClientPackageService : IClientPackageService
         var jarName = Path.GetFileName(jarFile);
         if (TryParseJarMetadata(jarName, out var minecraftVersion, out var modLoaderId))
         {
-            metadata = new CurseForgeMetadata(minecraftVersion, modLoaderId, null, null);
+            metadata = new DetectedMetadata(minecraftVersion, modLoaderId, null, null);
             return true;
         }
 
@@ -351,24 +399,16 @@ public sealed class ClientPackageService : IClientPackageService
         return false;
     }
 
-    private CurseForgeManifest BuildCurseForgeManifest(string serverName, CurseForgeMetadata metadata)
+    // --- CurseForge manifest ---
+
+    private static void AddCurseForgeManifestToArchive(ZipArchive archive, PackageMetadata metadata)
     {
-        var versionTag = metadata.PackVersion;
-        if (string.IsNullOrWhiteSpace(versionTag))
-        {
-            versionTag = DateTime.UtcNow.ToString("yyyy.MM.dd.HHmm");
-        }
-
-        var displayName = string.IsNullOrWhiteSpace(metadata.PackName)
-            ? $"{serverName} Client Pack"
-            : metadata.PackName!;
-
-        return new CurseForgeManifest
+        var manifest = new CurseForgeManifest
         {
             ManifestType = "minecraftModpack",
             ManifestVersion = 1,
-            Name = displayName,
-            Version = versionTag!,
+            Name = metadata.PackName,
+            Version = metadata.PackVersion,
             Author = "MineOS",
             Files = new List<CurseForgeFileEntry>(),
             Overrides = "overrides",
@@ -377,18 +417,51 @@ public sealed class ClientPackageService : IClientPackageService
                 Version = metadata.MinecraftVersion,
                 ModLoaders = new List<CurseForgeModLoader>
                 {
-                    new(metadata.ModLoaderId, true)
+                    new($"{metadata.ModLoaderType}-{metadata.ModLoaderVersion}", true)
                 }
             }
         };
-    }
 
-    private static void AddManifestToArchive(ZipArchive archive, CurseForgeManifest manifest)
-    {
         var entry = archive.CreateEntry("manifest.json", CompressionLevel.Optimal);
         using var stream = entry.Open();
         JsonSerializer.Serialize(stream, manifest, JsonOptions);
     }
+
+    // --- Modrinth .mrpack manifest ---
+
+    private static void AddMrpackIndexToArchive(ZipArchive archive, PackageMetadata metadata)
+    {
+        var loaderKey = metadata.ModLoaderType.ToLowerInvariant() switch
+        {
+            "neoforge" => "neoforge",
+            "fabric" or "fabric-loader" => "fabric-loader",
+            "quilt" or "quilt-loader" => "quilt-loader",
+            _ => "forge"
+        };
+
+        var dependencies = new Dictionary<string, string>
+        {
+            ["minecraft"] = metadata.MinecraftVersion,
+            [loaderKey] = metadata.ModLoaderVersion
+        };
+
+        var index = new
+        {
+            formatVersion = 1,
+            game = "minecraft",
+            versionId = metadata.PackVersion,
+            name = metadata.PackName,
+            summary = $"Client pack for {metadata.PackName}",
+            files = Array.Empty<object>(),
+            dependencies
+        };
+
+        var entry = archive.CreateEntry("modrinth.index.json", CompressionLevel.Optimal);
+        using var stream = entry.Open();
+        JsonSerializer.Serialize(stream, index, JsonOptions);
+    }
+
+    // --- Shared helpers ---
 
     private static int AddDirectoryToArchive(
         ZipArchive archive,
@@ -417,13 +490,44 @@ public sealed class ClientPackageService : IClientPackageService
         return added;
     }
 
+    private static bool HasValidPackageExtension(string filename) =>
+        PackageExtensions.Any(ext => filename.EndsWith(ext, StringComparison.OrdinalIgnoreCase));
+
+    private static string? DetectFormat(string filename)
+    {
+        if (filename.EndsWith(".mrpack", StringComparison.OrdinalIgnoreCase))
+            return "mrpack";
+        if (filename.Contains("_curseforge_", StringComparison.OrdinalIgnoreCase) ||
+            filename.EndsWith(".zip", StringComparison.OrdinalIgnoreCase))
+            return "curseforge";
+        return null;
+    }
+
+    private static void TryDeleteFile(string path)
+    {
+        try
+        {
+            if (File.Exists(path))
+            {
+                File.Delete(path);
+            }
+        }
+        catch
+        {
+            // Ignore cleanup failures.
+        }
+    }
+
+    // --- Internal types ---
+
     private sealed record PackageSource(string SourcePath, string EntryRoot);
 
-    private sealed record CurseForgeMetadata(
+    private sealed record PackageMetadata(
         string MinecraftVersion,
-        string ModLoaderId,
-        string? PackName,
-        string? PackVersion);
+        string ModLoaderType,
+        string ModLoaderVersion,
+        string PackName,
+        string PackVersion);
 
     private sealed class CurseForgeManifest
     {
@@ -446,19 +550,4 @@ public sealed class ClientPackageService : IClientPackageService
     }
 
     private sealed record CurseForgeModLoader(string Id, bool Primary);
-
-    private static void TryDeleteFile(string path)
-    {
-        try
-        {
-            if (File.Exists(path))
-            {
-                File.Delete(path);
-            }
-        }
-        catch
-        {
-            // Ignore cleanup failures.
-        }
-    }
 }

@@ -14,44 +14,36 @@
 </script>
 
 <div class="modrinth-search">
-	<div class="search-controls">
-		<div class="type-tabs" role="tablist" aria-label="Modrinth content type">
-			<button
-				type="button"
-				class:active={searchType === 'mods'}
-				role="tab"
-				aria-selected={searchType === 'mods'}
-				onclick={() => (searchType = 'mods')}
-			>
-				Mods
-			</button>
-			<button
-				type="button"
-				class:active={searchType === 'modpacks'}
-				role="tab"
-				aria-selected={searchType === 'modpacks'}
-				onclick={() => (searchType = 'modpacks')}
-			>
-				Modpacks
-			</button>
-			<button
-				type="button"
-				class:active={searchType === 'resourcepacks'}
-				role="tab"
-				aria-selected={searchType === 'resourcepacks'}
-				onclick={() => (searchType = 'resourcepacks')}
-			>
-				Resource Packs
-			</button>
-		</div>
-	</div>
-
 	{#if searchType === 'mods'}
-		<ModrinthModSearch {serverName} {serverVersion} {onInstallComplete} />
+		<ModrinthModSearch {serverName} {serverVersion} {onInstallComplete}>
+			{#snippet typeTabs()}
+				<div class="type-tabs" role="tablist" aria-label="Modrinth content type">
+					<button type="button" class:active={searchType === 'mods'} role="tab" aria-selected={searchType === 'mods'} onclick={() => (searchType = 'mods')}>Mods</button>
+					<button type="button" class:active={searchType === 'modpacks'} role="tab" aria-selected={searchType === 'modpacks'} onclick={() => (searchType = 'modpacks')}>Modpacks</button>
+					<button type="button" class:active={searchType === 'resourcepacks'} role="tab" aria-selected={searchType === 'resourcepacks'} onclick={() => (searchType = 'resourcepacks')}>Resource Packs</button>
+				</div>
+			{/snippet}
+		</ModrinthModSearch>
 	{:else if searchType === 'modpacks'}
-		<ModrinthModpackSearch {serverName} {serverVersion} {onInstallComplete} />
+		<ModrinthModpackSearch {serverName} {serverVersion} {onInstallComplete}>
+			{#snippet typeTabs()}
+				<div class="type-tabs" role="tablist" aria-label="Modrinth content type">
+					<button type="button" class:active={searchType === 'mods'} role="tab" aria-selected={searchType === 'mods'} onclick={() => (searchType = 'mods')}>Mods</button>
+					<button type="button" class:active={searchType === 'modpacks'} role="tab" aria-selected={searchType === 'modpacks'} onclick={() => (searchType = 'modpacks')}>Modpacks</button>
+					<button type="button" class:active={searchType === 'resourcepacks'} role="tab" aria-selected={searchType === 'resourcepacks'} onclick={() => (searchType = 'resourcepacks')}>Resource Packs</button>
+				</div>
+			{/snippet}
+		</ModrinthModpackSearch>
 	{:else}
-		<ModrinthResourcePackSearch {serverName} {serverVersion} {onInstallComplete} />
+		<ModrinthResourcePackSearch {serverName} {serverVersion} {onInstallComplete}>
+			{#snippet typeTabs()}
+				<div class="type-tabs" role="tablist" aria-label="Modrinth content type">
+					<button type="button" class:active={searchType === 'mods'} role="tab" aria-selected={searchType === 'mods'} onclick={() => (searchType = 'mods')}>Mods</button>
+					<button type="button" class:active={searchType === 'modpacks'} role="tab" aria-selected={searchType === 'modpacks'} onclick={() => (searchType = 'modpacks')}>Modpacks</button>
+					<button type="button" class:active={searchType === 'resourcepacks'} role="tab" aria-selected={searchType === 'resourcepacks'} onclick={() => (searchType = 'resourcepacks')}>Resource Packs</button>
+				</div>
+			{/snippet}
+		</ModrinthResourcePackSearch>
 	{/if}
 </div>
 
@@ -59,14 +51,6 @@
 	.modrinth-search {
 		display: flex;
 		flex-direction: column;
-		gap: 16px;
-	}
-
-	.search-controls {
-		display: flex;
-		align-items: center;
-		gap: 12px;
-		flex-wrap: wrap;
 	}
 
 	.type-tabs {
@@ -85,6 +69,8 @@
 		border-radius: 8px;
 		cursor: pointer;
 		transition: all 0.2s;
+		font-family: inherit;
+		font-size: 13px;
 	}
 
 	.type-tabs button.active {
