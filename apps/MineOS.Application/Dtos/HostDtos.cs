@@ -47,7 +47,13 @@ public record AdminShellStatusDto(
 
 public record ArchiveEntryDto(DateTimeOffset Time, long Size, string Filename);
 
-public record ClientPackageEntryDto(DateTimeOffset Time, long Size, string Filename);
+public record ClientPackageEntryDto(DateTimeOffset Time, long Size, string Filename, string? Format);
+
+public record CreateClientPackageRequest(
+    string? Format,
+    string? MinecraftVersion,
+    string? ModLoader,
+    string? ModLoaderVersion);
 
 public record IncrementEntryDto(DateTimeOffset Time, string Step, long? Size, long? CumulativeSize);
 

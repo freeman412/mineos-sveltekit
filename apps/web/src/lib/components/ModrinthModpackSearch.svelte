@@ -7,14 +7,17 @@
 		ModrinthProject,
 		ModrinthVersion
 	} from '$lib/api/types';
+	import type { Snippet } from 'svelte';
 	import ProgressBar from './ProgressBar.svelte';
 
 	interface Props {
 		serverName: string;
+		serverVersion?: string | null;
 		onInstallComplete?: () => void;
+		typeTabs?: Snippet;
 	}
 
-	let { serverName, onInstallComplete }: Props = $props();
+	let { serverName, serverVersion, onInstallComplete, typeTabs }: Props = $props();
 
 	let searchQuery = $state('');
 	let searchResults = $state<ModrinthProjectHit[]>([]);
@@ -28,6 +31,7 @@
 
 	let selectedLoader = $state('auto');
 	let selectedVersion = $state('auto');
+	let selectedSort = $state('relevance');
 
 	let detailOpen = $state(false);
 	let detailLoading = $state(false);
@@ -106,6 +110,10 @@
 
 			if (selectedVersion !== 'auto') {
 				params.set('gameVersion', selectedVersion);
+			}
+
+			if (selectedSort !== 'relevance') {
+				params.set('sortBy', selectedSort);
 			}
 
 			const res = await fetch(
@@ -273,6 +281,7 @@
 
 <div class="search-container">
 	<div class="search-controls">
+		{#if typeTabs}{@render typeTabs()}{/if}
 		<input
 			type="text"
 			bind:value={searchQuery}
@@ -282,17 +291,34 @@
 		/>
 
 		<div class="filters">
-			<select bind:value={selectedLoader} onchange={scheduleSearch}>
-				{#each loaderOptions as option}
-					<option value={option.value}>{option.label}</option>
-				{/each}
-			</select>
+			<label class="filter-group">
+				<span class="filter-label">Loader</span>
+				<select bind:value={selectedLoader} onchange={scheduleSearch}>
+					{#each loaderOptions as option}
+						<option value={option.value}>{option.label}</option>
+					{/each}
+				</select>
+			</label>
 
-			<select bind:value={selectedVersion} onchange={scheduleSearch}>
-				{#each commonMinecraftVersions as version}
-					<option value={version}>{version === 'auto' ? 'Auto (server)' : version}</option>
-				{/each}
-			</select>
+			<label class="filter-group">
+				<span class="filter-label">Version</span>
+				<select bind:value={selectedVersion} onchange={scheduleSearch}>
+					{#each commonMinecraftVersions as version}
+						<option value={version}>{version === 'auto' ? 'Auto' : version}</option>
+					{/each}
+				</select>
+			</label>
+
+			<label class="filter-group">
+				<span class="filter-label">Sort</span>
+				<select bind:value={selectedSort} onchange={scheduleSearch}>
+					<option value="relevance">Relevance</option>
+					<option value="downloads">Downloads</option>
+					<option value="follows">Follows</option>
+					<option value="newest">Newest</option>
+					<option value="updated">Updated</option>
+				</select>
+			</label>
 		</div>
 	</div>
 
@@ -410,10 +436,6 @@
 
 <style>
 	.search-container {
-		background: #1a1e2f;
-		border-radius: 16px;
-		padding: 20px;
-		box-shadow: 0 20px 40px rgba(0, 0, 0, 0.35);
 		display: flex;
 		flex-direction: column;
 		gap: 16px;
@@ -444,6 +466,21 @@
 		display: flex;
 		gap: 12px;
 		flex-wrap: wrap;
+	}
+
+	.filter-group {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+	}
+
+	.filter-label {
+		font-size: 11px;
+		color: #6b7190;
+		white-space: nowrap;
+		text-transform: uppercase;
+		letter-spacing: 0.05em;
+		font-weight: 600;
 	}
 
 	.filters select {

@@ -125,6 +125,107 @@ public static class ModEndpoints
             }
         });
 
+        // Client-only mods (stored in client-mods/mods/, included in client packages only)
+        servers.MapGet("/{name}/client-mods", async (
+            string name,
+            IModService modService,
+            CancellationToken cancellationToken) =>
+        {
+            try
+            {
+                var mods = await modService.ListClientModsAsync(name, cancellationToken);
+                return Results.Ok(mods);
+            }
+            catch (DirectoryNotFoundException ex)
+            {
+                return Results.NotFound(new { error = ex.Message });
+            }
+        });
+
+        servers.MapPost("/{name}/client-mods/upload", async (
+            string name,
+            HttpRequest request,
+            IModService modService,
+            CancellationToken cancellationToken) =>
+        {
+            try
+            {
+                if (!request.HasFormContentType)
+                {
+                    return Results.BadRequest(new { error = "Form content type required" });
+                }
+
+                var form = await request.ReadFormAsync(cancellationToken);
+                var file = form.Files.FirstOrDefault();
+                if (file == null)
+                {
+                    return Results.BadRequest(new { error = "Mod file is required" });
+                }
+
+                await using var stream = file.OpenReadStream();
+                await modService.SaveClientModAsync(name, file.FileName, stream, cancellationToken);
+                return Results.Ok(new { message = $"Uploaded client mod '{file.FileName}'" });
+            }
+            catch (DirectoryNotFoundException ex)
+            {
+                return Results.NotFound(new { error = ex.Message });
+            }
+            catch (ArgumentException ex)
+            {
+                return Results.BadRequest(new { error = ex.Message });
+            }
+        });
+
+        servers.MapDelete("/{name}/client-mods/{filename}", async (
+            string name,
+            string filename,
+            IModService modService,
+            CancellationToken cancellationToken) =>
+        {
+            try
+            {
+                await modService.DeleteClientModAsync(name, filename, cancellationToken);
+                return Results.Ok(new { message = $"Deleted client mod '{filename}'" });
+            }
+            catch (DirectoryNotFoundException ex)
+            {
+                return Results.NotFound(new { error = ex.Message });
+            }
+            catch (FileNotFoundException ex)
+            {
+                return Results.NotFound(new { error = ex.Message });
+            }
+            catch (ArgumentException ex)
+            {
+                return Results.BadRequest(new { error = ex.Message });
+            }
+        });
+
+        servers.MapGet("/{name}/client-mods/{filename}/download", async (
+            string name,
+            string filename,
+            IModService modService,
+            CancellationToken cancellationToken) =>
+        {
+            try
+            {
+                var path = await modService.GetClientModPathAsync(name, filename, cancellationToken);
+                return Results.File(path, "application/java-archive", filename);
+            }
+            catch (DirectoryNotFoundException ex)
+            {
+                return Results.NotFound(new { error = ex.Message });
+            }
+            catch (FileNotFoundException ex)
+            {
+                return Results.NotFound(new { error = ex.Message });
+            }
+            catch (ArgumentException ex)
+            {
+                return Results.BadRequest(new { error = ex.Message });
+            }
+        });
+
         servers.MapPost("/{name}/mods/install-from-curseforge", async (
             string name,
             [FromBody] InstallModRequest request,
@@ -295,6 +396,7 @@ public static class ModEndpoints
             [FromQuery] int? pageSize,
             [FromQuery] string? loader,
             [FromQuery] string? gameVersion,
+            [FromQuery] string? sortBy,
             IModrinthService modrinthService,
             IServerService serverService,
             IProfileService profileService,
@@ -320,6 +422,7 @@ public static class ModEndpoints
                 pageSize ?? 20,
                 effectiveLoader,
                 effectiveVersion,
+                sortBy,
                 cancellationToken);
 
             return Results.Ok(result);
@@ -402,6 +505,7 @@ public static class ModEndpoints
             [FromQuery] int? pageSize,
             [FromQuery] string? loader,
             [FromQuery] string? gameVersion,
+            [FromQuery] string? sortBy,
             IModrinthService modrinthService,
             IServerService serverService,
             IProfileService profileService,
@@ -427,6 +531,7 @@ public static class ModEndpoints
                 pageSize ?? 20,
                 effectiveLoader,
                 effectiveVersion,
+                sortBy,
                 cancellationToken);
 
             return Results.Ok(result);

@@ -1,5 +1,7 @@
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.DependencyInjection;
 using MineOS.Api.Middleware;
+using MineOS.Application.Dtos;
 using MineOS.Application.Interfaces;
 
 namespace MineOS.Api.Endpoints;
@@ -19,12 +21,13 @@ public static class ClientPackageEndpoints
 
         servers.MapPost("/{name}/client-packages", async (
             string name,
+            [FromBody] CreateClientPackageRequest? request,
             IClientPackageService clientPackageService,
             CancellationToken cancellationToken) =>
         {
             try
             {
-                var filename = await clientPackageService.CreateClientPackageAsync(name, cancellationToken);
+                var filename = await clientPackageService.CreateClientPackageAsync(name, request, cancellationToken);
                 return Results.Ok(new
                 {
                     filename,
@@ -71,7 +74,10 @@ public static class ClientPackageEndpoints
             try
             {
                 var path = await clientPackageService.GetClientPackagePathAsync(name, filename, cancellationToken);
-                return Results.File(path, "application/zip", filename);
+                var contentType = filename.EndsWith(".mrpack", StringComparison.OrdinalIgnoreCase)
+                    ? "application/x-modrinth-modpack+zip"
+                    : "application/zip";
+                return Results.File(path, contentType, filename);
             }
             catch (FileNotFoundException ex)
             {

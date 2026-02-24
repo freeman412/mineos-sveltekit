@@ -22,6 +22,7 @@
 		'downloads-desc'
 	);
 	let minDownloads = $state('0');
+	let selectedGameVersion = $state('auto');
 	let searchDebounce: ReturnType<typeof setTimeout> | null = null;
 	let pageIndex = 0;
 	let pageSize = 20;
@@ -98,6 +99,11 @@
 
 			if (sort) params.set('sort', sort);
 			if (order) params.set('order', order);
+
+			const effectiveVersion = selectedGameVersion === 'auto' ? detectedVersion : selectedGameVersion;
+			if (effectiveVersion) {
+				params.set('gameVersion', effectiveVersion);
+			}
 
 			const minValue = Number(minDownloads);
 			if (!Number.isNaN(minValue) && minValue > 0) {
@@ -427,19 +433,37 @@
 		/>
 
 		<div class="filters">
-			<select bind:value={sortOption} onchange={scheduleSearch}>
-				<option value="downloads-desc">Most Downloads</option>
-				<option value="downloads-asc">Least Downloads</option>
-				<option value="updated-desc">Recently Updated</option>
-				<option value="name-asc">Name (A-Z)</option>
-			</select>
+			<label class="filter-group">
+				<span class="filter-label">Version</span>
+				<select bind:value={selectedGameVersion} onchange={scheduleSearch}>
+					<option value="auto">
+						{detectedVersion ? `Auto (${detectedVersion})` : 'Auto'}
+					</option>
+					{#each commonMinecraftVersions as version}
+						<option value={version}>{version}</option>
+					{/each}
+				</select>
+			</label>
 
-			<select bind:value={minDownloads} onchange={scheduleSearch}>
-				<option value="0">All downloads</option>
-				<option value="10000">10k+ downloads</option>
-				<option value="100000">100k+ downloads</option>
-				<option value="1000000">1M+ downloads</option>
-			</select>
+			<label class="filter-group">
+				<span class="filter-label">Sort</span>
+				<select bind:value={sortOption} onchange={scheduleSearch}>
+					<option value="downloads-desc">Most Downloads</option>
+					<option value="downloads-asc">Least Downloads</option>
+					<option value="updated-desc">Recently Updated</option>
+					<option value="name-asc">Name (A-Z)</option>
+				</select>
+			</label>
+
+			<label class="filter-group">
+				<span class="filter-label">Min</span>
+				<select bind:value={minDownloads} onchange={scheduleSearch}>
+					<option value="0">All</option>
+					<option value="10000">10k+</option>
+					<option value="100000">100k+</option>
+					<option value="1000000">1M+</option>
+				</select>
+			</label>
 		</div>
 	</div>
 
@@ -588,10 +612,6 @@
 
 <style>
 	.search-container {
-		background: #1a1e2f;
-		border-radius: 16px;
-		padding: 20px;
-		box-shadow: 0 20px 40px rgba(0, 0, 0, 0.35);
 		display: flex;
 		flex-direction: column;
 		gap: 16px;
@@ -644,6 +664,21 @@
 		display: flex;
 		gap: 12px;
 		flex-wrap: wrap;
+	}
+
+	.filter-group {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+	}
+
+	.filter-label {
+		font-size: 11px;
+		color: #6b7190;
+		white-space: nowrap;
+		text-transform: uppercase;
+		letter-spacing: 0.05em;
+		font-weight: 600;
 	}
 
 	.filters select {

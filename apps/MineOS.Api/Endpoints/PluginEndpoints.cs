@@ -167,6 +167,7 @@ public static class PluginEndpoints
             [FromQuery] int? pageSize,
             [FromQuery] string? loader,
             [FromQuery] string? gameVersion,
+            [FromQuery] string? sortBy,
             IModrinthService modrinthService,
             IServerService serverService,
             IProfileService profileService,
@@ -192,6 +193,7 @@ public static class PluginEndpoints
                 pageSize ?? 20,
                 effectiveLoader,
                 effectiveVersion,
+                sortBy,
                 cancellationToken);
 
             return Results.Ok(result);
