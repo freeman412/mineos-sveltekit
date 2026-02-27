@@ -982,7 +982,7 @@
 								<p>No Fabric versions available. Try again later.</p>
 							</div>
 						{:else}
-							<div class="forge-selector">
+							<div class="forge-selector" style="--loader-accent: #c4b5a4;">
 								<!-- Minecraft Version Column -->
 								<div class="forge-column">
 									<h3>Minecraft Version</h3>
@@ -1015,7 +1015,7 @@
 													onclick={() => selectFabricLoaderVersion(version.version)}
 												>
 													<span class="forge-build">{version.version}</span>
-													{#if version === fabricStableLoaderVersions[0]}
+													{#if version.version === fabricStableLoaderVersions[0]?.version}
 														<span class="badge latest">Latest</span>
 													{/if}
 												</button>
@@ -1026,7 +1026,7 @@
 							</div>
 
 							{#if selectedFabricMcVersion && selectedFabricLoaderVersion}
-								<div class="forge-selection-summary">
+								<div class="forge-selection-summary" style="--loader-accent: #c4b5a4;">
 									<span class="summary-label">Selected:</span>
 									<span class="summary-value">Minecraft {selectedFabricMcVersion} with Fabric Loader {selectedFabricLoaderVersion}</span>
 								</div>
@@ -1957,13 +1957,13 @@
 	}
 
 	.forge-version-item:hover {
-		border-color: #ef4444;
-		background: rgba(239, 68, 68, 0.05);
+		border-color: var(--loader-accent, #ef4444);
+		background: color-mix(in srgb, var(--loader-accent, #ef4444) 5%, transparent);
 	}
 
 	.forge-version-item.selected {
-		border-color: #ef4444;
-		background: rgba(239, 68, 68, 0.1);
+		border-color: var(--loader-accent, #ef4444);
+		background: color-mix(in srgb, var(--loader-accent, #ef4444) 10%, transparent);
 	}
 
 	.forge-version-item .version-number {
@@ -2014,8 +2014,8 @@
 		display: flex;
 		align-items: center;
 		gap: 10px;
-		background: rgba(239, 68, 68, 0.1);
-		border: 1px solid rgba(239, 68, 68, 0.3);
+		background: color-mix(in srgb, var(--loader-accent, #ef4444) 10%, transparent);
+		border: 1px solid color-mix(in srgb, var(--loader-accent, #ef4444) 30%, transparent);
 		border-radius: 10px;
 		padding: 12px 16px;
 	}
