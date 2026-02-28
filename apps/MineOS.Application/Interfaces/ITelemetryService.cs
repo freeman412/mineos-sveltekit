@@ -44,4 +44,5 @@ public record UsageData(
     int? BackupCount = null,
     bool? LastBackupSuccess = null,
     int? BackupTotalSizeMb = null,
-    Dictionary<string, int>? FeatureUsage = null);
+    Dictionary<string, int>? FeatureUsage = null,
+    IReadOnlyList<string>? UserHashes = null);

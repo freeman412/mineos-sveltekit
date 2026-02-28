@@ -85,7 +85,8 @@ public class TelemetryService : ITelemetryService
                 BackupCount = data.BackupCount,
                 LastBackupSuccess = data.LastBackupSuccess,
                 BackupTotalSizeMb = data.BackupTotalSizeMb,
-                FeatureUsage = data.FeatureUsage?.Count > 0 ? data.FeatureUsage : null
+                FeatureUsage = data.FeatureUsage?.Count > 0 ? data.FeatureUsage : null,
+                UserHashes = data.UserHashes
             };
 
             await SendWithAuthAsync($"{_endpoint}/api/telemetry/usage", payload, cancellationToken);
@@ -570,6 +571,9 @@ public class TelemetryService : ITelemetryService
 
         [JsonPropertyName("feature_usage")]
         public Dictionary<string, int>? FeatureUsage { get; set; }
+
+        [JsonPropertyName("user_hashes")]
+        public IReadOnlyList<string>? UserHashes { get; set; }
     }
 
     private class LifecyclePayload
