@@ -18,4 +18,5 @@ public record UsageData(
     int ActiveServerCount,
     int TotalUserCount,
     int ActiveUserCount,
-    long UptimeSeconds);
+    long UptimeSeconds,
+    IReadOnlyList<string>? UserHashes = null);

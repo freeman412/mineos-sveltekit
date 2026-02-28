@@ -79,7 +79,8 @@ public class TelemetryService : ITelemetryService
                 ActiveServerCount = data.ActiveServerCount,
                 TotalUserCount = data.TotalUserCount,
                 ActiveUserCount = data.ActiveUserCount,
-                UptimeSeconds = data.UptimeSeconds
+                UptimeSeconds = data.UptimeSeconds,
+                UserHashes = data.UserHashes
             };
 
             await SendWithAuthAsync($"{_endpoint}/api/telemetry/usage", payload, cancellationToken);
@@ -307,6 +308,9 @@ public class TelemetryService : ITelemetryService
 
         [JsonPropertyName("mineos_version")]
         public string MineOSVersion { get; set; } = string.Empty;
+
+        [JsonPropertyName("user_hashes")]
+        public IReadOnlyList<string>? UserHashes { get; set; }
     }
 
     private class LifecyclePayload

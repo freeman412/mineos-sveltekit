@@ -1,4 +1,6 @@
 using System.Diagnostics;
+using System.Security.Cryptography;
+using System.Text;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -81,11 +83,14 @@ public sealed class TelemetryReporterService : BackgroundService
 
         var serverService = scope.ServiceProvider.GetRequiredService<IServerService>();
         var userService = scope.ServiceProvider.GetRequiredService<IUserService>();
+        var playerService = scope.ServiceProvider.GetRequiredService<IPlayerService>();
 
         var servers = await serverService.ListServersAsync(cancellationToken);
         var users = await userService.ListUsersAsync(cancellationToken);
 
         var activeServerCount = 0;
+        var playerNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
         foreach (var server in servers)
         {
             try
@@ -96,10 +101,28 @@ public sealed class TelemetryReporterService : BackgroundService
             }
             catch (Exception ex)
             {
-                // Log but don't fail telemetry for individual server errors
                 _logger.LogDebug(ex, "Failed to get status for server {ServerName}", server.Name);
             }
+
+            try
+            {
+                var players = await playerService.ListPlayersAsync(server.Name, cancellationToken);
+                foreach (var player in players)
+                {
+                    if (!string.IsNullOrWhiteSpace(player.Name))
+                        playerNames.Add(player.Name);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Failed to get players for server {ServerName}", server.Name);
+            }
         }
+
+        // SHA-256 hash player names client-side so plain usernames never leave the machine
+        var userHashes = playerNames
+            .Select(name => SHA256Hash(name.ToLowerInvariant().Trim()))
+            .ToList();
 
         var uptimeSeconds = (long)Stopwatch.GetElapsedTime(StartTimestamp).TotalSeconds;
 
@@ -108,10 +131,17 @@ public sealed class TelemetryReporterService : BackgroundService
             ActiveServerCount: activeServerCount,
             TotalUserCount: users.Count,
             ActiveUserCount: users.Count,
-            UptimeSeconds: uptimeSeconds);
+            UptimeSeconds: uptimeSeconds,
+            UserHashes: userHashes.Count > 0 ? userHashes : null);
 
         _logger.LogInformation("Sending usage telemetry report...");
         var telemetryService = scope.ServiceProvider.GetRequiredService<ITelemetryService>();
         await telemetryService.ReportUsageAsync(data, cancellationToken);
+    }
+
+    private static string SHA256Hash(string input)
+    {
+        var bytes = SHA256.HashData(Encoding.UTF8.GetBytes(input));
+        return Convert.ToHexString(bytes).ToLowerInvariant();
     }
 }
