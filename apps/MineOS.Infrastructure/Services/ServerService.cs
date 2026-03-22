@@ -214,6 +214,11 @@ public class ServerService : IServerService
                 ["onreboot"] = new()
                 {
                     ["start"] = "false"
+                },
+                ["monitoring"] = new()
+                {
+                    ["tps_enabled"] = "false",
+                    ["tps_command"] = ""
                 }
             };
 
@@ -244,6 +249,30 @@ public class ServerService : IServerService
 
             await File.WriteAllTextAsync(propertiesPath, IniParser.WriteSimple(defaultProperties), cancellationToken);
 
+            // Determine TPS monitoring defaults based on server type
+            var tpsEnabled = "false";
+            var tpsCommand = "";
+            var serverTypeStr = (serverType ?? "").ToLowerInvariant();
+            switch (serverTypeStr)
+            {
+                case "forge":
+                    tpsEnabled = "true";
+                    tpsCommand = "/forge tps";
+                    break;
+                case "neoforge":
+                    tpsEnabled = "true";
+                    tpsCommand = "/neoforge tps";
+                    break;
+                case "paper":
+                case "spigot":
+                case "craftbukkit":
+                case "purpur":
+                    tpsEnabled = "true";
+                    tpsCommand = "/tps";
+                    break;
+                // fabric, quilt, vanilla, and anything else: default false
+            }
+
             // Write default server.config
             var defaultConfig = new Dictionary<string, Dictionary<string, string>>
             {
@@ -262,6 +291,11 @@ public class ServerService : IServerService
                 ["onreboot"] = new()
                 {
                     ["start"] = "false"
+                },
+                ["monitoring"] = new()
+                {
+                    ["tps_enabled"] = tpsEnabled,
+                    ["tps_command"] = tpsCommand
                 }
             };
 
