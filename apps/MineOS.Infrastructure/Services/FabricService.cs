@@ -222,10 +222,33 @@ public sealed class FabricService : IFabricService
         }
     }
 
+    private async Task<string> GetLatestInstallerVersionAsync(CancellationToken cancellationToken)
+    {
+        var json = await _httpClient.GetStringAsync($"{MetaBaseUrl}/installer", cancellationToken);
+        using var doc = JsonDocument.Parse(json);
+
+        foreach (var element in doc.RootElement.EnumerateArray())
+        {
+            if (element.TryGetProperty("stable", out var stable) && stable.GetBoolean())
+            {
+                var version = element.GetProperty("version").GetString();
+                if (!string.IsNullOrWhiteSpace(version))
+                    return version;
+            }
+        }
+
+        // Fallback to first entry if no stable found
+        var first = doc.RootElement[0].GetProperty("version").GetString();
+        return first ?? throw new InvalidOperationException("No Fabric installer versions available");
+    }
+
     private async Task RunInstallationAsync(FabricInstallState state, CancellationToken cancellationToken)
     {
-        // Fabric provides a direct server JAR download - much simpler than Forge!
-        var jarUrl = $"{MetaBaseUrl}/loader/{state.MinecraftVersion}/{state.LoaderVersion}/server/jar";
+        // Fetch the latest stable installer version (required in the download URL)
+        var installerVersion = await GetLatestInstallerVersionAsync(cancellationToken);
+
+        // Fabric server JAR URL requires: game version / loader version / installer version
+        var jarUrl = $"{MetaBaseUrl}/loader/{state.MinecraftVersion}/{state.LoaderVersion}/{installerVersion}/server/jar";
         var jarFileName = $"fabric-server-mc.{state.MinecraftVersion}-loader.{state.LoaderVersion}.jar";
         var jarPath = Path.Combine(state.ServerPath, jarFileName);
 
