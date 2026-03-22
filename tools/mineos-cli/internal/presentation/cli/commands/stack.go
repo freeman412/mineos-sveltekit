@@ -360,7 +360,7 @@ func NewStackUpdateCommand(loadConfig *usecases.LoadConfigUseCase) *cobra.Comman
 
 	cmd := &cobra.Command{
 		Use:   "update",
-		Short: "Pull latest Docker images and recreate containers (does NOT update CLI)",
+		Short: "Update ONLY Docker containers (use 'mineos update' to update everything)",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			ctx := cmd.Context()
 			out := cmd.OutOrStdout()
