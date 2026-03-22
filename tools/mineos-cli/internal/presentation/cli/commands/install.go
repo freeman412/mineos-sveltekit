@@ -359,7 +359,18 @@ func runInstall(cmd *cobra.Command, opts installOptions) error {
 			fmt.Fprintln(out, "")
 		}
 	} else if !dirExists("apps") {
-		return errors.New("source files not found (./apps missing); use the installer with --build after cloning the repo")
+		fmt.Fprintln(out, "")
+		fmt.Fprintln(out, styleStep.Render("Cloning MineOS source code..."))
+		cloneCmd := exec.Command("git", "clone", "https://github.com/freeman412/mineos-sveltekit.git", ".")
+		cloneCmd.Stdout = out
+		cloneCmd.Stderr = out
+		if err := cloneCmd.Run(); err != nil {
+			return fmt.Errorf("failed to clone source repository: %w\nPlease clone manually: git clone https://github.com/freeman412/mineos-sveltekit.git .")
+		}
+		if !dirExists("apps") {
+			return errors.New("source files not found after cloning; the repository may have changed structure")
+		}
+		fmt.Fprintln(out, styleSuccess.Render("Source code cloned successfully"))
 	}
 
 	// Telemetry prompt (default opt-in)
