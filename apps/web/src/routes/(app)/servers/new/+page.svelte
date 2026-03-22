@@ -107,7 +107,6 @@
 	let createError = $state('');
 	let downloadingProfile = $state(false);
 	let buildToolsRunning = $state(false);
-	let buildToolsProgress = $state('');
 
 	// Clone state
 	let cloneSource = $state('');
@@ -162,7 +161,29 @@
 	let modpackWatching = $state(false);
 	let modpackInstallCompleted = $state(false);
 	let modpackWatchError = $state('');
+
+	// BuildTools state (Spigot / CraftBukkit)
+	let buildToolsRunId = $state('');
+	let buildToolsProgress = $state(0);
+	let buildToolsStep = $state('');
+	let buildToolsWatching = $state(false);
+	let buildToolsCompleted = $state(false);
+	let buildToolsError = $state('');
 	let modpackStreamCleanup: (() => void) | null = null;
+
+	// Version list pagination + search
+	let versionSearch = $state('');
+	let versionPage = $state(0);
+	const versionsPerPage = 12;
+	const searchedProfiles = $derived(
+		versionSearch.trim()
+			? filteredProfiles.filter((p) => p.version.includes(versionSearch.trim()))
+			: filteredProfiles
+	);
+	const totalVersionPages = $derived(Math.ceil(searchedProfiles.length / versionsPerPage));
+	const pagedProfiles = $derived(
+		searchedProfiles.slice(versionPage * versionsPerPage, (versionPage + 1) * versionsPerPage)
+	);
 
 	// Filter profiles by selected type
 	const filteredProfiles = $derived.by(() => {
@@ -175,9 +196,9 @@
 				case 'paper':
 					return p.group === 'paper';
 				case 'spigot':
-					return p.group === 'spigot';
+					return p.group === 'spigot' || (p.group === 'vanilla' && p.type === 'release');
 				case 'craftbukkit':
-					return p.group === 'craftbukkit' || p.group === 'bukkit';
+					return p.group === 'craftbukkit' || p.group === 'bukkit' || (p.group === 'vanilla' && p.type === 'release');
 				case 'bedrock':
 					return p.group === 'bedrock-server' || p.group === 'bedrock-server-preview';
 				default:
@@ -227,6 +248,8 @@
 		selectedProfileId = '';
 		selectedModpack = null;
 		curseforgeResults = null;
+		versionSearch = '';
+		versionPage = 0;
 		createError = '';
 		selectedForgeMcVersion = '';
 		selectedForgeVersion = null;
@@ -428,18 +451,11 @@
 				return;
 			}
 
-			// Handle BuildTools for Spigot/CraftBukkit
-			if ((selectedType === 'spigot' || selectedType === 'craftbukkit') && selectedProfileId) {
-				const profile = data.profiles.data?.find((p) => p.id === selectedProfileId);
-				if (profile && !profile.downloaded && profile.type === 'buildtools') {
-					buildToolsRunning = true;
-					buildToolsProgress = 'Starting BuildTools...';
-					// BuildTools logic would go here - for now just download
-				}
-			}
+			// For Spigot/CraftBukkit: check if BuildTools needs to run
+			const needsBuildTools = (selectedType === 'spigot' || selectedType === 'craftbukkit');
 
-			// Download profile if needed
-			if (selectedProfileId) {
+			// Download profile if needed (skip for BuildTools servers)
+			if (selectedProfileId && !needsBuildTools) {
 				const profile = data.profiles.data?.find((p) => p.id === selectedProfileId);
 				if (profile && !profile.downloaded) {
 					downloadingProfile = true;
@@ -468,9 +484,10 @@
 			if (createResult.error) {
 				throw new Error(createResult.error);
 			}
+			serverCreated = true;
 
-			// Copy profile to server if selected
-			if (selectedProfileId) {
+			// Copy profile to server if selected (skip for BuildTools — copy happens after build)
+			if (selectedProfileId && !needsBuildTools) {
 				const copyResult = await fetch(`/api/host/profiles/${selectedProfileId}/copy-to-server`, {
 					method: 'POST',
 					headers: { 'Content-Type': 'application/json' },
@@ -482,6 +499,34 @@
 						.json()
 						.catch(() => ({ error: 'Failed to copy profile to server' }));
 					console.warn('Profile copy failed:', error);
+				}
+			}
+
+			// Handle BuildTools for Spigot/CraftBukkit (server already created above)
+			if (needsBuildTools && selectedProfileId) {
+				const selectedProfile = data.profiles.data?.find((p) => p.id === selectedProfileId);
+				const version = selectedProfile?.version ?? selectedProfileId.replace(/^(vanilla|spigot|craftbukkit)-/, '');
+				// Update selectedProfileId to the BuildTools output profile for copy-after-build
+				selectedProfileId = `${selectedType}-${version}`;
+				buildToolsStep = 'Starting BuildTools...';
+				buildToolsProgress = 0;
+				buildToolsCompleted = false;
+				buildToolsError = '';
+
+				const btResponse = await fetch('/api/host/profiles/buildtools', {
+					method: 'POST',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify({ group: selectedType, version })
+				});
+
+				if (btResponse.ok) {
+					const btResult = await btResponse.json();
+					buildToolsRunId = btResult.runId;
+					await invalidateAll();
+					return; // Stay on page — wizard shows BuildTools progress
+				} else {
+					const err = await btResponse.json().catch(() => ({ error: 'Failed to start BuildTools' }));
+					throw new Error(err.error || 'Failed to start BuildTools');
 				}
 			}
 
@@ -577,6 +622,26 @@
 			fabricWatching = false;
 			fabricInstallCompleted = false;
 			fabricWatchError = '';
+			buildToolsRunId = '';
+			buildToolsWatching = false;
+			buildToolsCompleted = false;
+			buildToolsError = '';
+			// Roll back: delete the server if it was created
+			await rollbackServer();
+		}
+	}
+
+	let serverCreated = $state(false);
+
+	async function rollbackServer() {
+		if (!serverCreated || !serverName.trim()) return;
+		try {
+			await fetch(`/api/servers/${encodeURIComponent(serverName.trim())}`, {
+				method: 'DELETE'
+			});
+			serverCreated = false;
+		} catch {
+			// Best-effort cleanup
 		}
 	}
 
@@ -599,6 +664,7 @@
 				} else if (data.status === 'failed') {
 					source.close();
 					forgeWatchError = data.error || 'Forge installation failed';
+					rollbackServer();
 				}
 			} catch (err) {
 				console.error('Failed to parse Forge install event:', err);
@@ -636,6 +702,7 @@
 				} else if (data.status === 'failed') {
 					source.close();
 					fabricWatchError = data.error || 'Fabric installation failed';
+					rollbackServer();
 				}
 			} catch (err) {
 				console.error('Failed to parse Fabric install event:', err);
@@ -651,6 +718,75 @@
 
 	function sendFabricToBackground() {
 		fabricWatching = false;
+		goto('/servers');
+	}
+
+	function startBuildToolsWatch() {
+		if (!buildToolsRunId || buildToolsWatching) return;
+		buildToolsWatching = true;
+		buildToolsError = '';
+
+		const source = new EventSource(`/api/host/buildtools/${buildToolsRunId}/stream`);
+		source.onmessage = (event) => {
+			try {
+				const data = JSON.parse(event.data);
+				// Update step text from meaningful log lines
+				if (data.message) {
+					const msg = data.message;
+					if (msg.includes('Starting clone') || msg.includes('Cloning'))
+						buildToolsStep = 'Cloning repositories...';
+					else if (msg.includes('Applying patches'))
+						buildToolsStep = 'Applying patches...';
+					else if (msg.includes('Compiling'))
+						buildToolsStep = 'Compiling server JAR...';
+					else if (msg.includes('Success'))
+						buildToolsStep = 'Build successful!';
+				}
+				if (data.status === 'completed') {
+					source.close();
+					buildToolsStep = 'Copying JAR to server...';
+					buildToolsProgress = 95;
+					copyBuildToolsProfile();
+				} else if (data.status === 'failed') {
+					source.close();
+					buildToolsError = data.message || 'BuildTools failed';
+					rollbackServer();
+				}
+			} catch (err) {
+				console.error('Failed to parse BuildTools event:', err);
+			}
+		};
+		source.onerror = () => {
+			source.close();
+			if (!buildToolsCompleted) {
+				buildToolsError = 'Lost connection to BuildTools stream';
+			}
+		};
+	}
+
+	async function copyBuildToolsProfile() {
+		try {
+			const copyRes = await fetch(`/api/host/profiles/${selectedProfileId}/copy-to-server`, {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ serverName: serverName.trim() })
+			});
+			if (!copyRes.ok) {
+				const err = await copyRes.json().catch(() => ({ error: 'Copy failed' }));
+				buildToolsError = err.error || 'Failed to copy profile to server';
+				rollbackServer();
+				return;
+			}
+			buildToolsCompleted = true;
+			buildToolsStep = 'Build completed!';
+			buildToolsProgress = 100;
+		} catch {
+			buildToolsError = 'Failed to copy profile to server';
+		}
+	}
+
+	function sendBuildToolsToBackground() {
+		buildToolsWatching = false;
 		goto('/servers');
 	}
 
@@ -1047,28 +1183,65 @@
 								<p>No profiles available for this server type.</p>
 							</div>
 						{:else}
-							<div class="version-grid">
-								{#each filteredProfiles as profile}
-									<button
-										class="version-card"
-										class:selected={selectedProfileId === profile.id}
-										class:downloaded={profile.downloaded}
-										onclick={() => selectProfile(profile.id)}
-									>
-										<span class="version-number">{profile.version}</span>
-										<div class="version-meta">
-											{#if profile.downloaded}
-												<StatusBadge variant="success" size="sm">Ready</StatusBadge>
-											{:else}
-												<StatusBadge variant="info" size="sm">Will Download</StatusBadge>
-											{/if}
-										</div>
-										{#if selectedProfileId === profile.id}
-											<div class="selected-check">✓</div>
-										{/if}
-									</button>
-								{/each}
+							<div class="version-search">
+								<input
+									type="text"
+									placeholder="Search versions..."
+									bind:value={versionSearch}
+									oninput={() => versionPage = 0}
+								/>
 							</div>
+
+							{#if pagedProfiles.length === 0}
+								<div class="empty-results">
+									<p>No versions matching "{versionSearch}"</p>
+								</div>
+							{:else}
+								<div class="version-grid">
+									{#each pagedProfiles as profile}
+										<button
+											class="version-card"
+											class:selected={selectedProfileId === profile.id}
+											class:downloaded={profile.downloaded}
+											onclick={() => selectProfile(profile.id)}
+										>
+											<span class="version-number">{profile.version}</span>
+											<div class="version-meta">
+												{#if profile.downloaded}
+													<StatusBadge variant="success" size="sm">Ready</StatusBadge>
+												{:else if selectedType === 'spigot' || selectedType === 'craftbukkit'}
+													<StatusBadge variant="info" size="sm">Will Build</StatusBadge>
+												{:else}
+													<StatusBadge variant="info" size="sm">Will Download</StatusBadge>
+												{/if}
+											</div>
+											{#if selectedProfileId === profile.id}
+												<div class="selected-check">✓</div>
+											{/if}
+										</button>
+									{/each}
+								</div>
+							{/if}
+
+							{#if totalVersionPages > 1}
+								<div class="version-pagination">
+									<button
+										class="btn-page"
+										disabled={versionPage === 0}
+										onclick={() => versionPage--}
+									>
+										Previous
+									</button>
+									<span class="page-info">{versionPage + 1} / {totalVersionPages}</span>
+									<button
+										class="btn-page"
+										disabled={versionPage >= totalVersionPages - 1}
+										onclick={() => versionPage++}
+									>
+										Next
+									</button>
+								</div>
+							{/if}
 						{/if}
 					{/if}
 				</div>
@@ -1126,7 +1299,7 @@
 				<div class="step-content creating">
 					<div class="spinner"></div>
 					<h2>
-						{#if buildToolsRunning}
+						{#if buildToolsRunId}
 							Building with BuildTools...
 						{:else if downloadingProfile}
 							Downloading server JAR...
@@ -1141,8 +1314,8 @@
 						{/if}
 					</h2>
 					<p class="step-description">
-						{#if buildToolsRunning}
-							{buildToolsProgress || 'This may take several minutes'}
+						{#if buildToolsRunId}
+							{buildToolsStep || 'This may take several minutes'}
 						{:else if forgeInstallId}
 							{forgeInstallStep || 'Preparing installation...'}
 						{:else if fabricInstallId}
@@ -1153,6 +1326,38 @@
 							This will only take a moment
 						{/if}
 					</p>
+
+					<!-- BuildTools progress (Spigot / CraftBukkit) -->
+					{#if buildToolsRunId}
+						<p class="step-hint">
+							BuildTools compiles the server JAR from source. This can take 5-10 minutes.
+							You can leave this page and track it in Notifications.
+						</p>
+						{#if buildToolsProgress > 0}
+							<ProgressBar value={buildToolsProgress} color="green" size="md" showLabel />
+						{/if}
+						<div class="install-actions">
+							{#if !buildToolsWatching && !buildToolsCompleted}
+								<button class="btn-secondary" onclick={startBuildToolsWatch}>
+									Stay and watch
+								</button>
+							{/if}
+							<button class="btn-primary" onclick={sendBuildToolsToBackground}>
+								{buildToolsCompleted ? 'Go to Servers' : 'Send to background'}
+							</button>
+						</div>
+						{#if buildToolsCompleted}
+							<div class="success-box">
+								BuildTools completed! Server JAR is ready.
+								<button class="btn-link" onclick={goToCreatedServer}>Go to server</button>
+							</div>
+						{:else if buildToolsError}
+							<div class="error-box">{buildToolsError}</div>
+						{/if}
+						{#if buildToolsRunId}
+							<a href="/profiles/buildtools" class="btn-link" target="_blank">View full build log</a>
+						{/if}
+					{/if}
 
 					<!-- Modpack installation progress -->
 					{#if modpackInstallJobId}
@@ -1563,9 +1768,15 @@
 
 	/* Server Type Grid */
 	.server-type-grid {
-		display: flex;
-		flex-direction: column;
-		gap: 12px;
+		display: grid;
+		grid-template-columns: repeat(2, 1fr);
+		gap: 16px;
+	}
+
+	@media (max-width: 700px) {
+		.server-type-grid {
+			grid-template-columns: 1fr;
+		}
 	}
 
 	.type-card {
@@ -1677,6 +1888,59 @@
 		color: white;
 		font-size: 14px;
 		font-weight: bold;
+	}
+
+	.version-search {
+		margin-bottom: 16px;
+	}
+
+	.version-search input {
+		width: 100%;
+		padding: 10px 16px;
+		background: #0e1220;
+		border: 1px solid #2a2f47;
+		border-radius: 8px;
+		color: #eef0f8;
+		font-size: 14px;
+		outline: none;
+	}
+
+	.version-search input:focus {
+		border-color: var(--mc-grass);
+	}
+
+	.version-pagination {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		gap: 16px;
+		margin-top: 16px;
+	}
+
+	.btn-page {
+		padding: 8px 16px;
+		background: rgba(30, 36, 58, 0.8);
+		border: 1px solid #2a2f47;
+		border-radius: 8px;
+		color: #cdd3ee;
+		cursor: pointer;
+		font-size: 13px;
+		transition: all 0.2s;
+	}
+
+	.btn-page:hover:not(:disabled) {
+		border-color: var(--mc-grass);
+		background: rgba(106, 176, 76, 0.1);
+	}
+
+	.btn-page:disabled {
+		opacity: 0.4;
+		cursor: not-allowed;
+	}
+
+	.page-info {
+		color: #8890b1;
+		font-size: 13px;
 	}
 
 	/* Version Grid */
