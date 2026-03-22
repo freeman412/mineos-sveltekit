@@ -680,6 +680,16 @@ public static class ModEndpoints
         return servers;
     }
 
+    private static readonly (System.Text.RegularExpressions.Regex Pattern, string Loader)[] JarLoaderPatterns =
+    [
+        (new(@"^forge-(?<mc>[\d.]+)-[\d.\w-]+?(?:-(?:server|installer))?\.jar$", System.Text.RegularExpressions.RegexOptions.IgnoreCase), "forge"),
+        (new(@"^neoforge-(?<mc>[\d.]+)-[\d.\w-]+?(?:-(?:server|installer))?\.jar$", System.Text.RegularExpressions.RegexOptions.IgnoreCase), "neoforge"),
+        (new(@"^fabric-server-mc\.(?<mc>[\d.]+)-loader\.[\d.]+.+\.jar$", System.Text.RegularExpressions.RegexOptions.IgnoreCase), "fabric"),
+        (new(@"^fabric-loader-[\d.]+-(?<mc>[\d.]+).+\.jar$", System.Text.RegularExpressions.RegexOptions.IgnoreCase), "fabric"),
+        (new(@"^quilt-server-(?<mc>[\d.]+)-[\d.]+.+\.jar$", System.Text.RegularExpressions.RegexOptions.IgnoreCase), "quilt"),
+        (new(@"^quilt-loader-[\d.]+-(?<mc>[\d.]+).+\.jar$", System.Text.RegularExpressions.RegexOptions.IgnoreCase), "quilt"),
+    ];
+
     private static async Task<(string? GameVersion, string? Loader)> ResolveServerDefaultsAsync(
         string serverName,
         IServerService serverService,
@@ -689,18 +699,43 @@ public static class ModEndpoints
         try
         {
             var config = await serverService.GetServerConfigAsync(serverName, cancellationToken);
-            if (string.IsNullOrWhiteSpace(config.Minecraft.Profile))
+
+            // Priority 1: Profile group field
+            if (!string.IsNullOrWhiteSpace(config.Minecraft.Profile))
             {
-                return (null, null);
+                var profile = await profileService.GetProfileAsync(config.Minecraft.Profile, cancellationToken);
+                if (profile != null)
+                {
+                    var loader = MapModLoader(profile.Group);
+                    if (loader != null)
+                        return (profile.Version, loader);
+                }
             }
 
-            var profile = await profileService.GetProfileAsync(config.Minecraft.Profile, cancellationToken);
-            if (profile == null)
+            // Priority 2: JAR filename regex parsing
+            var jarFile = config.Java.JarFile;
+            if (!string.IsNullOrWhiteSpace(jarFile))
             {
-                return (null, null);
+                var jarName = Path.GetFileName(jarFile);
+                foreach (var (pattern, loader) in JarLoaderPatterns)
+                {
+                    var match = pattern.Match(jarName);
+                    if (match.Success)
+                    {
+                        var mc = match.Groups["mc"].Success ? match.Groups["mc"].Value : null;
+                        return (mc, loader);
+                    }
+                }
+
+                // Priority 3: Simple name-based detection for common patterns
+                var lower = jarName.ToLowerInvariant();
+                if (lower.Contains("forge")) return (null, "forge");
+                if (lower.Contains("neoforge")) return (null, "neoforge");
+                if (lower.Contains("fabric")) return (null, "fabric");
+                if (lower.Contains("quilt")) return (null, "quilt");
             }
 
-            return (profile.Version, MapModLoader(profile.Group));
+            return (null, null);
         }
         catch
         {
