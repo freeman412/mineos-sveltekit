@@ -37,11 +37,91 @@
 	let clientModUploadingFileName = $state('');
 	let clientModIsDragging = $state(false);
 
+	let detectedLoader = $state<string | null>(null);
+	let detectedVersion = $state<string | null>(null);
+	let loaderLoading = $state(true);
+	let showLoaderPicker = $state(false);
+
+	const loaderLogos: Record<string, string> = {
+		forge: '/images/loaders/forge.svg',
+		fabric: '/images/loaders/fabric.svg',
+		neoforge: '/images/loaders/neoforge.svg',
+		quilt: '/images/loaders/quilt.svg'
+	};
+
+	const loaderNames: Record<string, string> = {
+		forge: 'Forge',
+		fabric: 'Fabric',
+		neoforge: 'NeoForge',
+		quilt: 'Quilt'
+	};
+
 	const isServerRunning = $derived(data.server?.status === 'running');
 
-	onMount(() => {
+	onMount(async () => {
 		loadServerVersion();
+
+		const serverName = data.server?.name;
+		if (!serverName) {
+			loaderLoading = false;
+			return;
+		}
+
+		try {
+			const res = await fetch(`/api/servers/${serverName}/loader`);
+			if (res.ok) {
+				const info = await res.json();
+				if (info.loader) {
+					detectedLoader = info.loader;
+					detectedVersion = info.version;
+				} else {
+					const stored = localStorage.getItem(`mineos-loader-${serverName}`);
+					if (stored) {
+						detectedLoader = stored;
+					} else {
+						showLoaderPicker = true;
+					}
+				}
+			}
+		} catch {
+			showLoaderPicker = true;
+		} finally {
+			loaderLoading = false;
+		}
 	});
+
+	function selectLoader(loader: string) {
+		detectedLoader = loader;
+		showLoaderPicker = false;
+		localStorage.setItem(`mineos-loader-${data.server?.name}`, loader);
+	}
+
+	async function toggleMod(mod: any) {
+		if (!data.server) return;
+		const action = mod.isDisabled ? 'enable' : 'disable';
+		const oldState = mod.isDisabled;
+		const oldName = mod.fileName;
+
+		// Optimistic update
+		mod.isDisabled = !mod.isDisabled;
+
+		try {
+			const res = await fetch(
+				`/api/servers/${data.server.name}/mods/${encodeURIComponent(oldName)}/${action}`,
+				{ method: 'POST' }
+			);
+			if (!res.ok) {
+				mod.isDisabled = oldState;
+				const err = await res.json().catch(() => ({ error: 'Toggle failed' }));
+				console.error(err.error);
+			} else {
+				const result = await res.json();
+				mod.fileName = result.filename;
+			}
+		} catch {
+			mod.isDisabled = oldState;
+		}
+	}
 
 	$effect(() => {
 		loadMods();
@@ -498,6 +578,31 @@
 		<p class="subtitle">Upload, manage, and install mods for this server</p>
 	</div>
 
+	{#if loaderLoading}
+		<div class="loader-banner loading">Detecting mod loader...</div>
+	{:else if showLoaderPicker}
+		<div class="loader-picker">
+			<h3>Select your mod loader</h3>
+			<p>We couldn't detect a mod loader for this server. Choose one to filter compatible mods.</p>
+			<div class="loader-options">
+				{#each ['forge', 'fabric', 'neoforge', 'quilt'] as loader}
+					<button class="loader-option" onclick={() => selectLoader(loader)}>
+						<img src={loaderLogos[loader]} alt={loaderNames[loader]} class="loader-logo" />
+						<span>{loaderNames[loader]}</span>
+					</button>
+				{/each}
+			</div>
+		</div>
+	{:else if detectedLoader}
+		<div class="loader-banner">
+			<img src={loaderLogos[detectedLoader]} alt={loaderNames[detectedLoader] ?? detectedLoader} class="loader-logo" />
+			<span class="loader-name">{loaderNames[detectedLoader] ?? detectedLoader}</span>
+			{#if detectedVersion}
+				<span class="loader-version">{detectedVersion}</span>
+			{/if}
+		</div>
+	{/if}
+
 	<!-- Server Mods -->
 	<div class="mods-section">
 		<div class="section-header">
@@ -596,6 +701,14 @@
 									<ul class="mod-file-list">
 										{#each groupedMods.grouped[modpack.id] as mod}
 											<li class:disabled={mod.isDisabled}>
+												<label class="mod-toggle" title={mod.isDisabled ? 'Enable mod' : 'Disable mod'}>
+													<input
+														type="checkbox"
+														checked={!mod.isDisabled}
+														onchange={() => toggleMod(mod)}
+													/>
+													<span class="toggle-slider"></span>
+												</label>
 												<span class="mod-name">{mod.fileName}</span>
 												<span class="mod-size">{formatBytes(mod.sizeBytes)}</span>
 											</li>
@@ -634,6 +747,14 @@
 							{#each mods as mod}
 								<tr class:modpack-mod={!!mod.modpackName}>
 									<td>
+										<label class="mod-toggle" title={mod.isDisabled ? 'Enable mod' : 'Disable mod'}>
+											<input
+												type="checkbox"
+												checked={!mod.isDisabled}
+												onchange={() => toggleMod(mod)}
+											/>
+											<span class="toggle-slider"></span>
+										</label>
 										<span class:disabled={mod.isDisabled}>{mod.fileName}</span>
 									</td>
 									<td>
@@ -675,13 +796,13 @@
 		<!-- Install from CurseForge -->
 		<div class="subsection">
 			<h4>Install from CurseForge</h4>
-			<CurseForgeSearch serverName={data.server?.name ?? ''} {serverVersion} onInstallComplete={reloadAll} />
+			<CurseForgeSearch serverName={data.server?.name ?? ''} {serverVersion} loader={detectedLoader} onInstallComplete={reloadAll} />
 		</div>
 
 		<!-- Install from Modrinth -->
 		<div class="subsection">
 			<h4>Install from Modrinth</h4>
-			<ModrinthSearch serverName={data.server?.name ?? ''} {serverVersion} onInstallComplete={reloadAll} />
+			<ModrinthSearch serverName={data.server?.name ?? ''} {serverVersion} loader={detectedLoader} onInstallComplete={reloadAll} />
 		</div>
 	</div>
 
@@ -1394,5 +1515,118 @@
 	.format-badge.mrpack {
 		background: rgba(30, 200, 100, 0.2);
 		color: #7ae68d;
+	}
+
+	.loader-banner {
+		display: flex;
+		align-items: center;
+		gap: 12px;
+		padding: 12px 20px;
+		background: rgba(22, 27, 46, 0.9);
+		border: 1px solid rgba(42, 47, 71, 0.8);
+		border-radius: 12px;
+		margin-bottom: 16px;
+	}
+
+	.loader-banner.loading {
+		color: #8890b1;
+		font-style: italic;
+	}
+
+	.loader-logo {
+		width: 28px;
+		height: 28px;
+		object-fit: contain;
+	}
+
+	.loader-name {
+		font-weight: 600;
+		font-size: 16px;
+		color: #eef0f8;
+	}
+
+	.loader-version {
+		color: #8890b1;
+		font-size: 14px;
+	}
+
+	.loader-picker {
+		padding: 24px;
+		background: rgba(22, 27, 46, 0.9);
+		border: 1px solid rgba(42, 47, 71, 0.8);
+		border-radius: 12px;
+		margin-bottom: 16px;
+		text-align: center;
+	}
+
+	.loader-picker h3 { margin: 0 0 8px; font-size: 18px; }
+	.loader-picker p { margin: 0 0 20px; color: #8890b1; font-size: 14px; }
+
+	.loader-options {
+		display: flex;
+		gap: 16px;
+		justify-content: center;
+		flex-wrap: wrap;
+	}
+
+	.loader-option {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: 8px;
+		padding: 16px 24px;
+		background: rgba(30, 36, 58, 0.8);
+		border: 1px solid rgba(62, 69, 100, 0.6);
+		border-radius: 12px;
+		color: #cdd3ee;
+		cursor: pointer;
+		transition: all 0.2s;
+		font-size: 14px;
+		font-weight: 500;
+	}
+
+	.loader-option:hover {
+		border-color: var(--mc-grass);
+		background: rgba(106, 176, 76, 0.1);
+	}
+
+	.mod-toggle {
+		position: relative;
+		display: inline-block;
+		width: 36px;
+		height: 20px;
+		flex-shrink: 0;
+	}
+
+	.mod-toggle input { opacity: 0; width: 0; height: 0; }
+
+	.toggle-slider {
+		position: absolute;
+		inset: 0;
+		background: #2a2f47;
+		border-radius: 20px;
+		cursor: pointer;
+		transition: background 0.2s;
+	}
+
+	.toggle-slider::before {
+		content: '';
+		position: absolute;
+		height: 14px;
+		width: 14px;
+		left: 3px;
+		bottom: 3px;
+		background: #8890b1;
+		border-radius: 50%;
+		transition: transform 0.2s, background 0.2s;
+	}
+
+	.mod-toggle input:checked + .toggle-slider {
+		background: rgba(106, 176, 76, 0.3);
+	}
+
+	.mod-toggle input:checked + .toggle-slider::before {
+		transform: translateX(16px);
+		background: var(--mc-grass);
 	}
 </style>
