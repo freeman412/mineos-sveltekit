@@ -43,10 +43,10 @@
 	let showLoaderPicker = $state(false);
 
 	const loaderLogos: Record<string, string> = {
-		forge: '/images/loaders/forge.svg',
-		fabric: '/images/loaders/fabric.svg',
-		neoforge: '/images/loaders/neoforge.svg',
-		quilt: '/images/loaders/quilt.svg'
+		forge: '/images/loaders/forge.png',
+		fabric: '/images/loaders/fabric.png',
+		neoforge: '/images/loaders/neoforge.png',
+		quilt: '/images/loaders/quilt.png'
 	};
 
 	const loaderNames: Record<string, string> = {
