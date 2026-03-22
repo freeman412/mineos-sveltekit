@@ -655,6 +655,28 @@ public static class ModEndpoints
             return Results.Accepted($"/api/v1/jobs/{jobId}", new { jobId, message = "Modrinth modpack install queued" });
         });
 
+        servers.MapGet("/{name}/loader", async (
+            string name,
+            IServerService serverService,
+            IProfileService profileService,
+            CancellationToken cancellationToken) =>
+        {
+            try
+            {
+                var (gameVersion, loader) = await ResolveServerDefaultsAsync(
+                    name, serverService, profileService, cancellationToken);
+                return Results.Ok(new { loader, version = gameVersion });
+            }
+            catch (DirectoryNotFoundException ex)
+            {
+                return Results.NotFound(new { error = ex.Message });
+            }
+            catch (Exception)
+            {
+                return Results.Ok(new { loader = (string?)null, version = (string?)null });
+            }
+        });
+
         return servers;
     }
 
