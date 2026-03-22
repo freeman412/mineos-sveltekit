@@ -47,6 +47,8 @@ services:
       # Minecraft server ports - expand as needed
       - "${MC_PORT_RANGE:-25565-25570}:${MC_PORT_RANGE:-25565-25570}/tcp"
       - "${MC_PORT_RANGE:-25565-25570}:${MC_PORT_RANGE:-25565-25570}/udp"
+      # Bedrock server ports (UDP only)
+      - "${BEDROCK_PORT_RANGE:-19132-19137}:${BEDROCK_PORT_RANGE:-19132-19137}/udp"
 
     #healthcheck:
       #test: ["CMD", "curl", "-f", "http://localhost:5078/health"]

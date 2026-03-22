@@ -135,10 +135,6 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
 builder.Services.AddAuthorization();
 
 var defaultConnectionString = builder.Configuration.GetConnectionString("Default");
-builder.Services.AddDbContext<AppDbContext>(options =>
-{
-    options.UseSqlite(defaultConnectionString);
-});
 builder.Services.AddDbContextFactory<AppDbContext>(options =>
 {
     options.UseSqlite(defaultConnectionString);
@@ -259,8 +255,11 @@ using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
 
-    // Run migrations on startup
-    await db.Database.MigrateAsync();
+    // Run migrations on startup (skip for InMemory provider used in tests)
+    if (db.Database.ProviderName != "Microsoft.EntityFrameworkCore.InMemory")
+        await db.Database.MigrateAsync();
+    else
+        await db.Database.EnsureCreatedAsync();
 
     // Seed initial data
     var seeder = scope.ServiceProvider.GetRequiredService<ApiKeySeeder>();
@@ -272,3 +271,6 @@ using (var scope = app.Services.CreateScope())
 app.MapApiEndpoints();
 
 app.Run();
+
+// Make Program accessible to test project
+public partial class Program { }

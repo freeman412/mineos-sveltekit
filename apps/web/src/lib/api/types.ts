@@ -67,6 +67,7 @@ export type ServerDetail = {
 	javaPid: number | null;
 	screenPid: number | null;
 	config: ServerConfig | null;
+	serverType: string;
 	eulaAccepted: boolean;
 	needsRestart: boolean;
 };

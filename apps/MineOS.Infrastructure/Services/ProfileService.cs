@@ -30,6 +30,12 @@ public sealed class ProfileService : IProfileService
     private static readonly SemaphoreSlim VanillaCacheLock = new(1, 1);
     private static DateTimeOffset? _vanillaLastFetch;
     private static List<ProfileDto> _vanillaCache = new();
+    private const string BedrockDownloadLinksUrl = "https://net.web.minecraft-services.net/api/v1.0/download/links";
+    private const string BedrockDownloadLinksSecondaryUrl = "https://net-secondary.web.minecraft-services.net/api/v1.0/download/links";
+    private static readonly TimeSpan BedrockCacheTtl = TimeSpan.FromMinutes(10);
+    private static readonly SemaphoreSlim BedrockCacheLock = new(1, 1);
+    private static DateTimeOffset? _bedrockLastFetch;
+    private static List<ProfileDto> _bedrockCache = new();
     private static readonly ConcurrentDictionary<string, BuildToolsRunState> BuildToolsRuns = new();
 
     private static readonly JsonSerializerOptions JsonOptions = new()
@@ -88,7 +94,7 @@ public sealed class ProfileService : IProfileService
         var vanillaProfiles = await GetVanillaProfilesAsync(cancellationToken);
         var paperProfiles = await GetPaperProfilesAsync(cancellationToken);
         var buildToolsProfiles = await DiscoverBuildToolsProfilesAsync(cancellationToken);
-        var bedrockProfiles = GetBedrockProfiles();
+        var bedrockProfiles = await GetBedrockProfilesAsync(cancellationToken);
         var combined = new Dictionary<string, ProfileDto>(StringComparer.OrdinalIgnoreCase);
 
         foreach (var profile in profiles)
@@ -748,48 +754,99 @@ public sealed class ProfileService : IProfileService
         return profiles;
     }
 
-    private IReadOnlyList<ProfileDto> GetBedrockProfiles()
+    private async Task<IReadOnlyList<ProfileDto>> GetBedrockProfilesAsync(CancellationToken cancellationToken)
     {
-        // Latest Bedrock Dedicated Server versions for Linux x64
-        var versions = new[]
+        var now = DateTimeOffset.UtcNow;
+        if (_bedrockLastFetch.HasValue &&
+            now - _bedrockLastFetch.Value < BedrockCacheTtl &&
+            _bedrockCache.Count > 0)
         {
-            ("1.21.51.02", "2025-01-15T00:00:00Z"),
-            ("1.21.50.10", "2024-12-11T00:00:00Z"),
-            ("1.21.44.01", "2024-11-13T00:00:00Z"),
-            ("1.21.41.01", "2024-10-30T00:00:00Z"),
-            ("1.21.40.01", "2024-10-08T00:00:00Z"),
-            ("1.21.31.04", "2024-09-11T00:00:00Z"),
-            ("1.21.30.03", "2024-08-14T00:00:00Z"),
-            ("1.21.20.03", "2024-07-10T00:00:00Z"),
-            ("1.21.2.02",  "2024-06-12T00:00:00Z"),
-            ("1.21.1.03",  "2024-05-08T00:00:00Z"),
-            ("1.21.0.03",  "2024-04-10T00:00:00Z"),
-            ("1.20.81.01", "2024-03-13T00:00:00Z"),
-            ("1.20.73.01", "2024-02-07T00:00:00Z"),
-            ("1.20.72.01", "2024-01-24T00:00:00Z"),
-            ("1.20.71.01", "2024-01-10T00:00:00Z"),
-            ("1.20.62.02", "2023-12-06T00:00:00Z"),
-            ("1.20.51.01", "2023-11-08T00:00:00Z"),
-        };
+            return _bedrockCache;
+        }
 
-        var profilesPath = GetProfilesPath();
-        return versions.Select(v =>
+        await BedrockCacheLock.WaitAsync(cancellationToken);
+        try
         {
-            var (version, releaseTime) = v;
-            var id = $"bedrock-server-{version}";
-            var filename = $"bedrock-server-{version}.zip";
+            // Double-check after acquiring lock
+            if (_bedrockLastFetch.HasValue &&
+                now - _bedrockLastFetch.Value < BedrockCacheTtl &&
+                _bedrockCache.Count > 0)
+            {
+                return _bedrockCache;
+            }
+
+            var profiles = await FetchBedrockProfilesAsync(cancellationToken);
+            _bedrockCache = profiles;
+            _bedrockLastFetch = now;
+            return profiles;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to fetch Bedrock profiles from API, returning cached data");
+            return _bedrockCache;
+        }
+        finally
+        {
+            BedrockCacheLock.Release();
+        }
+    }
+
+    private async Task<List<ProfileDto>> FetchBedrockProfilesAsync(CancellationToken cancellationToken)
+    {
+        var profilesPath = GetProfilesPath();
+        var results = new List<ProfileDto>();
+
+        // Fetch current download links from official Minecraft Services API
+        JsonElement apiResponse;
+        try
+        {
+            var response = await _httpClient.GetStringAsync(BedrockDownloadLinksUrl, cancellationToken);
+            apiResponse = JsonSerializer.Deserialize<JsonElement>(response);
+        }
+        catch (Exception)
+        {
+            // Try secondary URL
+            var response = await _httpClient.GetStringAsync(BedrockDownloadLinksSecondaryUrl, cancellationToken);
+            apiResponse = JsonSerializer.Deserialize<JsonElement>(response);
+        }
+
+        var links = apiResponse.GetProperty("result").GetProperty("links");
+        foreach (var link in links.EnumerateArray())
+        {
+            var downloadType = link.GetProperty("downloadType").GetString() ?? "";
+            if (downloadType is not ("serverBedrockLinux" or "serverBedrockPreviewLinux"))
+                continue;
+
+            var downloadUrl = link.GetProperty("downloadUrl").GetString();
+            if (string.IsNullOrEmpty(downloadUrl))
+                continue;
+
+            // Extract version from URL: bedrock-server-{version}.zip
+            var filename = Path.GetFileName(new Uri(downloadUrl).AbsolutePath);
+            var version = filename
+                .Replace("bedrock-server-", "")
+                .Replace(".zip", "");
+
+            var isPreview = downloadType == "serverBedrockPreviewLinux";
+            var id = isPreview ? $"bedrock-server-preview-{version}" : $"bedrock-server-{version}";
+            var group = isPreview ? "bedrock-server-preview" : "bedrock-server";
+            var type = isPreview ? "preview" : "release";
             var zipPath = Path.Combine(profilesPath, id, filename);
-            return new ProfileDto(
+
+            results.Add(new ProfileDto(
                 id,
-                "bedrock-server",
-                "release",
+                group,
+                type,
                 version,
-                releaseTime,
-                $"https://minecraft.azureedge.net/bin-linux/bedrock-server-{version}.zip",
+                DateTimeOffset.UtcNow.ToString("O"),
+                downloadUrl,
                 filename,
                 File.Exists(zipPath),
-                null);
-        }).ToList();
+                null));
+        }
+
+        _logger.LogInformation("Fetched {Count} Bedrock profiles from Minecraft Services API", results.Count);
+        return results;
     }
 
     private async Task<IReadOnlyList<ProfileDto>> GetVanillaProfilesAsync(CancellationToken cancellationToken)
