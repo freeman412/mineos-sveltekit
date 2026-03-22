@@ -179,7 +179,7 @@
 				case 'craftbukkit':
 					return p.group === 'craftbukkit' || p.group === 'bukkit';
 				case 'bedrock':
-					return p.group === 'bedrock-server';
+					return p.group === 'bedrock-server' || p.group === 'bedrock-server-preview';
 				default:
 					return false;
 			}
