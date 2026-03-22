@@ -85,6 +85,7 @@ export type ServerConfig = {
 	minecraft: MinecraftConfig;
 	onReboot: OnRebootConfig;
 	autoRestart: AutoRestartConfig;
+	monitoring: MonitoringConfig;
 };
 
 export type JavaConfig = {
@@ -113,6 +114,11 @@ export type AutoRestartConfig = {
 	attemptResetMinutes: number;
 	notifyOnCrash: boolean;
 	notifyOnRestart: boolean;
+};
+
+export type MonitoringConfig = {
+	tpsEnabled: boolean;
+	tpsCommand: string | null;
 };
 
 export type CrashEvent = {
