@@ -16,6 +16,7 @@
 		name: string;
 		description: string;
 		icon: string;
+		iconImage?: string;
 		color: string;
 		features: string[];
 	}
@@ -58,6 +59,7 @@
 			name: 'Forge',
 			description: 'Modded Minecraft with mod support',
 			icon: '🔥',
+			iconImage: '/images/loaders/forge.png',
 			color: '#ef4444',
 			features: ['Mods', 'Modpacks', 'Extensive']
 		},
@@ -66,6 +68,7 @@
 			name: 'Fabric',
 			description: 'Lightweight modding toolchain',
 			icon: '🧵',
+			iconImage: '/images/loaders/fabric.png',
 			color: '#c4b5a4',
 			features: ['Mods', 'Lightweight', 'Fast updates']
 		},
@@ -774,7 +777,13 @@
 								onclick={() => selectServerType(type.id)}
 								style="--card-color: {type.color}"
 							>
-								<div class="type-icon">{type.icon}</div>
+								<div class="type-icon">
+									{#if type.iconImage}
+										<img src={type.iconImage} alt={type.name} class="type-icon-img" />
+									{:else}
+										{type.icon}
+									{/if}
+								</div>
 								<div class="type-info">
 									<h3>{type.name}</h3>
 									<p>{type.description}</p>
@@ -1626,6 +1635,18 @@
 	.type-icon {
 		font-size: 36px;
 		flex-shrink: 0;
+		width: 42px;
+		height: 42px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+	}
+
+	.type-icon-img {
+		width: 36px;
+		height: 36px;
+		object-fit: contain;
+		border-radius: 6px;
 	}
 
 	.type-info {
