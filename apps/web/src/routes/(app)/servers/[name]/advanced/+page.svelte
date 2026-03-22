@@ -2,7 +2,7 @@
 	import { enhance } from '$app/forms';
 	import { untrack } from 'svelte';
 	import type { PageData, ActionData } from './$types';
-	import type { ServerConfig, Profile } from '$lib/api/types';
+	import type { ServerConfig, Profile, MonitoringConfig } from '$lib/api/types';
 
 	let { data, form }: { data: PageData; form: ActionData } = $props();
 
@@ -30,6 +30,10 @@
 			attemptResetMinutes: 30,
 			notifyOnCrash: true,
 			notifyOnRestart: true
+		},
+		monitoring: {
+			tpsEnabled: false,
+			tpsCommand: null
 		}
 	};
 
@@ -39,6 +43,10 @@
 	}
 
 	let config = $state<ServerConfig>(cloneConfig(data.config.data));
+
+	if (!config.monitoring) {
+		config.monitoring = { tpsEnabled: false, tpsCommand: null };
+	}
 
 	let loading = $state(false);
 	let selectedProfile = $state(config.minecraft.profile ?? '');
@@ -152,6 +160,9 @@
 		const previousName = untrack(() => lastServerName);
 		if (data.serverName !== previousName) {
 			config = cloneConfig(data.config.data);
+			if (!config.monitoring) {
+				config.monitoring = { tpsEnabled: false, tpsCommand: null };
+			}
 			selectedProfile = config.minecraft.profile ?? '';
 			selectedJavaTweaksPreset = presetByValue.get(config.java.javaTweaks ?? '') ?? 'custom';
 			lastServerName = data.serverName;
@@ -422,6 +433,35 @@
 									<span>Notify on auto-restart</span>
 								</label>
 								<p class="field-hint">Send a notification when auto-restart is triggered</p>
+							</div>
+						{/if}
+					</div>
+				</div>
+
+				<!-- Monitoring Configuration -->
+				<div class="section">
+					<h3>Monitoring</h3>
+					<div class="form-grid">
+						<div class="form-field full-width">
+							<label class="checkbox-label">
+								<input type="checkbox" id="tps-enabled" bind:checked={config.monitoring.tpsEnabled} />
+								<span>TPS Monitoring</span>
+							</label>
+							<p class="field-hint">Periodically sends a TPS command to measure server performance</p>
+						</div>
+
+						{#if config.monitoring.tpsEnabled}
+							<div class="form-field full-width">
+								<label for="tps-command">TPS Command</label>
+								<input
+									type="text"
+									id="tps-command"
+									bind:value={config.monitoring.tpsCommand}
+									placeholder="/tps"
+								/>
+								<p class="field-hint">
+									Paper/Spigot: /tps · Forge: /forge tps · NeoForge: /neoforge tps · Spark: /spark tps
+								</p>
 							</div>
 						{/if}
 					</div>
