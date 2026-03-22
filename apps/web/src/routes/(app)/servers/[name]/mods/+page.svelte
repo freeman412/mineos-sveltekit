@@ -46,7 +46,7 @@
 		forge: '/images/loaders/forge.png',
 		fabric: '/images/loaders/fabric.png',
 		neoforge: '/images/loaders/neoforge.png',
-		quilt: '/images/loaders/quilt.png'
+		quilt: '/images/loaders/quilt.svg'
 	};
 
 	const loaderNames: Record<string, string> = {
