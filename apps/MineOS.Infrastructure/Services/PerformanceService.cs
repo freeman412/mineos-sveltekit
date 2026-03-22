@@ -10,6 +10,7 @@ using MineOS.Application.Interfaces;
 using MineOS.Application.Options;
 using MineOS.Domain.Entities;
 using MineOS.Infrastructure.Persistence;
+using MineOS.Infrastructure.Utilities;
 
 namespace MineOS.Infrastructure.Services;
 
@@ -19,6 +20,9 @@ public sealed class PerformanceService : IPerformanceService
     private static readonly ConcurrentDictionary<string, DateTimeOffset> TpsRequestTimes = new();
     private static readonly Regex TpsRegex = new(
         @"TPS from last 1m, 5m, 15m:\s*(?<one>[\d.]+),\s*(?<five>[\d.]+),\s*(?<fifteen>[\d.]+)",
+        RegexOptions.Compiled | RegexOptions.IgnoreCase);
+    private static readonly Regex ForgeTpsRegex = new(
+        @"Mean TPS:\s*(?<tps>[\d.]+)",
         RegexOptions.Compiled | RegexOptions.IgnoreCase);
     private readonly AppDbContext _db;
     private readonly IMonitoringService _monitoringService;
@@ -212,6 +216,27 @@ public sealed class PerformanceService : IPerformanceService
 
     private async Task<double?> TryGetTpsAsync(string serverName, bool isRunning, CancellationToken cancellationToken)
     {
+        // Read monitoring config directly from server.config INI file
+        var serverPath = Path.Combine(_hostOptions.BaseDirectory, _hostOptions.ServersPathSegment, serverName);
+        var configPath = Path.Combine(serverPath, "server.config");
+        var tpsEnabled = false;
+        var tpsCommand = "/tps";
+
+        if (File.Exists(configPath))
+        {
+            var configContent = await File.ReadAllTextAsync(configPath, cancellationToken);
+            var sections = IniParser.ParseWithSections(configContent);
+            var monitoringSection = sections.GetValueOrDefault("monitoring", new Dictionary<string, string>());
+            tpsEnabled = monitoringSection.GetValueOrDefault("tps_enabled", "false")
+                .Equals("true", StringComparison.OrdinalIgnoreCase);
+            var cmd = monitoringSection.GetValueOrDefault("tps_command", "");
+            if (!string.IsNullOrWhiteSpace(cmd))
+                tpsCommand = cmd;
+        }
+
+        if (!tpsEnabled)
+            return null;
+
         if (!isRunning)
         {
             return null;
@@ -228,7 +253,7 @@ public sealed class PerformanceService : IPerformanceService
         {
             try
             {
-                await _consoleService.SendCommandAsync(serverName, "/tps", cancellationToken);
+                await _consoleService.SendCommandAsync(serverName, tpsCommand, cancellationToken);
                 TpsRequestTimes[serverName] = now;
             }
             catch (Exception ex)
@@ -240,6 +265,28 @@ public sealed class PerformanceService : IPerformanceService
         return currentTps;
     }
 
+    public static double? TryParseTpsLine(string line)
+    {
+        if (string.IsNullOrWhiteSpace(line))
+            return null;
+
+        // Try Paper/Spigot format: "TPS from last 1m, 5m, 15m: X, Y, Z"
+        var match = TpsRegex.Match(line);
+        if (match.Success && double.TryParse(match.Groups["one"].Value,
+                NumberStyles.Float,
+                CultureInfo.InvariantCulture, out var paperTps))
+            return paperTps;
+
+        // Try Forge/NeoForge format: "Mean TPS: X.XX"
+        var forgeMatch = ForgeTpsRegex.Match(line);
+        if (forgeMatch.Success && double.TryParse(forgeMatch.Groups["tps"].Value,
+                NumberStyles.Float,
+                CultureInfo.InvariantCulture, out var forgeTps))
+            return forgeTps;
+
+        return null;
+    }
+
     private static double? TryParseTpsFromLog(string logPath)
     {
         if (!File.Exists(logPath))
@@ -249,20 +296,9 @@ public sealed class PerformanceService : IPerformanceService
 
         foreach (var line in ReadLogTail(logPath, 200).Reverse())
         {
-            var match = TpsRegex.Match(line);
-            if (!match.Success)
-            {
-                continue;
-            }
-
-            if (double.TryParse(
-                    match.Groups["one"].Value,
-                    NumberStyles.Float,
-                    CultureInfo.InvariantCulture,
-                    out var oneMinute))
-            {
-                return oneMinute;
-            }
+            var tps = TryParseTpsLine(line);
+            if (tps.HasValue)
+                return tps.Value;
         }
 
         return null;
