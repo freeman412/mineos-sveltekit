@@ -46,6 +46,31 @@
 		return value.toFixed(decimals);
 	}
 
+	async function toggleTps() {
+		if (!data.server?.config) return;
+
+		// Fetch fresh config to avoid overwriting stale data
+		const freshRes = await fetch(`/api/servers/${data.server.name}/server-config`);
+		if (!freshRes.ok) return;
+		const freshConfig = await freshRes.json();
+
+		freshConfig.monitoring = freshConfig.monitoring ?? { tpsEnabled: false, tpsCommand: null };
+		freshConfig.monitoring.tpsEnabled = !freshConfig.monitoring.tpsEnabled;
+
+		const saveRes = await fetch(`/api/servers/${data.server.name}/server-config`, {
+			method: 'PUT',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify(freshConfig)
+		});
+
+		if (saveRes.ok && data.server.config) {
+			if (!data.server.config.monitoring) {
+				data.server.config.monitoring = { tpsEnabled: false, tpsCommand: null };
+			}
+			data.server.config.monitoring = freshConfig.monitoring;
+		}
+	}
+
 	function connectStream() {
 		if (!data.server) return;
 		streamSource?.close();
@@ -127,7 +152,20 @@
 	<section class="charts-grid">
 		<PerformanceChart title="CPU" unit="%" color="#7ae68d" points={cpuSeries} timestamps={timestampSeries} maxValue={100} />
 		<PerformanceChart title="Memory" unit="MB" color="#7fb3ff" points={ramSeries} timestamps={timestampSeries} />
-		<PerformanceChart title="TPS" unit="" color="#f5c97a" points={tpsSeries} timestamps={timestampSeries} maxValue={20} minValue={0} />
+		<div class="tps-chart-wrapper">
+			<div class="tps-header">
+				<h3>TPS</h3>
+				<label class="tps-toggle" title={data.server?.config?.monitoring?.tpsEnabled ? 'Disable TPS monitoring' : 'Enable TPS monitoring'}>
+					<input type="checkbox" checked={data.server?.config?.monitoring?.tpsEnabled ?? false} onchange={toggleTps} />
+					<span class="toggle-slider"></span>
+				</label>
+			</div>
+			{#if !(data.server?.config?.monitoring?.tpsEnabled ?? false)}
+				<div class="tps-disabled-notice">TPS monitoring is disabled for this server</div>
+			{:else}
+				<PerformanceChart title="TPS" unit="" color="#f5c97a" points={tpsSeries} timestamps={timestampSeries} maxValue={20} minValue={0} />
+			{/if}
+		</div>
 		<PerformanceChart title="Players" unit="" color="#d98cff" points={playerSeries} timestamps={timestampSeries} minValue={0} />
 	</section>
 
@@ -283,6 +321,72 @@
 		display: grid;
 		grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
 		gap: 16px;
+	}
+
+	.tps-chart-wrapper {
+		display: flex;
+		flex-direction: column;
+	}
+
+	.tps-header {
+		display: flex;
+		align-items: center;
+		gap: 12px;
+	}
+
+	.tps-header h3 {
+		margin: 0;
+		font-size: 14px;
+		color: #eef0f8;
+	}
+
+	.tps-disabled-notice {
+		padding: 20px;
+		text-align: center;
+		color: #8890b1;
+		font-style: italic;
+		background: rgba(22, 27, 46, 0.5);
+		border-radius: 8px;
+	}
+
+	.tps-toggle {
+		position: relative;
+		display: inline-block;
+		width: 36px;
+		height: 20px;
+		flex-shrink: 0;
+	}
+
+	.tps-toggle input { opacity: 0; width: 0; height: 0; }
+
+	.toggle-slider {
+		position: absolute;
+		inset: 0;
+		background: #2a2f47;
+		border-radius: 20px;
+		cursor: pointer;
+		transition: background 0.2s;
+	}
+
+	.toggle-slider::before {
+		content: '';
+		position: absolute;
+		height: 14px;
+		width: 14px;
+		left: 3px;
+		bottom: 3px;
+		background: #8890b1;
+		border-radius: 50%;
+		transition: transform 0.2s, background 0.2s;
+	}
+
+	.tps-toggle input:checked + .toggle-slider {
+		background: rgba(106, 176, 76, 0.3);
+	}
+
+	.tps-toggle input:checked + .toggle-slider::before {
+		transform: translateX(16px);
+		background: var(--mc-grass);
 	}
 
 	.error-text {
