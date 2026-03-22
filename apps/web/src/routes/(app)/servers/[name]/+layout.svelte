@@ -65,7 +65,7 @@
 			{
 				href: `/servers/${s}/mods`,
 				label: 'Mods',
-				disabled: isBedrock || (!isModded && !server?.config?.java?.jarFile),
+				disabled: isBedrock || !isModded,
 				tooltip: isBedrock
 					? 'Bedrock servers do not support Java mods'
 					: 'Mods require a modded server (Forge, Fabric, NeoForge, or Quilt)'
@@ -73,7 +73,7 @@
 			{
 				href: `/servers/${s}/plugins`,
 				label: 'Plugins',
-				disabled: isBedrock || (!isPluginServer && !server?.config?.java?.jarFile),
+				disabled: isBedrock || !isPluginServer,
 				tooltip: isBedrock
 					? 'Bedrock servers do not support Java plugins'
 					: 'Plugins require a plugin server (Paper, Spigot, Purpur, or Bukkit)'
