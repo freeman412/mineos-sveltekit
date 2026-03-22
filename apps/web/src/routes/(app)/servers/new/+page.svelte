@@ -580,45 +580,36 @@
 		}
 	}
 
-	async function pollForgeInstallation(installId: string) {
-		while (true) {
-			const statusResult = await api.getForgeInstallStatus(fetch, installId);
-
-			if (statusResult.error) {
-				throw new Error(statusResult.error);
-			}
-
-			if (statusResult.data) {
-				forgeInstallProgress = statusResult.data.progress;
-				forgeInstallStep = statusResult.data.currentStep || 'Installing...';
-				if (statusResult.data.output) {
-					forgeInstallOutput = statusResult.data.output;
-				}
-
-				if (statusResult.data.status === 'completed') {
-					return;
-				}
-
-				if (statusResult.data.status === 'failed') {
-					throw new Error(statusResult.data.error || 'Forge installation failed');
-				}
-			}
-
-			await new Promise((resolve) => setTimeout(resolve, 1000));
-		}
-	}
-
 	function startForgeWatch() {
 		if (!forgeInstallId || forgeWatching) return;
 		forgeWatching = true;
 		forgeWatchError = '';
-		pollForgeInstallation(forgeInstallId)
-			.then(() => {
-				forgeInstallCompleted = true;
-			})
-			.catch((err) => {
-				forgeWatchError = err instanceof Error ? err.message : 'Forge installation failed';
-			});
+
+		const source = new EventSource(`/api/forge/install/${forgeInstallId}/stream`);
+		source.onmessage = (event) => {
+			try {
+				const data = JSON.parse(event.data);
+				forgeInstallProgress = data.progress ?? 0;
+				forgeInstallStep = data.currentStep || 'Installing...';
+				if (data.output) forgeInstallOutput = data.output;
+
+				if (data.status === 'completed') {
+					source.close();
+					forgeInstallCompleted = true;
+				} else if (data.status === 'failed') {
+					source.close();
+					forgeWatchError = data.error || 'Forge installation failed';
+				}
+			} catch (err) {
+				console.error('Failed to parse Forge install event:', err);
+			}
+		};
+		source.onerror = () => {
+			source.close();
+			if (!forgeInstallCompleted) {
+				forgeWatchError = 'Lost connection to Forge install stream';
+			}
+		};
 	}
 
 	function sendForgeToBackground() {
@@ -626,45 +617,36 @@
 		goto('/servers');
 	}
 
-	async function pollFabricInstallation(installId: string) {
-		while (true) {
-			const statusResult = await api.getFabricInstallStatus(fetch, installId);
-
-			if (statusResult.error) {
-				throw new Error(statusResult.error);
-			}
-
-			if (statusResult.data) {
-				fabricInstallProgress = statusResult.data.progress;
-				fabricInstallStep = statusResult.data.currentStep || 'Installing...';
-				if (statusResult.data.output) {
-					fabricInstallOutput = statusResult.data.output;
-				}
-
-				if (statusResult.data.status === 'completed') {
-					return;
-				}
-
-				if (statusResult.data.status === 'failed') {
-					throw new Error(statusResult.data.error || 'Fabric installation failed');
-				}
-			}
-
-			await new Promise((resolve) => setTimeout(resolve, 1000));
-		}
-	}
-
 	function startFabricWatch() {
 		if (!fabricInstallId || fabricWatching) return;
 		fabricWatching = true;
 		fabricWatchError = '';
-		pollFabricInstallation(fabricInstallId)
-			.then(() => {
-				fabricInstallCompleted = true;
-			})
-			.catch((err) => {
-				fabricWatchError = err instanceof Error ? err.message : 'Fabric installation failed';
-			});
+
+		const source = new EventSource(`/api/fabric/install/${fabricInstallId}/stream`);
+		source.onmessage = (event) => {
+			try {
+				const data = JSON.parse(event.data);
+				fabricInstallProgress = data.progress ?? 0;
+				fabricInstallStep = data.currentStep || 'Installing...';
+				if (data.output) fabricInstallOutput = data.output;
+
+				if (data.status === 'completed') {
+					source.close();
+					fabricInstallCompleted = true;
+				} else if (data.status === 'failed') {
+					source.close();
+					fabricWatchError = data.error || 'Fabric installation failed';
+				}
+			} catch (err) {
+				console.error('Failed to parse Fabric install event:', err);
+			}
+		};
+		source.onerror = () => {
+			source.close();
+			if (!fabricInstallCompleted) {
+				fabricWatchError = 'Lost connection to Fabric install stream';
+			}
+		};
 	}
 
 	function sendFabricToBackground() {

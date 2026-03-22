@@ -77,6 +77,38 @@ public static class ForgeEndpoints
         }).WithName("GetForgeInstallStatus")
           .WithSummary("Get Forge installation status");
 
+        forge.MapGet("/install/{installId}/stream", async (
+            HttpContext context,
+            string installId,
+            IForgeService forgeService) =>
+        {
+            context.Response.Headers.ContentType = "text/event-stream";
+            context.Response.Headers.CacheControl = "no-cache";
+            context.Response.Headers.Connection = "keep-alive";
+
+            var ct = context.RequestAborted;
+            while (!ct.IsCancellationRequested)
+            {
+                var status = await forgeService.GetInstallStatusAsync(installId, ct);
+                if (status == null)
+                {
+                    await context.Response.WriteAsync($"data: {{\"status\":\"completed\",\"progress\":100}}\n\n", ct);
+                    break;
+                }
+
+                var json = System.Text.Json.JsonSerializer.Serialize(status,
+                    new System.Text.Json.JsonSerializerOptions { PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase });
+                await context.Response.WriteAsync($"data: {json}\n\n", ct);
+                await context.Response.Body.FlushAsync(ct);
+
+                if (status.Status is "completed" or "failed")
+                    break;
+
+                await Task.Delay(1000, ct);
+            }
+        }).WithName("StreamForgeInstallStatus")
+          .WithSummary("Stream Forge installation progress via SSE");
+
         return api;
     }
 }
