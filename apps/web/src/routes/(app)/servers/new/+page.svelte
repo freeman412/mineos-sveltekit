@@ -1581,9 +1581,9 @@
 
 	/* Server Type Grid */
 	.server-type-grid {
-		display: grid;
-		grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
-		gap: 16px;
+		display: flex;
+		flex-direction: column;
+		gap: 12px;
 	}
 
 	.type-card {
