@@ -15,21 +15,23 @@
 	});
 
 	const isBedrock = $derived(server?.serverType === 'bedrock');
-	const profile = $derived(server?.config?.minecraft?.profile ?? '');
+	const profile = $derived(server?.config?.minecraft?.profile?.toLowerCase() ?? '');
+	const jarFile = $derived(server?.config?.java?.jarFile?.toLowerCase() ?? '');
+	const serverHint = $derived(profile + ' ' + jarFile);
 	const isModded = $derived(
 		!isBedrock &&
-			(profile.toLowerCase().includes('forge') ||
-				profile.toLowerCase().includes('fabric') ||
-				profile.toLowerCase().includes('neoforge') ||
-				profile.toLowerCase().includes('quilt'))
+			(serverHint.includes('forge') ||
+				serverHint.includes('fabric') ||
+				serverHint.includes('neoforge') ||
+				serverHint.includes('quilt'))
 	);
 	const isPluginServer = $derived(
 		!isBedrock &&
-			(profile.toLowerCase().includes('paper') ||
-				profile.toLowerCase().includes('spigot') ||
-				profile.toLowerCase().includes('purpur') ||
-				profile.toLowerCase().includes('bukkit') ||
-				profile.toLowerCase().includes('folia'))
+			(serverHint.includes('paper') ||
+				serverHint.includes('spigot') ||
+				serverHint.includes('purpur') ||
+				serverHint.includes('bukkit') ||
+				serverHint.includes('folia'))
 	);
 
 	type Tab = {
