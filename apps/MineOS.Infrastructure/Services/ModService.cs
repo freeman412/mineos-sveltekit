@@ -2882,6 +2882,44 @@ public sealed class ModService : IModService
         return reportPath;
     }
 
+    public static string ComputeToggleName(string filename, bool enabled)
+    {
+        var isCurrentlyDisabled = filename.EndsWith(".disabled", StringComparison.OrdinalIgnoreCase);
+
+        if (enabled && isCurrentlyDisabled)
+            return filename[..^".disabled".Length];
+
+        if (!enabled && !isCurrentlyDisabled)
+            return filename + ".disabled";
+
+        return filename;
+    }
+
+    public async Task<string> SetModEnabledAsync(string serverName, string filename, bool enabled, CancellationToken cancellationToken)
+    {
+        var modsPath = GetModsPath(serverName);
+        var filePath = Path.Combine(modsPath, filename);
+
+        if (!File.Exists(filePath))
+            throw new FileNotFoundException($"Mod file not found: {filename}");
+
+        var newFilename = ComputeToggleName(filename, enabled);
+        if (newFilename == filename)
+            return filename;
+
+        var newPath = Path.Combine(modsPath, newFilename);
+        File.Move(filePath, newPath);
+
+        var serverPath = Path.Combine(_hostOptions.BaseDirectory, _hostOptions.ServersPathSegment, serverName);
+        await File.WriteAllTextAsync(
+            Path.Combine(serverPath, ".mineos-restart-required"), "", cancellationToken);
+
+        _logger.LogInformation("Mod {OldName} -> {NewName} for server {Server}",
+            filename, newFilename, serverName);
+
+        return newFilename;
+    }
+
     private sealed class ModpackManifest
     {
         public List<ModpackFile> Files { get; set; } = new();

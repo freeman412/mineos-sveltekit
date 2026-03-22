@@ -387,6 +387,56 @@ public static class ModEndpoints
             return Results.Empty;
         });
 
+        servers.MapPost("/{name}/mods/{filename}/enable", async (
+            string name,
+            string filename,
+            IModService modService,
+            CancellationToken cancellationToken) =>
+        {
+            try
+            {
+                var newFilename = await modService.SetModEnabledAsync(name, filename, true, cancellationToken);
+                return Results.Ok(new { filename = newFilename, enabled = true });
+            }
+            catch (FileNotFoundException ex)
+            {
+                return Results.NotFound(new { error = ex.Message });
+            }
+            catch (DirectoryNotFoundException ex)
+            {
+                return Results.NotFound(new { error = ex.Message });
+            }
+            catch (ArgumentException ex)
+            {
+                return Results.BadRequest(new { error = ex.Message });
+            }
+        });
+
+        servers.MapPost("/{name}/mods/{filename}/disable", async (
+            string name,
+            string filename,
+            IModService modService,
+            CancellationToken cancellationToken) =>
+        {
+            try
+            {
+                var newFilename = await modService.SetModEnabledAsync(name, filename, false, cancellationToken);
+                return Results.Ok(new { filename = newFilename, enabled = false });
+            }
+            catch (FileNotFoundException ex)
+            {
+                return Results.NotFound(new { error = ex.Message });
+            }
+            catch (DirectoryNotFoundException ex)
+            {
+                return Results.NotFound(new { error = ex.Message });
+            }
+            catch (ArgumentException ex)
+            {
+                return Results.BadRequest(new { error = ex.Message });
+            }
+        });
+
         var modrinth = servers.MapGroup("/{name}/mods/modrinth");
 
         modrinth.MapGet("/search", async (

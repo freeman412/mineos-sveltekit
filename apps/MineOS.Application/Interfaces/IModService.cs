@@ -46,6 +46,8 @@ public interface IModService
     Task<IReadOnlyList<InstalledModpackDto>> ListInstalledModpacksAsync(string serverName, CancellationToken cancellationToken);
     Task UninstallModpackAsync(string serverName, int modpackDbId, CancellationToken cancellationToken);
 
+    Task<string> SetModEnabledAsync(string serverName, string filename, bool enabled, CancellationToken cancellationToken);
+
     // Client-only mods (stored in client-mods/mods/, included in client packages only)
     Task<IReadOnlyList<InstalledModWithModpackDto>> ListClientModsAsync(string serverName, CancellationToken cancellationToken);
     Task SaveClientModAsync(string serverName, string fileName, Stream content, CancellationToken cancellationToken);
