@@ -242,6 +242,31 @@
 		}
 	}
 
+	async function toggleTps() {
+		if (!data.server?.config) return;
+
+		// Fetch fresh config to avoid overwriting stale data
+		const freshRes = await fetch(`/api/servers/${data.server.name}/server-config`);
+		if (!freshRes.ok) return;
+		const freshConfig = await freshRes.json();
+
+		freshConfig.monitoring = freshConfig.monitoring ?? { tpsEnabled: false, tpsCommand: null };
+		freshConfig.monitoring.tpsEnabled = !freshConfig.monitoring.tpsEnabled;
+
+		const saveRes = await fetch(`/api/servers/${data.server.name}/server-config`, {
+			method: 'PUT',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify(freshConfig)
+		});
+
+		if (saveRes.ok && data.server.config) {
+			if (!data.server.config.monitoring) {
+				data.server.config.monitoring = { tpsEnabled: false, tpsCommand: null };
+			}
+			data.server.config.monitoring = freshConfig.monitoring;
+		}
+	}
+
 	async function clearLogs() {
 		if (!data.server || clearing) return;
 		const tabLabel =
@@ -302,9 +327,16 @@
 				Crash Reports
 			</button>
 		</div>
-		<button class="clear-button" onclick={clearLogs} disabled={clearing}>
-			{clearing ? 'Clearing...' : 'Clear Logs'}
-		</button>
+		<div class="header-actions">
+			<label class="tps-toggle-inline" title={data.server?.config?.monitoring?.tpsEnabled ? 'TPS monitoring on' : 'TPS monitoring off'}>
+				<span class="tps-label">TPS</span>
+				<input type="checkbox" checked={data.server?.config?.monitoring?.tpsEnabled ?? false} onchange={toggleTps} />
+				<span class="toggle-slider-sm"></span>
+			</label>
+			<button class="clear-button" onclick={clearLogs} disabled={clearing}>
+				{clearing ? 'Clearing...' : 'Clear Logs'}
+			</button>
+		</div>
 	</div>
 
 	<div bind:this={terminalWrapper} class="terminal-wrapper">
@@ -437,6 +469,61 @@
 	.send-button:disabled {
 		opacity: 0.5;
 		cursor: not-allowed;
+	}
+
+	.header-actions {
+		display: flex;
+		align-items: center;
+		gap: 12px;
+	}
+
+	.tps-toggle-inline {
+		display: inline-flex;
+		align-items: center;
+		gap: 8px;
+		cursor: pointer;
+		font-size: 12px;
+		color: #8890b1;
+	}
+
+	.tps-label {
+		text-transform: uppercase;
+		letter-spacing: 0.06em;
+		font-weight: 600;
+	}
+
+	.toggle-slider-sm {
+		position: relative;
+		display: inline-block;
+		width: 32px;
+		height: 18px;
+		background: #2a2f47;
+		border-radius: 18px;
+		cursor: pointer;
+		transition: background 0.2s;
+	}
+
+	.toggle-slider-sm::before {
+		content: '';
+		position: absolute;
+		height: 12px;
+		width: 12px;
+		left: 3px;
+		bottom: 3px;
+		background: #8890b1;
+		border-radius: 50%;
+		transition: transform 0.2s, background 0.2s;
+	}
+
+	.tps-toggle-inline input { opacity: 0; width: 0; height: 0; position: absolute; }
+
+	.tps-toggle-inline input:checked + .toggle-slider-sm {
+		background: rgba(106, 176, 76, 0.3);
+	}
+
+	.tps-toggle-inline input:checked + .toggle-slider-sm::before {
+		transform: translateX(14px);
+		background: var(--mc-grass);
 	}
 
 	.clear-button {
