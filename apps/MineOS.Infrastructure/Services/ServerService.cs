@@ -784,7 +784,18 @@ public class ServerService : IServerService
             bool.TryParse(autorestartSection.GetValueOrDefault("notify_on_restart", "true"), out var notifyRestart) && notifyRestart
         );
 
-        return new ServerConfigDto(java, minecraft, onreboot, autorestart);
+        // [monitoring] section
+        var monitoringSection = sections.GetValueOrDefault("monitoring", new Dictionary<string, string>());
+        // Default to false when section is missing — avoids log spam on existing
+        // Vanilla/Bedrock servers. Users who want TPS monitoring can enable it.
+        var tpsEnabled = monitoringSection.GetValueOrDefault("tps_enabled", "false")
+            .Equals("true", StringComparison.OrdinalIgnoreCase);
+        var tpsCommand = monitoringSection.GetValueOrDefault("tps_command", "");
+        var monitoring = new MonitoringConfigDto(
+            tpsEnabled,
+            string.IsNullOrWhiteSpace(tpsCommand) ? null : tpsCommand);
+
+        return new ServerConfigDto(java, minecraft, onreboot, autorestart, monitoring);
     }
 
     public async Task UpdateServerConfigAsync(string name, ServerConfigDto config, CancellationToken cancellationToken)
@@ -819,6 +830,11 @@ public class ServerService : IServerService
                 ["attempt_reset_minutes"] = config.AutoRestart.AttemptResetMinutes.ToString(),
                 ["notify_on_crash"] = config.AutoRestart.NotifyOnCrash.ToString().ToLower(),
                 ["notify_on_restart"] = config.AutoRestart.NotifyOnRestart.ToString().ToLower()
+            },
+            ["monitoring"] = new Dictionary<string, string>
+            {
+                ["tps_enabled"] = (config.Monitoring?.TpsEnabled ?? false).ToString().ToLower(),
+                ["tps_command"] = config.Monitoring?.TpsCommand ?? ""
             }
         };
 

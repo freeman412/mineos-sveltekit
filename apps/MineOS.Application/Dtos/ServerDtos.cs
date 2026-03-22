@@ -48,7 +48,8 @@ public record ServerConfigDto(
     JavaConfigDto Java,
     MinecraftConfigDto Minecraft,
     OnRebootConfigDto OnReboot,
-    AutoRestartConfigDto AutoRestart);
+    AutoRestartConfigDto AutoRestart,
+    MonitoringConfigDto? Monitoring = null);
 
 public record JavaConfigDto(
     string JavaBinary,
@@ -73,6 +74,10 @@ public record AutoRestartConfigDto(
     int AttemptResetMinutes,   // Reset attempt counter after this many minutes of stability
     bool NotifyOnCrash,        // Send notification when crash detected
     bool NotifyOnRestart);     // Send notification when auto-restart triggered
+
+public record MonitoringConfigDto(
+    bool TpsEnabled,
+    string? TpsCommand);
 
 public record CrashEventDto(
     int Id,
