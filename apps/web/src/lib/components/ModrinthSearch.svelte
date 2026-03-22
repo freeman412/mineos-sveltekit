@@ -6,16 +6,17 @@
 	interface Props {
 		serverName: string;
 		serverVersion?: string | null;
+		loader?: string | null;
 		onInstallComplete?: () => void;
 	}
 
-	let { serverName, serverVersion, onInstallComplete }: Props = $props();
+	let { serverName, serverVersion, loader, onInstallComplete }: Props = $props();
 	let searchType = $state<'mods' | 'modpacks' | 'resourcepacks'>('mods');
 </script>
 
 <div class="modrinth-search">
 	{#if searchType === 'mods'}
-		<ModrinthModSearch {serverName} {serverVersion} {onInstallComplete}>
+		<ModrinthModSearch {serverName} {serverVersion} {loader} {onInstallComplete}>
 			{#snippet typeTabs()}
 				<div class="type-tabs" role="tablist" aria-label="Modrinth content type">
 					<button type="button" class:active={searchType === 'mods'} role="tab" aria-selected={searchType === 'mods'} onclick={() => (searchType = 'mods')}>Mods</button>
@@ -25,7 +26,7 @@
 			{/snippet}
 		</ModrinthModSearch>
 	{:else if searchType === 'modpacks'}
-		<ModrinthModpackSearch {serverName} {serverVersion} {onInstallComplete}>
+		<ModrinthModpackSearch {serverName} {serverVersion} {loader} {onInstallComplete}>
 			{#snippet typeTabs()}
 				<div class="type-tabs" role="tablist" aria-label="Modrinth content type">
 					<button type="button" class:active={searchType === 'mods'} role="tab" aria-selected={searchType === 'mods'} onclick={() => (searchType = 'mods')}>Mods</button>
@@ -35,7 +36,7 @@
 			{/snippet}
 		</ModrinthModpackSearch>
 	{:else}
-		<ModrinthResourcePackSearch {serverName} {serverVersion} {onInstallComplete}>
+		<ModrinthResourcePackSearch {serverName} {serverVersion} {loader} {onInstallComplete}>
 			{#snippet typeTabs()}
 				<div class="type-tabs" role="tablist" aria-label="Modrinth content type">
 					<button type="button" class:active={searchType === 'mods'} role="tab" aria-selected={searchType === 'mods'} onclick={() => (searchType = 'mods')}>Mods</button>

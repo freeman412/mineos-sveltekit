@@ -12,11 +12,12 @@
 	interface Props {
 		serverName: string;
 		serverVersion?: string | null;
+		loader?: string | null;
 		onInstallComplete?: () => void;
 		typeTabs?: Snippet;
 	}
 
-	let { serverName, serverVersion, onInstallComplete, typeTabs }: Props = $props();
+	let { serverName, serverVersion, loader, onInstallComplete, typeTabs }: Props = $props();
 
 	let searchQuery = $state('');
 	let searchResults = $state<ModrinthProjectHit[]>([]);
@@ -30,7 +31,6 @@
 
 	// Auto-detect and set version from server
 	const detectedVersion = $derived(extractMinecraftVersion(serverVersion));
-	let selectedLoader = $state('auto');
 	let selectedVersion = $state(detectedVersion || 'auto');
 	let selectedSort = $state('relevance');
 
@@ -40,14 +40,6 @@
 	let detailProject = $state<ModrinthProject | null>(null);
 	let detailVersions = $state<ModrinthVersion[]>([]);
 	let installingVersionId = $state<string | null>(null);
-
-	const loaderOptions = [
-		{ value: 'auto', label: 'Auto (server)' },
-		{ value: 'forge', label: 'Forge' },
-		{ value: 'fabric', label: 'Fabric' },
-		{ value: 'quilt', label: 'Quilt' },
-		{ value: 'neoforge', label: 'NeoForge' }
-	];
 
 	const commonMinecraftVersions = [
 		'auto',
@@ -102,8 +94,8 @@
 				pageSize: String(pageSize)
 			});
 
-			if (selectedLoader !== 'auto') {
-				params.set('loader', selectedLoader);
+			if (loader) {
+				params.set('loader', loader);
 			}
 
 			if (selectedVersion !== 'auto') {
@@ -169,7 +161,7 @@
 	async function loadVersions(projectId: string) {
 		try {
 			const params = new URLSearchParams();
-			if (selectedLoader !== 'auto') params.set('loader', selectedLoader);
+			if (loader) params.set('loader', loader);
 			if (selectedVersion !== 'auto') params.set('gameVersion', selectedVersion);
 
 			const res = await fetch(
@@ -231,15 +223,6 @@
 		/>
 
 		<div class="filters">
-			<label class="filter-group">
-				<span class="filter-label">Loader</span>
-				<select bind:value={selectedLoader} onchange={scheduleSearch}>
-					{#each loaderOptions as option}
-						<option value={option.value}>{option.label}</option>
-					{/each}
-				</select>
-			</label>
-
 			<label class="filter-group">
 				<span class="filter-label">Version</span>
 				<select bind:value={selectedVersion} onchange={scheduleSearch}>

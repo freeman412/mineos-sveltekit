@@ -12,11 +12,12 @@
 	interface Props {
 		serverName: string;
 		serverVersion?: string | null;
+		loader?: string | null;
 		onInstallComplete?: () => void;
 		typeTabs?: Snippet;
 	}
 
-	let { serverName, serverVersion, onInstallComplete, typeTabs }: Props = $props();
+	let { serverName, serverVersion, loader, onInstallComplete, typeTabs }: Props = $props();
 
 	let searchQuery = $state('');
 	let searchResults = $state<ModrinthProjectHit[]>([]);

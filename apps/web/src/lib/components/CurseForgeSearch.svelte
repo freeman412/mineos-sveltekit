@@ -8,10 +8,11 @@
 	interface Props {
 		serverName: string;
 		serverVersion?: string | null;
+		loader?: string | null;
 		onInstallComplete?: () => void;
 	}
 
-	let { serverName, serverVersion, onInstallComplete }: Props = $props();
+	let { serverName, serverVersion, loader, onInstallComplete }: Props = $props();
 
 	let searchQuery = $state('');
 	let searchResults = $state<CurseForgeModSummary[]>([]);
@@ -99,6 +100,7 @@
 
 			if (sort) params.set('sort', sort);
 			if (order) params.set('order', order);
+			if (loader) params.set('loader', loader);
 
 			const effectiveVersion = selectedGameVersion === 'auto' ? detectedVersion : selectedGameVersion;
 			if (effectiveVersion) {
