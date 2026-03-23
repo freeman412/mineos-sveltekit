@@ -3,6 +3,7 @@
 	import '@xterm/xterm/css/xterm.css';
 	import { modal } from '$lib/stores/modal';
 	import { formatBytes, formatDate } from '$lib/utils/formatting';
+	import ChangeServerType from '$lib/components/ChangeServerType.svelte';
 	import type { PageData } from './$types';
 	import type { LayoutData } from './$types';
 
@@ -10,6 +11,25 @@
 	type FitAddonType = import('@xterm/addon-fit').FitAddon;
 
 	let { data }: { data: PageData & { server: LayoutData['server'] } } = $props();
+
+	let showChangeType = $state(false);
+
+	function detectServerType(server: any): string {
+		if (server.serverType === 'bedrock') return 'Bedrock';
+		const jar = (server.config?.java?.jarFile ?? '').toLowerCase();
+		const profile = (server.config?.minecraft?.profile ?? '').toLowerCase();
+		const hint = jar + ' ' + profile;
+		if (hint.includes('forge') && !hint.includes('neoforge')) return 'Forge';
+		if (hint.includes('neoforge')) return 'NeoForge';
+		if (hint.includes('fabric')) return 'Fabric';
+		if (hint.includes('quilt')) return 'Quilt';
+		if (hint.includes('paper')) return 'Paper';
+		if (hint.includes('spigot')) return 'Spigot';
+		if (hint.includes('purpur')) return 'Purpur';
+		if (hint.includes('bukkit')) return 'CraftBukkit';
+		if (jar) return 'Vanilla';
+		return 'Unknown';
+	}
 
 	let terminalContainer: HTMLDivElement;
 	let terminal: TerminalType | null = $state(null);
@@ -340,8 +360,17 @@
 
 		{#if data.server?.config}
 			<div class="card">
-				<h3>Java Configuration</h3>
+				<div class="card-header-row">
+					<h3>Server Configuration</h3>
+					<button class="btn-change-type" onclick={() => showChangeType = true}>
+						Change Type
+					</button>
+				</div>
 				<div class="info-grid">
+					<div class="info-row">
+						<span class="label">Server Type</span>
+						<span class="value type-badge">{detectServerType(data.server)}</span>
+					</div>
 					<div class="info-row">
 						<span class="label">Java Binary</span>
 						<span class="value">{data.server.config.java.javaBinary || 'N/A'}</span>
@@ -395,7 +424,43 @@
 	</section>
 </div>
 
+{#if showChangeType && data.server}
+	<ChangeServerType
+		serverName={data.server.name}
+		currentJar={data.server.config?.java?.jarFile ?? null}
+		currentServerType={data.server.serverType}
+		onClose={() => showChangeType = false}
+		onComplete={() => showChangeType = false}
+	/>
+{/if}
+
 <style>
+	.card-header-row {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		margin-bottom: 12px;
+	}
+
+	.card-header-row h3 { margin: 0; }
+
+	.btn-change-type {
+		padding: 6px 14px;
+		background: rgba(96, 141, 255, 0.15);
+		border: 1px solid rgba(96, 141, 255, 0.3);
+		border-radius: 6px;
+		color: #608dff;
+		font-size: 12px;
+		font-weight: 600;
+		cursor: pointer;
+		transition: all 0.2s;
+	}
+
+	.btn-change-type:hover {
+		background: rgba(96, 141, 255, 0.25);
+		border-color: rgba(96, 141, 255, 0.5);
+	}
+
 	.dashboard {
 		display: flex;
 		flex-direction: column;

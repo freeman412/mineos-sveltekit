@@ -413,8 +413,14 @@
 
 	.buildtools-layout {
 		display: grid;
-		grid-template-columns: minmax(240px, 320px) 1fr;
+		grid-template-columns: minmax(300px, 400px) 1fr;
 		gap: 24px;
+	}
+
+	@media (max-width: 900px) {
+		.buildtools-layout {
+			grid-template-columns: 1fr;
+		}
 	}
 
 	.buildtools-panel,
