@@ -1283,6 +1283,18 @@ public class ServerService : IServerService
         }
     }
 
+    public async Task UpdateServerTypeAsync(string name, string serverType, CancellationToken cancellationToken)
+    {
+        var serverPath = GetServerPath(name);
+        if (!Directory.Exists(serverPath))
+            throw new DirectoryNotFoundException($"Server '{name}' not found");
+
+        await File.WriteAllTextAsync(
+            Path.Combine(serverPath, ServerTypeFile), serverType, cancellationToken);
+
+        _logger.LogInformation("Updated server type for {Server} to {Type}", name, serverType);
+    }
+
     private static readonly System.Text.RegularExpressions.Regex[] JarLoaderPatterns =
     [
         new(@"^forge-(?<mc>[\d.]+)-", System.Text.RegularExpressions.RegexOptions.IgnoreCase),

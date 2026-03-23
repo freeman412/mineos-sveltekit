@@ -242,16 +242,19 @@
 		}
 	}
 
+	let tpsEnabled = $state(data.server?.config?.monitoring?.tpsEnabled ?? false);
+
 	async function toggleTps() {
 		if (!data.server?.config) return;
 
-		// Fetch fresh config to avoid overwriting stale data
+		const newValue = !tpsEnabled;
+
 		const freshRes = await fetch(`/api/servers/${data.server.name}/server-config`);
 		if (!freshRes.ok) return;
 		const freshConfig = await freshRes.json();
 
 		freshConfig.monitoring = freshConfig.monitoring ?? { tpsEnabled: false, tpsCommand: null };
-		freshConfig.monitoring.tpsEnabled = !freshConfig.monitoring.tpsEnabled;
+		freshConfig.monitoring.tpsEnabled = newValue;
 
 		const saveRes = await fetch(`/api/servers/${data.server.name}/server-config`, {
 			method: 'PUT',
@@ -259,11 +262,8 @@
 			body: JSON.stringify(freshConfig)
 		});
 
-		if (saveRes.ok && data.server.config) {
-			if (!data.server.config.monitoring) {
-				data.server.config.monitoring = { tpsEnabled: false, tpsCommand: null };
-			}
-			data.server.config.monitoring = freshConfig.monitoring;
+		if (saveRes.ok) {
+			tpsEnabled = newValue;
 		}
 	}
 
@@ -328,9 +328,9 @@
 			</button>
 		</div>
 		<div class="header-actions">
-			<label class="tps-toggle-inline" title={data.server?.config?.monitoring?.tpsEnabled ? 'TPS monitoring on' : 'TPS monitoring off'}>
+			<label class="tps-toggle-inline" title={tpsEnabled ? 'TPS monitoring on' : 'TPS monitoring off'}>
 				<span class="tps-label">TPS</span>
-				<input type="checkbox" checked={data.server?.config?.monitoring?.tpsEnabled ?? false} onchange={toggleTps} />
+				<input type="checkbox" checked={tpsEnabled} onchange={toggleTps} />
 				<span class="toggle-slider-sm"></span>
 			</label>
 			<button class="clear-button" onclick={clearLogs} disabled={clearing}>

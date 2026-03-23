@@ -1207,7 +1207,9 @@
 										>
 											<span class="version-number">{profile.version}</span>
 											<div class="version-meta">
-												{#if profile.downloaded}
+												{#if (selectedType === 'spigot' || selectedType === 'craftbukkit') && profile.group === 'vanilla'}
+													<StatusBadge variant="info" size="sm">Will Build</StatusBadge>
+												{:else if profile.downloaded}
 													<StatusBadge variant="success" size="sm">Ready</StatusBadge>
 												{:else if selectedType === 'spigot' || selectedType === 'craftbukkit'}
 													<StatusBadge variant="info" size="sm">Will Build</StatusBadge>

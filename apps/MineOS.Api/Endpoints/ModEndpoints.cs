@@ -675,8 +675,27 @@ public static class ModEndpoints
             }
         });
 
+        servers.MapPut("/{name}/server-type", async (
+            string name,
+            [FromBody] UpdateServerTypeRequest request,
+            IServerService serverService,
+            CancellationToken cancellationToken) =>
+        {
+            try
+            {
+                await serverService.UpdateServerTypeAsync(name, request.ServerType, cancellationToken);
+                return Results.Ok(new { message = "Server type updated" });
+            }
+            catch (DirectoryNotFoundException ex)
+            {
+                return Results.NotFound(new { error = ex.Message });
+            }
+        });
+
         return servers;
     }
+
+    private record UpdateServerTypeRequest(string ServerType);
 
     private static readonly (System.Text.RegularExpressions.Regex Pattern, string Loader)[] JarLoaderPatterns =
     [

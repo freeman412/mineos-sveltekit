@@ -46,8 +46,12 @@
 		return value.toFixed(decimals);
 	}
 
+	let tpsEnabled = $state(data.server?.config?.monitoring?.tpsEnabled ?? false);
+
 	async function toggleTps() {
 		if (!data.server?.config) return;
+
+		const newValue = !tpsEnabled;
 
 		// Fetch fresh config to avoid overwriting stale data
 		const freshRes = await fetch(`/api/servers/${data.server.name}/server-config`);
@@ -55,7 +59,7 @@
 		const freshConfig = await freshRes.json();
 
 		freshConfig.monitoring = freshConfig.monitoring ?? { tpsEnabled: false, tpsCommand: null };
-		freshConfig.monitoring.tpsEnabled = !freshConfig.monitoring.tpsEnabled;
+		freshConfig.monitoring.tpsEnabled = newValue;
 
 		const saveRes = await fetch(`/api/servers/${data.server.name}/server-config`, {
 			method: 'PUT',
@@ -63,11 +67,8 @@
 			body: JSON.stringify(freshConfig)
 		});
 
-		if (saveRes.ok && data.server.config) {
-			if (!data.server.config.monitoring) {
-				data.server.config.monitoring = { tpsEnabled: false, tpsCommand: null };
-			}
-			data.server.config.monitoring = freshConfig.monitoring;
+		if (saveRes.ok) {
+			tpsEnabled = newValue;
 		}
 	}
 
@@ -155,12 +156,12 @@
 		<div class="tps-chart-wrapper">
 			<div class="tps-header">
 				<h3>TPS</h3>
-				<label class="tps-toggle" title={data.server?.config?.monitoring?.tpsEnabled ? 'Disable TPS monitoring' : 'Enable TPS monitoring'}>
-					<input type="checkbox" checked={data.server?.config?.monitoring?.tpsEnabled ?? false} onchange={toggleTps} />
+				<label class="tps-toggle" title={tpsEnabled ? 'Disable TPS monitoring' : 'Enable TPS monitoring'}>
+					<input type="checkbox" checked={tpsEnabled} onchange={toggleTps} />
 					<span class="toggle-slider"></span>
 				</label>
 			</div>
-			{#if !(data.server?.config?.monitoring?.tpsEnabled ?? false)}
+			{#if !tpsEnabled}
 				<div class="tps-disabled-notice">TPS monitoring is disabled for this server</div>
 			{:else}
 				<PerformanceChart title="TPS" unit="" color="#f5c97a" points={tpsSeries} timestamps={timestampSeries} maxValue={20} minValue={0} />

@@ -176,8 +176,8 @@
 						installStep = data.currentStep || 'Installing Forge...';
 						if (data.status === 'completed') {
 							source.close();
-							installCompleted = true;
 							installStep = 'Forge installed successfully!';
+							markInstallComplete();
 							installProgress = 100;
 						} else if (data.status === 'failed') {
 							source.close();
@@ -208,8 +208,8 @@
 						installStep = data.currentStep || 'Installing Fabric...';
 						if (data.status === 'completed') {
 							source.close();
-							installCompleted = true;
 							installStep = 'Fabric installed successfully!';
+							markInstallComplete();
 							installProgress = 100;
 						} else if (data.status === 'failed') {
 							source.close();
@@ -246,12 +246,26 @@
 					throw new Error(err.error || 'Copy failed');
 				}
 
-				installCompleted = true;
 				installStep = 'Server type changed successfully!';
+				markInstallComplete();
 				installProgress = 100;
 			}
 		} catch (err) {
 			installError = err instanceof Error ? err.message : 'Installation failed';
+		}
+	}
+
+	async function markInstallComplete() {
+		installCompleted = true;
+		// Update the .mineos-server-type file so detection works immediately
+		if (selectedType) {
+			try {
+				await fetch(`/api/servers/${encodeURIComponent(serverName)}/server-type`, {
+					method: 'PUT',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify({ serverType: selectedType })
+				});
+			} catch { /* best effort */ }
 		}
 	}
 

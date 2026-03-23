@@ -29,4 +29,5 @@ public interface IServerService
 
     // Loader detection
     Task<ServerLoaderDto> DetectLoaderAsync(string name, CancellationToken cancellationToken);
+    Task UpdateServerTypeAsync(string name, string serverType, CancellationToken cancellationToken);
 }
