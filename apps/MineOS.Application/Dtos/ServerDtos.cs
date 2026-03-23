@@ -1,5 +1,7 @@
 namespace MineOS.Application.Dtos;
 
+public record ServerLoaderDto(string? Loader, string? Version);
+
 public record CronJobDto(string Hash, string Source, string Action, string? Msg, bool Enabled);
 
 public record NoticeDto(

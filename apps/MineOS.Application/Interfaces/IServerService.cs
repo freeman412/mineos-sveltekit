@@ -26,4 +26,7 @@ public interface IServerService
 
     Task AcceptEulaAsync(string name, CancellationToken cancellationToken);
     Task RunFtbInstallerAsync(string name, CancellationToken cancellationToken);
+
+    // Loader detection
+    Task<ServerLoaderDto> DetectLoaderAsync(string name, CancellationToken cancellationToken);
 }

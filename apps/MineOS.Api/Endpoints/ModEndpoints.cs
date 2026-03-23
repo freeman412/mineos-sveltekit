@@ -658,14 +658,12 @@ public static class ModEndpoints
         servers.MapGet("/{name}/loader", async (
             string name,
             IServerService serverService,
-            IProfileService profileService,
             CancellationToken cancellationToken) =>
         {
             try
             {
-                var (gameVersion, loader) = await ResolveServerDefaultsAsync(
-                    name, serverService, profileService, cancellationToken);
-                return Results.Ok(new { loader, version = gameVersion });
+                var result = await serverService.DetectLoaderAsync(name, cancellationToken);
+                return Results.Ok(new { loader = result.Loader, version = result.Version });
             }
             catch (DirectoryNotFoundException ex)
             {
@@ -729,10 +727,13 @@ public static class ModEndpoints
 
                 // Priority 3: Simple name-based detection for common patterns
                 var lower = jarName.ToLowerInvariant();
-                if (lower.Contains("forge")) return (null, "forge");
                 if (lower.Contains("neoforge")) return (null, "neoforge");
+                if (lower.Contains("forge")) return (null, "forge");
                 if (lower.Contains("fabric")) return (null, "fabric");
                 if (lower.Contains("quilt")) return (null, "quilt");
+
+                // Priority 4: Check for @argfile syntax (Forge modpacks)
+                if (jarFile.TrimStart().StartsWith("@")) return (null, "forge");
             }
 
             return (null, null);

@@ -14,22 +14,58 @@
 
 	let showChangeType = $state(false);
 
-	function detectServerType(server: any): string {
+	let detectedType = $state('Unknown');
+
+	// Detect server type from jar, profile, jar args, and server directory
+	function detectServerTypeFromConfig(server: any): string {
 		if (server.serverType === 'bedrock') return 'Bedrock';
 		const jar = (server.config?.java?.jarFile ?? '').toLowerCase();
 		const profile = (server.config?.minecraft?.profile ?? '').toLowerCase();
-		const hint = jar + ' ' + profile;
-		if (hint.includes('forge') && !hint.includes('neoforge')) return 'Forge';
+		const jarArgs = (server.config?.java?.jarArgs ?? '').toLowerCase();
+		const hint = jar + ' ' + profile + ' ' + jarArgs;
 		if (hint.includes('neoforge')) return 'NeoForge';
+		if (hint.includes('forge')) return 'Forge';
 		if (hint.includes('fabric')) return 'Fabric';
 		if (hint.includes('quilt')) return 'Quilt';
 		if (hint.includes('paper')) return 'Paper';
 		if (hint.includes('spigot')) return 'Spigot';
 		if (hint.includes('purpur')) return 'Purpur';
 		if (hint.includes('bukkit')) return 'CraftBukkit';
-		if (jar) return 'Vanilla';
-		return 'Unknown';
+		// Check if jar field uses @argfile syntax (Forge modpacks)
+		if (jar.startsWith('@')) return 'Forge';
+		return '';
 	}
+
+	// Also check via the loader detection API for a definitive answer
+	async function detectServerType(server: any) {
+		// Try config-based detection first
+		const configType = detectServerTypeFromConfig(server);
+		if (configType) {
+			detectedType = configType;
+			return;
+		}
+
+		// Fall back to the loader API (checks jar filename regex + directory contents)
+		try {
+			const res = await fetch(`/api/servers/${encodeURIComponent(server.name)}/loader`);
+			if (res.ok) {
+				const info = await res.json();
+				if (info.loader) {
+					const loaderMap: Record<string, string> = {
+						forge: 'Forge', neoforge: 'NeoForge', fabric: 'Fabric', quilt: 'Quilt'
+					};
+					detectedType = loaderMap[info.loader] ?? info.loader;
+					return;
+				}
+			}
+		} catch { /* ignore */ }
+
+		detectedType = server.config?.java?.jarFile ? 'Vanilla' : 'Unknown';
+	}
+
+	$effect(() => {
+		if (data.server) detectServerType(data.server);
+	});
 
 	let terminalContainer: HTMLDivElement;
 	let terminal: TerminalType | null = $state(null);
@@ -369,7 +405,7 @@
 				<div class="info-grid">
 					<div class="info-row">
 						<span class="label">Server Type</span>
-						<span class="value type-badge">{detectServerType(data.server)}</span>
+						<span class="value type-badge">{detectedType}</span>
 					</div>
 					<div class="info-row">
 						<span class="label">Java Binary</span>

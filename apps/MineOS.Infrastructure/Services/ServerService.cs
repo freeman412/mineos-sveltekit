@@ -1282,4 +1282,85 @@ public class ServerService : IServerService
             await sourceStream.CopyToAsync(targetStream, cancellationToken);
         }
     }
+
+    private static readonly System.Text.RegularExpressions.Regex[] JarLoaderPatterns =
+    [
+        new(@"^forge-(?<mc>[\d.]+)-", System.Text.RegularExpressions.RegexOptions.IgnoreCase),
+        new(@"^neoforge-(?<mc>[\d.]+)-", System.Text.RegularExpressions.RegexOptions.IgnoreCase),
+        new(@"^fabric-server-mc\.(?<mc>[\d.]+)-", System.Text.RegularExpressions.RegexOptions.IgnoreCase),
+        new(@"^fabric-loader-[\d.]+-(?<mc>[\d.]+)", System.Text.RegularExpressions.RegexOptions.IgnoreCase),
+        new(@"^quilt-server-(?<mc>[\d.]+)-", System.Text.RegularExpressions.RegexOptions.IgnoreCase),
+    ];
+
+    private static readonly (string dir, string loader)[] LibraryDirLoaders =
+    [
+        ("net/minecraftforge", "forge"),
+        ("net/neoforged", "neoforge"),
+        ("net/fabricmc", "fabric"),
+    ];
+
+    public async Task<ServerLoaderDto> DetectLoaderAsync(string name, CancellationToken cancellationToken)
+    {
+        var serverPath = GetServerPath(name);
+        if (!Directory.Exists(serverPath))
+            throw new DirectoryNotFoundException($"Server '{name}' not found");
+
+        var config = await GetServerConfigAsync(name, cancellationToken);
+        var jarFile = config.Java.JarFile ?? "";
+        var jarArgs = config.Java.JarArgs ?? "";
+        var profile = config.Minecraft.Profile ?? "";
+
+        // Priority 1: Profile group (if a profile is set, look it up)
+        // We don't have IProfileService here, so skip profile lookup.
+
+        // Priority 2: JAR filename regex
+        var jarName = Path.GetFileName(jarFile);
+        if (!string.IsNullOrWhiteSpace(jarName))
+        {
+            var lower = jarName.ToLowerInvariant();
+            if (lower.Contains("neoforge")) return new ServerLoaderDto("neoforge", null);
+            if (lower.Contains("forge")) return new ServerLoaderDto("forge", null);
+            if (lower.Contains("fabric")) return new ServerLoaderDto("fabric", null);
+            if (lower.Contains("quilt")) return new ServerLoaderDto("quilt", null);
+            if (lower.Contains("paper")) return new ServerLoaderDto("paper", null);
+            if (lower.Contains("spigot")) return new ServerLoaderDto("spigot", null);
+            if (lower.Contains("purpur")) return new ServerLoaderDto("purpur", null);
+            if (lower.Contains("bukkit")) return new ServerLoaderDto("bukkit", null);
+        }
+
+        // Priority 3: @argfile syntax (Forge modpacks)
+        if (jarFile.TrimStart().StartsWith("@"))
+            return new ServerLoaderDto("forge", null);
+
+        // Priority 4: jar args containing loader names
+        if (!string.IsNullOrWhiteSpace(jarArgs))
+        {
+            var argsLower = jarArgs.ToLowerInvariant();
+            if (argsLower.Contains("neoforge")) return new ServerLoaderDto("neoforge", null);
+            if (argsLower.Contains("forge")) return new ServerLoaderDto("forge", null);
+            if (argsLower.Contains("fabric")) return new ServerLoaderDto("fabric", null);
+        }
+
+        // Priority 5: Check for mod loader libraries on disk
+        var libPath = Path.Combine(serverPath, "libraries");
+        if (Directory.Exists(libPath))
+        {
+            foreach (var (dir, loader) in LibraryDirLoaders)
+            {
+                if (Directory.Exists(Path.Combine(libPath, dir.Replace('/', Path.DirectorySeparatorChar))))
+                    return new ServerLoaderDto(loader, null);
+            }
+        }
+
+        // Priority 6: Check for mods folder (suggests a mod loader even if we can't tell which)
+        if (Directory.Exists(Path.Combine(serverPath, "mods")))
+        {
+            // Check if any forge/fabric config files exist
+            if (File.Exists(Path.Combine(serverPath, "config", "forge-client.toml")) ||
+                File.Exists(Path.Combine(serverPath, "config", "forge-common.toml")))
+                return new ServerLoaderDto("forge", null);
+        }
+
+        return new ServerLoaderDto(null, null);
+    }
 }
