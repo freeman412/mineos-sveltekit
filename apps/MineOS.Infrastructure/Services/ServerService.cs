@@ -1308,10 +1308,8 @@ public class ServerService : IServerService
         var config = await GetServerConfigAsync(name, cancellationToken);
         var jarFile = config.Java.JarFile ?? "";
         var jarArgs = config.Java.JarArgs ?? "";
+        var javaTweaks = config.Java.JavaTweaks ?? "";
         var profile = config.Minecraft.Profile ?? "";
-
-        // Priority 1: Profile group (if a profile is set, look it up)
-        // We don't have IProfileService here, so skip profile lookup.
 
         // Priority 2: JAR filename regex
         var jarName = Path.GetFileName(jarFile);
@@ -1332,14 +1330,15 @@ public class ServerService : IServerService
         if (jarFile.TrimStart().StartsWith("@"))
             return new ServerLoaderDto("forge", null);
 
-        // Priority 4: jar args containing loader names
-        if (!string.IsNullOrWhiteSpace(jarArgs))
-        {
-            var argsLower = jarArgs.ToLowerInvariant();
-            if (argsLower.Contains("neoforge")) return new ServerLoaderDto("neoforge", null);
-            if (argsLower.Contains("forge")) return new ServerLoaderDto("forge", null);
-            if (argsLower.Contains("fabric")) return new ServerLoaderDto("fabric", null);
-        }
+        // Priority 4: jar args and java tweaks containing loader names
+        var combinedArgs = (jarArgs + " " + javaTweaks).ToLowerInvariant();
+        if (combinedArgs.Contains("neoforge")) return new ServerLoaderDto("neoforge", null);
+        if (combinedArgs.Contains("minecraftforge") || combinedArgs.Contains("net/forge"))
+            return new ServerLoaderDto("forge", null);
+        if (combinedArgs.Contains("forge") && !combinedArgs.Contains("neoforge"))
+            return new ServerLoaderDto("forge", null);
+        if (combinedArgs.Contains("fabricmc") || combinedArgs.Contains("fabric"))
+            return new ServerLoaderDto("fabric", null);
 
         // Priority 5: Check for mod loader libraries on disk
         var libPath = Path.Combine(serverPath, "libraries");

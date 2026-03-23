@@ -17,7 +17,9 @@
 	const isBedrock = $derived(server?.serverType === 'bedrock');
 	const profile = $derived(server?.config?.minecraft?.profile?.toLowerCase() ?? '');
 	const jarFile = $derived(server?.config?.java?.jarFile?.toLowerCase() ?? '');
-	const serverHint = $derived(profile + ' ' + jarFile);
+	const javaTweaks = $derived(server?.config?.java?.javaTweaks?.toLowerCase() ?? '');
+	const jarArgs = $derived(server?.config?.java?.jarArgs?.toLowerCase() ?? '');
+	const serverHint = $derived(profile + ' ' + jarFile + ' ' + javaTweaks + ' ' + jarArgs);
 	const isModded = $derived(
 		!isBedrock &&
 			(serverHint.includes('forge') ||
