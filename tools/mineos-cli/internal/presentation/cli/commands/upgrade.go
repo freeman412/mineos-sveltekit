@@ -70,6 +70,15 @@ var errNoReleases = errors.New("no releases found")
 func runUpgrade(cmd *cobra.Command, currentVersion string, force, checkOnly, includePrerelease bool) error {
 	out := cmd.OutOrStdout()
 
+	// Respect MINEOS_CLI_PRERELEASE_UPDATES from .env if --prerelease wasn't explicitly passed
+	if !includePrerelease {
+		if envMap, err := loadEnvValues(".env"); err == nil {
+			if val, ok := envMap["MINEOS_CLI_PRERELEASE_UPDATES"]; ok && parseEnvBool(val) {
+				includePrerelease = true
+			}
+		}
+	}
+
 	fmt.Fprintln(out, "Checking for updates...")
 
 	release, err := fetchBestRelease(includePrerelease)
