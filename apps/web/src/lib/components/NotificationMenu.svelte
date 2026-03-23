@@ -283,8 +283,12 @@
 								<span class="task-type">{getJobTypeLabel(job.type)}</span>
 								<span class="task-server">{job.serverName}</span>
 							</div>
-							{#if job.serverName}
+							{#if job.serverName && job.type !== 'buildtools'}
 								<a class="task-link" href={`/servers/${encodeURIComponent(job.serverName)}`}>
+									Details
+								</a>
+							{:else if job.type === 'buildtools'}
+								<a class="task-link" href="/profiles/buildtools">
 									Details
 								</a>
 							{/if}
@@ -391,7 +395,11 @@
 								</div>
 								<p>{notification.message}</p>
 								{#if notification.serverName}
-									<span class="server-tag">{notification.serverName}</span>
+									{#if notification.title?.includes('BuildTools')}
+										<a class="server-tag" href="/profiles/buildtools">{notification.serverName}</a>
+									{:else}
+										<a class="server-tag" href={`/servers/${encodeURIComponent(notification.serverName)}`}>{notification.serverName}</a>
+									{/if}
 								{/if}
 							</div>
 							<div class="notification-actions">
