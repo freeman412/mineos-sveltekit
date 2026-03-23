@@ -292,12 +292,55 @@ public sealed class ConsoleService : IConsoleService
 
     private static string FormatLogLine(string? prefix, string line)
     {
+        var coloredLine = ColorizeLogLine(line);
+
         if (string.IsNullOrWhiteSpace(prefix))
         {
-            return line;
+            return coloredLine;
         }
 
-        return $"[{prefix}] {line}";
+        return $"[{prefix}] {coloredLine}";
+    }
+
+    private static string ColorizeLogLine(string line)
+    {
+        // Strip Minecraft's § color codes (they don't render in terminals)
+        line = StripMinecraftColorCodes(line);
+
+        // Apply ANSI colors based on log level
+        // Common Minecraft log format: [HH:MM:SS INFO]: message
+        // or: [23Mar2026 01:41:53.632] [Server thread/INFO] ...
+        var upper = line.ToUpperInvariant();
+
+        if (upper.Contains("/ERROR]") || upper.Contains(" ERROR]") || upper.Contains("/FATAL]") || upper.Contains(" FATAL]"))
+            return $"\x1b[91m{line}\x1b[0m"; // Bright red
+
+        if (upper.Contains("/WARN]") || upper.Contains(" WARN]") || upper.Contains("/WARNING]"))
+            return $"\x1b[93m{line}\x1b[0m"; // Yellow
+
+        if (upper.Contains("/DEBUG]") || upper.Contains(" DEBUG]") || upper.Contains("/TRACE]"))
+            return $"\x1b[90m{line}\x1b[0m"; // Gray/dim
+
+        return line;
+    }
+
+    private static string StripMinecraftColorCodes(string line)
+    {
+        // Remove §X color codes (Minecraft uses § followed by a color character)
+        if (!line.Contains('\u00A7'))
+            return line;
+
+        var sb = new System.Text.StringBuilder(line.Length);
+        for (var i = 0; i < line.Length; i++)
+        {
+            if (line[i] == '\u00A7' && i + 1 < line.Length)
+            {
+                i++; // Skip the color character
+                continue;
+            }
+            sb.Append(line[i]);
+        }
+        return sb.ToString();
     }
 
     private async IAsyncEnumerable<LogEntryDto> StreamCrashReportsAsync(
