@@ -121,11 +121,24 @@ public class ServerService : IServerService
         );
     }
 
+    private static readonly System.Text.RegularExpressions.Regex SafeServerNameRegex = new(
+        @"^[a-zA-Z0-9][a-zA-Z0-9 _\-\.]{0,63}$",
+        System.Text.RegularExpressions.RegexOptions.Compiled);
+
     public async Task<ServerDetailDto> CreateServerAsync(
         CreateServerRequest request,
         string username,
         CancellationToken cancellationToken)
     {
+        if (string.IsNullOrWhiteSpace(request.Name))
+            throw new ArgumentException("Server name is required");
+
+        if (!SafeServerNameRegex.IsMatch(request.Name))
+            throw new ArgumentException("Server name contains invalid characters. Use letters, numbers, spaces, hyphens, underscores, or dots.");
+
+        if (request.Name.Contains(".."))
+            throw new ArgumentException("Server name cannot contain '..'");
+
         var serverPath = GetServerPath(request.Name);
         var backupPath = GetBackupPath(request.Name);
         var archivePath = GetArchivePath(request.Name);

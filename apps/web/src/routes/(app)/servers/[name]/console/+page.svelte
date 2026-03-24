@@ -28,6 +28,7 @@
 	let serverEventSource: EventSource | null = null;
 	let javaEventSource: EventSource | null = null;
 	let crashEventSource: EventSource | null = null;
+	let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 	let resizeObserver: ResizeObserver | null = null;
 	let terminalCtor: TerminalCtor | null = null;
 	let fitAddonCtor: FitAddonCtor | null = null;
@@ -182,9 +183,15 @@
 		};
 
 		eventSource.onerror = () => {
-			terminal?.writeln('\x1b[1;31m[Connection lost. Reconnecting...]\x1b[0m');
 			eventSource?.close();
-			setTimeout(() => connectToLogs(tab), 3000);
+			// Debounce reconnection to prevent stacking
+			if (!reconnectTimer) {
+				terminal?.writeln('\x1b[1;31m[Connection lost. Reconnecting...]\x1b[0m');
+				reconnectTimer = setTimeout(() => {
+					reconnectTimer = null;
+					connectToLogs(tab);
+				}, 3000);
+			}
 		};
 
 		eventSource.onopen = () => {

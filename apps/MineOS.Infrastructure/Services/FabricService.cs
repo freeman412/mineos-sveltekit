@@ -159,11 +159,22 @@ public sealed class FabricService : IFabricService
 
     public IReadOnlyList<FabricInstallStatusDto> GetActiveInstalls()
     {
+        EvictStaleInstallations();
         return Installations.Values
             .Select(state => state.ToDto())
             .Where(dto => string.Equals(dto.Status, "running", StringComparison.OrdinalIgnoreCase))
             .OrderByDescending(dto => dto.StartedAt)
             .ToList();
+    }
+
+    private static void EvictStaleInstallations()
+    {
+        var cutoff = DateTimeOffset.UtcNow.AddMinutes(-10);
+        foreach (var kvp in Installations)
+        {
+            if (kvp.Value.CompletedAt.HasValue && kvp.Value.CompletedAt.Value < cutoff)
+                Installations.TryRemove(kvp.Key, out _);
+        }
     }
 
     private async Task<List<FabricGameVersionDto>> FetchGameVersionsAsync(CancellationToken cancellationToken)
