@@ -5,6 +5,10 @@ namespace MineOS.Api.Endpoints;
 
 public static class FabricEndpoints
 {
+    private static readonly System.Text.Json.JsonSerializerOptions CamelCaseJsonOptions = new()
+    {
+        PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase
+    };
     public static IEndpointRouteBuilder MapFabricEndpoints(this IEndpointRouteBuilder api)
     {
         var fabric = api.MapGroup("/fabric")
@@ -96,8 +100,7 @@ public static class FabricEndpoints
                     break;
                 }
 
-                var json = System.Text.Json.JsonSerializer.Serialize(status,
-                    new System.Text.Json.JsonSerializerOptions { PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase });
+                var json = System.Text.Json.JsonSerializer.Serialize(status, CamelCaseJsonOptions);
                 await context.Response.WriteAsync($"data: {json}\n\n", ct);
                 await context.Response.Body.FlushAsync(ct);
 

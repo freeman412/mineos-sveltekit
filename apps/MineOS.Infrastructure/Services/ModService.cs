@@ -2897,15 +2897,16 @@ public sealed class ModService : IModService
 
     public async Task<string> SetModEnabledAsync(string serverName, string filename, bool enabled, CancellationToken cancellationToken)
     {
+        var safeName = ValidateFileName(filename);
         var modsPath = GetModsPath(serverName);
-        var filePath = Path.Combine(modsPath, filename);
+        var filePath = Path.Combine(modsPath, safeName);
 
         if (!File.Exists(filePath))
-            throw new FileNotFoundException($"Mod file not found: {filename}");
+            throw new FileNotFoundException($"Mod file not found: {safeName}");
 
-        var newFilename = ComputeToggleName(filename, enabled);
-        if (newFilename == filename)
-            return filename;
+        var newFilename = ComputeToggleName(safeName, enabled);
+        if (newFilename == safeName)
+            return safeName;
 
         var newPath = Path.Combine(modsPath, newFilename);
         File.Move(filePath, newPath);

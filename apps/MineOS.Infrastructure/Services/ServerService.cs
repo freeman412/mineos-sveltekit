@@ -1283,14 +1283,23 @@ public class ServerService : IServerService
         }
     }
 
+    private static readonly HashSet<string> AllowedServerTypes = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "java", "bedrock", "vanilla", "paper", "spigot", "craftbukkit", "purpur",
+        "forge", "neoforge", "fabric", "quilt", "folia"
+    };
+
     public async Task UpdateServerTypeAsync(string name, string serverType, CancellationToken cancellationToken)
     {
+        if (string.IsNullOrWhiteSpace(serverType) || !AllowedServerTypes.Contains(serverType))
+            throw new ArgumentException($"Invalid server type: '{serverType}'");
+
         var serverPath = GetServerPath(name);
         if (!Directory.Exists(serverPath))
             throw new DirectoryNotFoundException($"Server '{name}' not found");
 
         await File.WriteAllTextAsync(
-            Path.Combine(serverPath, ServerTypeFile), serverType, cancellationToken);
+            Path.Combine(serverPath, ServerTypeFile), serverType.ToLowerInvariant(), cancellationToken);
 
         _logger.LogInformation("Updated server type for {Server} to {Type}", name, serverType);
     }

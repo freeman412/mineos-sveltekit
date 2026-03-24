@@ -697,16 +697,11 @@ public static class ModEndpoints
 
     private record UpdateServerTypeRequest(string ServerType);
 
-    private static readonly (System.Text.RegularExpressions.Regex Pattern, string Loader)[] JarLoaderPatterns =
-    [
-        (new(@"^forge-(?<mc>[\d.]+)-[\d.\w-]+?(?:-(?:server|installer))?\.jar$", System.Text.RegularExpressions.RegexOptions.IgnoreCase), "forge"),
-        (new(@"^neoforge-(?<mc>[\d.]+)-[\d.\w-]+?(?:-(?:server|installer))?\.jar$", System.Text.RegularExpressions.RegexOptions.IgnoreCase), "neoforge"),
-        (new(@"^fabric-server-mc\.(?<mc>[\d.]+)-loader\.[\d.]+.+\.jar$", System.Text.RegularExpressions.RegexOptions.IgnoreCase), "fabric"),
-        (new(@"^fabric-loader-[\d.]+-(?<mc>[\d.]+).+\.jar$", System.Text.RegularExpressions.RegexOptions.IgnoreCase), "fabric"),
-        (new(@"^quilt-server-(?<mc>[\d.]+)-[\d.]+.+\.jar$", System.Text.RegularExpressions.RegexOptions.IgnoreCase), "quilt"),
-        (new(@"^quilt-loader-[\d.]+-(?<mc>[\d.]+).+\.jar$", System.Text.RegularExpressions.RegexOptions.IgnoreCase), "quilt"),
-    ];
-
+    /// <summary>
+    /// Resolves the mod loader and Minecraft version for a server.
+    /// Delegates to ServerService.DetectLoaderAsync for the canonical detection logic,
+    /// with an additional profile-based version lookup.
+    /// </summary>
     private static async Task<(string? GameVersion, string? Loader)> ResolveServerDefaultsAsync(
         string serverName,
         IServerService serverService,
@@ -715,70 +710,29 @@ public static class ModEndpoints
     {
         try
         {
-            var config = await serverService.GetServerConfigAsync(serverName, cancellationToken);
+            // Use the canonical detection from ServerService
+            var detected = await serverService.DetectLoaderAsync(serverName, cancellationToken);
+            var loader = detected.Loader;
+            var version = detected.Version;
 
-            // Priority 1: Profile group field
-            if (!string.IsNullOrWhiteSpace(config.Minecraft.Profile))
+            // If we have a loader but no version, try to get it from the profile
+            if (loader != null && version == null)
             {
-                var profile = await profileService.GetProfileAsync(config.Minecraft.Profile, cancellationToken);
-                if (profile != null)
+                var config = await serverService.GetServerConfigAsync(serverName, cancellationToken);
+                if (!string.IsNullOrWhiteSpace(config.Minecraft.Profile))
                 {
-                    var loader = MapModLoader(profile.Group);
-                    if (loader != null)
-                        return (profile.Version, loader);
+                    var profile = await profileService.GetProfileAsync(config.Minecraft.Profile, cancellationToken);
+                    if (profile != null)
+                        version = profile.Version;
                 }
             }
 
-            // Priority 2: JAR filename regex parsing
-            var jarFile = config.Java.JarFile;
-            if (!string.IsNullOrWhiteSpace(jarFile))
-            {
-                var jarName = Path.GetFileName(jarFile);
-                foreach (var (pattern, loader) in JarLoaderPatterns)
-                {
-                    var match = pattern.Match(jarName);
-                    if (match.Success)
-                    {
-                        var mc = match.Groups["mc"].Success ? match.Groups["mc"].Value : null;
-                        return (mc, loader);
-                    }
-                }
-
-                // Priority 3: Simple name-based detection for common patterns
-                var lower = jarName.ToLowerInvariant();
-                if (lower.Contains("neoforge")) return (null, "neoforge");
-                if (lower.Contains("forge")) return (null, "forge");
-                if (lower.Contains("fabric")) return (null, "fabric");
-                if (lower.Contains("quilt")) return (null, "quilt");
-
-                // Priority 4: Check for @argfile syntax (Forge modpacks)
-                if (jarFile.TrimStart().StartsWith("@")) return (null, "forge");
-            }
-
-            return (null, null);
+            return (version, loader);
         }
         catch
         {
             return (null, null);
         }
-    }
-
-    private static string? MapModLoader(string? profileGroup)
-    {
-        if (string.IsNullOrWhiteSpace(profileGroup))
-        {
-            return null;
-        }
-
-        return profileGroup.Trim().ToLowerInvariant() switch
-        {
-            "forge" => "forge",
-            "fabric" => "fabric",
-            "quilt" => "quilt",
-            "neoforge" => "neoforge",
-            "ftb" => "forge",
-            _ => null
-        };
     }
 }
 

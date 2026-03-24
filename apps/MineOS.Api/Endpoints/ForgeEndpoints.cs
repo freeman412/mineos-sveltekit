@@ -5,6 +5,10 @@ namespace MineOS.Api.Endpoints;
 
 public static class ForgeEndpoints
 {
+    private static readonly System.Text.Json.JsonSerializerOptions CamelCaseJsonOptions = new()
+    {
+        PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase
+    };
     public static IEndpointRouteBuilder MapForgeEndpoints(this IEndpointRouteBuilder api)
     {
         var forge = api.MapGroup("/forge")
@@ -96,8 +100,7 @@ public static class ForgeEndpoints
                     break;
                 }
 
-                var json = System.Text.Json.JsonSerializer.Serialize(status,
-                    new System.Text.Json.JsonSerializerOptions { PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase });
+                var json = System.Text.Json.JsonSerializer.Serialize(status, CamelCaseJsonOptions);
                 await context.Response.WriteAsync($"data: {json}\n\n", ct);
                 await context.Response.Body.FlushAsync(ct);
 
