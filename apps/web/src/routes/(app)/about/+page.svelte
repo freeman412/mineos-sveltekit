@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { theme } from '$lib/stores/uiPreferences';
 
-	const version = '2.0.0-beta';
+	const version = import.meta.env.PUBLIC_BUILD_ID ?? 'dev';
 	const buildId = import.meta.env.PUBLIC_BUILD_ID ?? 'dev';
 
 	function toggleEndTheme() {
@@ -31,7 +31,8 @@
 			<p class="tagline">
 				A complete rewrite of the beloved MineOS web UI, built with modern technologies
 				for a faster, more responsive Minecraft server management experience.
-				Vanilla and Forge servers are solid, and Modrinth installs are working.
+				Supports Vanilla, Paper, Spigot, Forge, Fabric, NeoForge, and Bedrock servers
+				with integrated mod management from Modrinth and CurseForge.
 			</p>
 		</div>
 	</div>
@@ -90,24 +91,24 @@
 			<h3>Built With</h3>
 			<ul class="tech-list">
 				<li>
-					<span class="tech-name">SvelteKit</span>
-					<span class="tech-desc">Modern reactive frontend framework</span>
+					<span class="tech-name">SvelteKit 5</span>
+					<span class="tech-desc">Modern reactive frontend with Svelte 5 runes</span>
 				</li>
 				<li>
-					<span class="tech-name">.NET 8</span>
-					<span class="tech-desc">High-performance .NET minimal API backend</span>
+					<span class="tech-name">.NET 8 Minimal API</span>
+					<span class="tech-desc">High-performance backend with EF Core + SQLite</span>
 				</li>
 				<li>
-					<span class="tech-name">SQLite</span>
-					<span class="tech-desc">Lightweight, embedded database</span>
+					<span class="tech-name">Go CLI</span>
+					<span class="tech-desc">Cross-platform installer and management tool</span>
 				</li>
 				<li>
-					<span class="tech-name">Entity Framework Core</span>
-					<span class="tech-desc">Modern ORM for .NET</span>
+					<span class="tech-name">Docker</span>
+					<span class="tech-desc">Containerized deployment with multi-arch support</span>
 				</li>
 				<li>
 					<span class="tech-name">TypeScript</span>
-					<span class="tech-desc">Type-safe JavaScript development</span>
+					<span class="tech-desc">Type-safe frontend with real-time SSE streaming</span>
 				</li>
 			</ul>
 		</section>
@@ -116,39 +117,53 @@
 			<div class="card-icon">🔗</div>
 			<h3>Integrations</h3>
 			<div class="integration-list">
+				<a href="https://modrinth.com/" target="_blank" rel="noopener noreferrer" class="integration">
+					<div class="integration-logo modrinth">M</div>
+					<div class="integration-info">
+						<span class="integration-name">Modrinth</span>
+						<span class="integration-desc">Mod, modpack, and resource pack search + install</span>
+					</div>
+				</a>
 				<a href="https://www.curseforge.com/" target="_blank" rel="noopener noreferrer" class="integration">
 					<div class="integration-logo curseforge">CF</div>
 					<div class="integration-info">
 						<span class="integration-name">CurseForge</span>
-						<span class="integration-desc">Mod & modpack downloads</span>
+						<span class="integration-desc">Mod & modpack downloads with loader filtering</span>
 					</div>
 				</a>
-				<a href="https://www.spigotmc.org/wiki/buildtools/" target="_blank" rel="noopener noreferrer" class="integration">
-					<div class="integration-logo spigot">🔧</div>
+				<a href="https://files.minecraftforge.net/" target="_blank" rel="noopener noreferrer" class="integration">
+					<div class="integration-logo forge">⚒️</div>
 					<div class="integration-info">
-						<span class="integration-name">SpigotMC BuildTools</span>
-						<span class="integration-desc">Build Spigot & CraftBukkit</span>
-					</div>
-				</a>
-				<a href="https://papermc.io/" target="_blank" rel="noopener noreferrer" class="integration">
-					<div class="integration-logo paper">📄</div>
-					<div class="integration-info">
-						<span class="integration-name">PaperMC</span>
-						<span class="integration-desc">High-performance server downloads</span>
+						<span class="integration-name">Minecraft Forge / NeoForge</span>
+						<span class="integration-desc">Modded server installation with live progress</span>
 					</div>
 				</a>
 				<a href="https://fabricmc.net/" target="_blank" rel="noopener noreferrer" class="integration">
 					<div class="integration-logo fabric">🧵</div>
 					<div class="integration-info">
 						<span class="integration-name">Fabric</span>
-						<span class="integration-desc">Modding toolchain support</span>
+						<span class="integration-desc">Lightweight mod loader with auto-installer</span>
 					</div>
 				</a>
-				<a href="https://files.minecraftforge.net/" target="_blank" rel="noopener noreferrer" class="integration">
-					<div class="integration-logo forge">⚒️</div>
+				<a href="https://papermc.io/" target="_blank" rel="noopener noreferrer" class="integration">
+					<div class="integration-logo paper">📄</div>
 					<div class="integration-info">
-						<span class="integration-name">Minecraft Forge</span>
-						<span class="integration-desc">Modded server support</span>
+						<span class="integration-name">PaperMC</span>
+						<span class="integration-desc">High-performance plugin server</span>
+					</div>
+				</a>
+				<a href="https://www.spigotmc.org/wiki/buildtools/" target="_blank" rel="noopener noreferrer" class="integration">
+					<div class="integration-logo spigot">🔧</div>
+					<div class="integration-info">
+						<span class="integration-name">SpigotMC BuildTools</span>
+						<span class="integration-desc">Compile Spigot & CraftBukkit from source</span>
+					</div>
+				</a>
+				<a href="https://www.minecraft.net/en-us/download/server/bedrock" target="_blank" rel="noopener noreferrer" class="integration">
+					<div class="integration-logo bedrock">🪨</div>
+					<div class="integration-info">
+						<span class="integration-name">Bedrock Dedicated Server</span>
+						<span class="integration-desc">Official cross-platform server with dynamic versions</span>
 					</div>
 				</a>
 			</div>
@@ -158,15 +173,21 @@
 			<div class="card-icon">✨</div>
 			<h3>Key Features</h3>
 			<ul class="feature-list">
-				<li>Real-time server monitoring with live metrics</li>
-				<li>One-click vanilla and Forge server creation</li>
-				<li>Modrinth and CurseForge mod installs</li>
-				<li>Guided server.properties editor with smart defaults</li>
-				<li>World backup, restore, and management</li>
-				<li>BuildTools integration for Spigot/Paper builds</li>
-				<li>Server console with command history</li>
+				<li>Create Vanilla, Paper, Forge, Fabric, Spigot, and Bedrock servers</li>
+				<li>Change server type on existing servers with version picker</li>
+				<li>Modrinth & CurseForge mod search with automatic loader filtering</li>
+				<li>Per-mod enable/disable toggle switches</li>
+				<li>Client mod management with .mrpack package generation</li>
+				<li>Real-time performance monitoring with TPS, CPU, RAM, and player charts</li>
+				<li>Per-server TPS monitoring control with loader-aware commands</li>
+				<li>Colorized server console with ANSI log levels</li>
+				<li>Scheduled cron jobs for automated backups and restarts</li>
+				<li>World backup, restore, and archive management</li>
+				<li>Server icon upload with image cropping</li>
+				<li>Player management with live whitelist/op/ban commands</li>
+				<li>Multi-user access control with server permissions</li>
 				<li>Responsive design for desktop and mobile</li>
-				<li>Multi-user access control</li>
+				<li>Docker deployment with ARM64 support</li>
 			</ul>
 		</section>
 
@@ -199,34 +220,36 @@
 				<div class="roadmap-category">
 					<h4>Next Up</h4>
 					<ul>
-						<li><span class="status planned">Planned</span> <a href="https://github.com/freeman412/mineos-sveltekit/issues/47" target="_blank" rel="noopener noreferrer">Rename users</a></li>
-						<li><span class="status planned">Planned</span> <a href="https://github.com/freeman412/mineos-sveltekit/issues/48" target="_blank" rel="noopener noreferrer">Default server visibility</a></li>
-						<li><span class="status planned">Planned</span> <a href="https://github.com/freeman412/mineos-sveltekit/issues/35" target="_blank" rel="noopener noreferrer">Server icon cropping</a></li>
-						<li><span class="status planned">Planned</span> <a href="https://github.com/freeman412/mineos-sveltekit/issues/34" target="_blank" rel="noopener noreferrer">Add mods during server creation</a></li>
-						<li><span class="status planned">Planned</span> <a href="https://github.com/freeman412/mineos-sveltekit/issues/26" target="_blank" rel="noopener noreferrer">Invite links and auto-whitelist</a></li>
+						<li><span class="status planned">Planned</span> <a href="https://github.com/freeman412/mineos-sveltekit/issues/82" target="_blank" rel="noopener noreferrer">Replace profile system with version manager</a></li>
+						<li><span class="status planned">Planned</span> <a href="https://github.com/freeman412/mineos-sveltekit/issues/83" target="_blank" rel="noopener noreferrer">Server version update detection</a></li>
+						<li><span class="status planned">Planned</span> <a href="https://github.com/freeman412/mineos-sveltekit/issues/78" target="_blank" rel="noopener noreferrer">Update to .NET 10 LTS</a></li>
+						<li><span class="status planned">Planned</span> <a href="https://github.com/freeman412/mineos-sveltekit/issues/73" target="_blank" rel="noopener noreferrer">Auto-install mod loader for modpacks</a></li>
 					</ul>
 				</div>
 				<div class="roadmap-category">
-					<h4>Modding and Backups</h4>
+					<h4>Quality of Life</h4>
 					<ul>
 						<li><span class="status planned">Planned</span> <a href="https://github.com/freeman412/mineos-sveltekit/issues/38" target="_blank" rel="noopener noreferrer">Detect individual mod updates</a></li>
 						<li><span class="status planned">Planned</span> <a href="https://github.com/freeman412/mineos-sveltekit/issues/21" target="_blank" rel="noopener noreferrer">Auto install mod dependencies</a></li>
-						<li><span class="status planned">Planned</span> <a href="https://github.com/freeman412/mineos-sveltekit/issues/22" target="_blank" rel="noopener noreferrer">Scheduled cron backups</a></li>
-						<li><span class="status planned">Planned</span> <a href="https://github.com/freeman412/mineos-sveltekit/issues/10" target="_blank" rel="noopener noreferrer">Modded client download</a></li>
+						<li><span class="status planned">Planned</span> <a href="https://github.com/freeman412/mineos-sveltekit/issues/79" target="_blank" rel="noopener noreferrer">Clean architecture DI refactor</a></li>
+						<li><span class="status planned">Planned</span> <a href="https://github.com/freeman412/mineos-sveltekit/issues/59" target="_blank" rel="noopener noreferrer">MineOS update alerts</a></li>
 					</ul>
 				</div>
 				<div class="roadmap-category">
 					<h4>Platform</h4>
 					<ul>
-						<li><span class="status planned">Planned</span> <a href="https://github.com/freeman412/mineos-sveltekit/issues/25" target="_blank" rel="noopener noreferrer">OAuth login support</a></li>
-						<li><span class="status planned">Planned</span> <a href="https://github.com/freeman412/mineos-sveltekit/issues/7" target="_blank" rel="noopener noreferrer">Consolidate EventSource streams</a></li>
-						<li><span class="status planned">Planned</span> <a href="https://github.com/freeman412/mineos-sveltekit/issues/9" target="_blank" rel="noopener noreferrer">Time reference on performance chart</a></li>
+						<li><span class="status planned">Planned</span> <a href="https://github.com/freeman412/mineos-sveltekit/issues/63" target="_blank" rel="noopener noreferrer">Velocity proxy support</a></li>
+						<li><span class="status planned">Planned</span> <a href="https://github.com/freeman412/mineos-sveltekit/issues/64" target="_blank" rel="noopener noreferrer">BungeeCord proxy support</a></li>
+						<li><span class="status planned">Planned</span> <a href="https://github.com/freeman412/mineos-sveltekit/issues/25" target="_blank" rel="noopener noreferrer">OAuth login (Discord/Google)</a></li>
+						<li><span class="status planned">Planned</span> <a href="https://github.com/freeman412/mineos-sveltekit/issues/87" target="_blank" rel="noopener noreferrer">TurnKey Linux appliance</a></li>
 					</ul>
 				</div>
 				<div class="roadmap-category">
 					<h4>Big Bets</h4>
 					<ul>
 						<li><span class="status future">Future</span> <a href="https://github.com/freeman412/mineos-sveltekit/issues/23" target="_blank" rel="noopener noreferrer">Run each server in its own Docker container</a></li>
+						<li><span class="status future">Future</span> <a href="https://github.com/freeman412/mineos-sveltekit/issues/52" target="_blank" rel="noopener noreferrer">GeyserMC for Bedrock clients</a></li>
+						<li><span class="status future">Future</span> <a href="https://github.com/freeman412/mineos-sveltekit/issues/58" target="_blank" rel="noopener noreferrer">Discord webhook notifications</a></li>
 					</ul>
 				</div>
 			</div>
@@ -491,6 +514,15 @@
 
 	.integration-logo.forge {
 		background: linear-gradient(135deg, #3e5571 0%, #2d4a68 100%);
+	}
+
+	.integration-logo.modrinth {
+		background: linear-gradient(135deg, #1bd96a 0%, #17b858 100%);
+		color: white;
+	}
+
+	.integration-logo.bedrock {
+		background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
 	}
 
 	.integration-info {
