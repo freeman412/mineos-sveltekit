@@ -60,6 +60,9 @@
 
 	onMount(async () => {
 		loadServerVersion();
+		loadMods();
+		loadClientMods();
+		loadClientPackages();
 
 		const serverName = data.server?.name;
 		if (!serverName) {
@@ -123,11 +126,6 @@
 		}
 	}
 
-	$effect(() => {
-		loadMods();
-		loadClientMods();
-		loadClientPackages();
-	});
 
 	async function loadServerVersion() {
 		if (!data.server) return;
