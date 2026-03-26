@@ -97,7 +97,7 @@
 				icon={opt.icon}
 				iconImage={opt.iconImage}
 				color={opt.color}
-				badge={opt.badge}
+				badge={'badge' in opt ? opt.badge : undefined}
 				onclick={() => onselect(opt.id)}
 			/>
 		{/each}

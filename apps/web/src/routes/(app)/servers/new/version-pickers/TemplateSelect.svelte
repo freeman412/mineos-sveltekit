@@ -1,8 +1,8 @@
 <script lang="ts">
-	import type { ServerSummary } from '$lib/api/types';
+	import type { ServerDetail } from '$lib/api/types';
 
 	interface Props {
-		servers: ServerSummary[];
+		servers: ServerDetail[];
 		onselect: (serverName: string) => void;
 	}
 

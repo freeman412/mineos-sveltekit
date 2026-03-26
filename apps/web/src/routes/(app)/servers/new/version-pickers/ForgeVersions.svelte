@@ -56,7 +56,6 @@
 	leftDisplay={(v) => v}
 	rightDisplay={(v) => v.forgeVersion}
 	rightBadge={(v) => (v.isRecommended ? 'Recommended' : v.isLatest ? 'Latest' : null)}
-	{selectedMcIndex}
 	selectedLeftIndex={selectedMcIndex}
 	selectedRightIndex={selectedForgeIndex}
 	onselectleft={(i, _item) => {

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import type { Profile, ServerSummary, ForgeVersion } from '$lib/api/types';
+	import type { Profile, ServerDetail, ForgeVersion } from '$lib/api/types';
 	import type { NeoForgeVersion } from '$lib/api/types';
 	import type { Implementation } from './ImplementationSelect.svelte';
 	import VanillaVersions from '../version-pickers/VanillaVersions.svelte';
@@ -22,7 +22,7 @@
 	interface Props {
 		implementation: Implementation | 'vanilla' | 'bedrock' | 'template';
 		profiles: Profile[];
-		servers: ServerSummary[];
+		servers: ServerDetail[];
 		onselect: (selection: VersionSelection) => void;
 		onback: () => void;
 	}
