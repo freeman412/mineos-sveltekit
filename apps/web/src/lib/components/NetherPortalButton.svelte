@@ -3,26 +3,34 @@
 
 	let isAnimating = false;
 
-	function toggleTheme() {
-		isAnimating = true;
-		theme.toggle();
+	const themeOrder: import('$lib/stores/uiPreferences').Theme[] = ['overworld', 'nether'];
+	const themeLabels: Record<string, string> = {
+		overworld: 'Overworld',
+		nether: 'Nether',
+		end: 'The End',
+		retro: 'Retro MineOS'
+	};
 
-		// Reset animation after it completes
-		setTimeout(() => {
-			isAnimating = false;
-		}, 800);
+	function cycleTheme() {
+		isAnimating = true;
+		const currentIndex = themeOrder.indexOf($theme);
+		const nextIndex = (currentIndex + 1) % themeOrder.length;
+		theme.set(themeOrder[nextIndex]);
+		setTimeout(() => { isAnimating = false; }, 800);
 	}
 
 	$: isNether = $theme === 'nether';
+	$: currentLabel = themeLabels[$theme] ?? 'Overworld';
+	$: nextLabel = themeLabels[themeOrder[(themeOrder.indexOf($theme) + 1) % themeOrder.length]];
 </script>
 
 <button
 	class="portal-button"
 	class:nether={isNether}
 	class:animating={isAnimating}
-	onclick={toggleTheme}
-	aria-label={isNether ? 'Return to Overworld' : 'Enter the Nether'}
-	title={isNether ? 'Return to Overworld' : 'Enter the Nether'}
+	onclick={cycleTheme}
+	aria-label={`Switch to ${nextLabel} theme`}
+	title={`Theme: ${currentLabel} — click for ${nextLabel}`}
 >
 	<svg
 		xmlns="http://www.w3.org/2000/svg"
