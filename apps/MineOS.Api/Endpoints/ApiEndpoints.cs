@@ -18,6 +18,8 @@ public static class ApiEndpoints
         api.MapCurseForgeEndpoints();
         api.MapForgeEndpoints();
         api.MapFabricEndpoints();
+        api.MapNeoForgeEndpoints();
+        api.MapQuiltEndpoints();
         api.MapAdminEndpoints();
         api.MapNotificationEndpoints();
         api.MapSettingsEndpoints();

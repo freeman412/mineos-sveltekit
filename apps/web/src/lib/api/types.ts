@@ -421,6 +421,65 @@ export type FabricInstallStatus = {
 	completedAt: string | null;
 };
 
+// NeoForge types
+export type NeoForgeVersion = {
+	minecraftVersion: string;
+	neoForgeVersion: string;
+	isLatest: boolean;
+	releaseDate: string | null;
+};
+
+export type NeoForgeInstallResult = {
+	installId: string;
+	status: string;
+	error: string | null;
+};
+
+export type NeoForgeInstallStatus = {
+	installId: string;
+	minecraftVersion: string;
+	neoForgeVersion: string;
+	serverName: string;
+	status: string;
+	progress: number;
+	currentStep: string | null;
+	error: string | null;
+	output: string | null;
+	startedAt: string;
+	completedAt: string | null;
+};
+
+// Quilt types
+export type QuiltGameVersion = {
+	version: string;
+	isStable: boolean;
+};
+
+export type QuiltLoaderVersion = {
+	version: string;
+	isStable: boolean;
+};
+
+export type QuiltInstallResult = {
+	installId: string;
+	status: string;
+	error: string | null;
+};
+
+export type QuiltInstallStatus = {
+	installId: string;
+	minecraftVersion: string;
+	loaderVersion: string;
+	serverName: string;
+	status: string;
+	progress: number;
+	currentStep: string | null;
+	error: string | null;
+	output: string | null;
+	startedAt: string;
+	completedAt: string | null;
+};
+
 // Modpack types
 export type ModpackInstallProgress = {
 	jobId: string;

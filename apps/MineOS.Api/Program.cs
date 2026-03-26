@@ -164,6 +164,8 @@ builder.Services.AddScoped<ICronService, CronService>();
 builder.Services.AddHostedService<CronSchedulerService>();
 builder.Services.AddHttpClient<IForgeService, ForgeService>();
 builder.Services.AddHttpClient<IFabricService, FabricService>();
+builder.Services.AddHttpClient<INeoForgeService, NeoForgeService>();
+builder.Services.AddHttpClient<IQuiltService, QuiltService>();
 builder.Services.AddHttpClient<IMojangApiService, MojangApiService>();
 builder.Services.AddMemoryCache();
 builder.Services.AddScoped<IAdminShellSession, AdminShellService>();
