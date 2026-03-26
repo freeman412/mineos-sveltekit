@@ -500,6 +500,116 @@ export async function getFabricInstallStatus(
 	return { data: result.data?.data ?? null, error: null };
 }
 
+// NeoForge API
+export async function getNeoForgeVersions(
+	fetcher: Fetcher
+): Promise<ApiResult<import('./types').NeoForgeVersion[]>> {
+	const result = await apiFetch<{ data: import('./types').NeoForgeVersion[] }>(
+		fetcher,
+		'/api/neoforge/versions'
+	);
+	if (result.error) {
+		return { data: null, error: result.error };
+	}
+	return { data: result.data?.data ?? null, error: null };
+}
+
+export async function getNeoForgeVersionsForMinecraft(
+	fetcher: Fetcher,
+	mcVersion: string
+): Promise<ApiResult<import('./types').NeoForgeVersion[]>> {
+	const result = await apiFetch<{ data: import('./types').NeoForgeVersion[] }>(
+		fetcher,
+		`/api/neoforge/versions/${encodeURIComponent(mcVersion)}`
+	);
+	if (result.error) {
+		return { data: null, error: result.error };
+	}
+	return { data: result.data?.data ?? null, error: null };
+}
+
+export async function installNeoForge(
+	fetcher: Fetcher,
+	minecraftVersion: string,
+	neoForgeVersion: string,
+	serverName: string
+): Promise<ApiResult<import('./types').NeoForgeInstallResult>> {
+	const result = await apiFetch<{ data: import('./types').NeoForgeInstallResult }>(fetcher, '/api/neoforge/install', {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify({ minecraftVersion, neoForgeVersion, serverName })
+	});
+	if (result.error) {
+		return { data: null, error: result.error };
+	}
+	return { data: result.data?.data ?? null, error: null };
+}
+
+// Quilt API
+export async function getQuiltGameVersions(
+	fetcher: Fetcher
+): Promise<ApiResult<import('./types').QuiltGameVersion[]>> {
+	const result = await apiFetch<{ data: import('./types').QuiltGameVersion[] }>(
+		fetcher,
+		'/api/quilt/game-versions'
+	);
+	if (result.error) {
+		return { data: null, error: result.error };
+	}
+	return { data: result.data?.data ?? null, error: null };
+}
+
+export async function getQuiltLoaderVersions(
+	fetcher: Fetcher
+): Promise<ApiResult<import('./types').QuiltLoaderVersion[]>> {
+	const result = await apiFetch<{ data: import('./types').QuiltLoaderVersion[] }>(
+		fetcher,
+		'/api/quilt/loader-versions'
+	);
+	if (result.error) {
+		return { data: null, error: result.error };
+	}
+	return { data: result.data?.data ?? null, error: null };
+}
+
+export async function installQuilt(
+	fetcher: Fetcher,
+	minecraftVersion: string,
+	loaderVersion: string,
+	serverName: string
+): Promise<ApiResult<import('./types').QuiltInstallResult>> {
+	const result = await apiFetch<{ data: import('./types').QuiltInstallResult }>(fetcher, '/api/quilt/install', {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify({ minecraftVersion, loaderVersion, serverName })
+	});
+	if (result.error) {
+		return { data: null, error: result.error };
+	}
+	return { data: result.data?.data ?? null, error: null };
+}
+
+// Host profile helpers
+export async function downloadProfile(
+	fetcher: Fetcher,
+	profileId: string
+): Promise<ApiResult<void>> {
+	return apiMutate<void>(fetcher, `/api/host/profiles/${encodeURIComponent(profileId)}/download`, 'POST');
+}
+
+export async function copyProfileToServer(
+	fetcher: Fetcher,
+	profileId: string,
+	serverName: string
+): Promise<ApiResult<void>> {
+	return apiMutate<void>(
+		fetcher,
+		`/api/host/profiles/${encodeURIComponent(profileId)}/copy-to-server`,
+		'POST',
+		{ serverName }
+	);
+}
+
 // Watchdog / Crash Detection
 export async function getServerCrashEvents(
 	fetcher: Fetcher,
