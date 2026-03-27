@@ -32,6 +32,11 @@
 		onviewserver
 	}: Props = $props();
 
+	let streamCompleted = $state(false);
+	let streamError = $state('');
+	const isCompleted = $derived(completed || streamCompleted);
+	const displayError = $derived(error || streamError || '');
+
 	const label = $derived(`Installing ${implementation} server "${serverName}"`);
 </script>
 
@@ -39,7 +44,12 @@
 	<h2>Creating server...</h2>
 
 	{#if streamUrl}
-		<InstallProgress {streamUrl} {label} />
+		<InstallProgress
+			{streamUrl}
+			{label}
+			oncomplete={() => streamCompleted = true}
+			onerror={(e) => streamError = e}
+		/>
 	{:else}
 		<div class="simple-progress">
 			<p class="step-text">{stepText || 'Creating server...'}</p>
@@ -47,11 +57,11 @@
 		</div>
 	{/if}
 
-	{#if error}
-		<div class="error">{error}</div>
+	{#if displayError}
+		<div class="error">{displayError}</div>
 	{/if}
 
-	{#if completed}
+	{#if isCompleted}
 		<div class="completed">
 			<p>Server created successfully!</p>
 			<button class="view-btn" onclick={onviewserver} type="button">View Server</button>

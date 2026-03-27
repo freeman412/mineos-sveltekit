@@ -173,12 +173,10 @@
 	}
 
 	function handleCardClick(serverName: string) {
-		if (creatingServers.has(serverName)) return;
 		goto(`/servers/${encodeURIComponent(serverName)}`);
 	}
 
 	function handleCardKeydown(event: KeyboardEvent, serverName: string) {
-		if (creatingServers.has(serverName)) return;
 		if (event.key === 'Enter' || event.key === ' ') {
 			event.preventDefault();
 			handleCardClick(serverName);
@@ -527,8 +525,7 @@
 				class="server-card"
 				class:creating={isCreating}
 				role="link"
-				tabindex={isCreating ? -1 : 0}
-				aria-disabled={isCreating}
+				tabindex="0"
 				onclick={() => handleCardClick(server.name)}
 				onkeydown={(event) => handleCardKeydown(event, server.name)}
 			>
@@ -908,9 +905,8 @@
 	}
 
 	.server-card.creating {
-		opacity: 0.6;
-		cursor: progress;
-		pointer-events: none;
+		opacity: 0.75;
+		cursor: pointer;
 	}
 
 	.server-card:hover {

@@ -2,7 +2,7 @@
 	import SelectionCard from '$lib/components/SelectionCard.svelte';
 	import type { ServerCategory } from './CategorySelect.svelte';
 
-	export type PluginImpl = 'paper' | 'spigot' | 'craftbukkit';
+	export type PluginImpl = 'paper' | 'spigot';
 	export type ModLoader = 'forge' | 'neoforge' | 'fabric' | 'quilt';
 	export type Implementation = PluginImpl | ModLoader;
 
@@ -14,6 +14,8 @@
 
 	let { category, onselect, onback }: Props = $props();
 
+	let selectedId = $state<string | null>(null);
+
 	const pluginOptions = [
 		{
 			id: 'paper' as const,
@@ -21,7 +23,7 @@
 			description:
 				'High-performance Spigot fork with async chunks and extensive optimizations.',
 			icon: '📄',
-			iconImage: '/images/loaders/paper.png',
+			iconImage: '/images/loaders/papermc_logo.min_ZQDdQq.webp',
 			color: '#60a5fa',
 			badge: 'Recommended'
 		},
@@ -30,15 +32,9 @@
 			name: 'Spigot',
 			description: 'The original plugin server. Wide compatibility with Bukkit plugins.',
 			icon: '🔧',
+			iconImage: '/images/loaders/spigot.png',
 			color: '#fbbf24'
 		},
-		{
-			id: 'craftbukkit' as const,
-			name: 'CraftBukkit',
-			description: 'The classic. Fewest modifications to vanilla, built via BuildTools.',
-			icon: '🪣',
-			color: '#f97316'
-		}
 	];
 
 	const modOptions = [
@@ -73,7 +69,7 @@
 			name: 'Quilt',
 			description: 'Fabric-compatible fork with additional mod management features.',
 			icon: '🪡',
-			iconImage: '/images/loaders/quilt.png',
+			iconImage: '/images/loaders/quilt.svg',
 			color: '#8b5cf6'
 		}
 	];
@@ -86,7 +82,6 @@
 
 <div class="step">
 	<div class="header">
-		<button class="back-btn" onclick={onback} type="button">&larr; Back</button>
 		<h2>{heading}</h2>
 	</div>
 	<div class="cards">
@@ -98,7 +93,8 @@
 				iconImage={opt.iconImage}
 				color={opt.color}
 				badge={'badge' in opt ? opt.badge : undefined}
-				onclick={() => onselect(opt.id)}
+				selected={selectedId === opt.id}
+				onclick={() => { selectedId = opt.id; onselect(opt.id); }}
 			/>
 		{/each}
 	</div>

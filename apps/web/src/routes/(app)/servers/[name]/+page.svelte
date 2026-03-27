@@ -13,6 +13,8 @@
 	let { data }: { data: PageData & { server: LayoutData['server'] } } = $props();
 
 	let showChangeType = $state(false);
+	let activeInstall = $state<{ loaderName: string; streamUrl: string; progress: number; step: string } | null>(null);
+	let lastInstallStep = '';
 
 	let detectedType = $state('Unknown');
 
@@ -179,11 +181,16 @@
 			fitAddon.fit();
 
 			terminal.writeln('\x1b[1;36m=== MineOS Console ===\x1b[0m');
-			terminal.writeln('\x1b[90mConnecting to server logs...\x1b[0m');
 			terminal.writeln('');
 
-			connectToLogs();
 			connectToHeartbeat();
+
+			// Check for active installs first — show install logs instead of server logs
+			const hasInstall = await checkActiveInstalls();
+			if (!hasInstall) {
+				terminal.writeln('\x1b[90mConnecting to server logs...\x1b[0m');
+				connectToLogs();
+			}
 
 			resizeObserver = new ResizeObserver(() => {
 				fitAddon?.fit();
@@ -202,6 +209,79 @@
 		};
 	});
 
+	async function checkActiveInstalls(): Promise<boolean> {
+		if (!data.server) return false;
+		try {
+			const res = await fetch('/api/jobs');
+			if (!res.ok) return;
+			const jobs = await res.json();
+			const serverName = data.server.name;
+
+			// Check all loader install types
+			const loaders = [
+				{ list: jobs.forgeInstalls ?? [], name: 'Forge', prefix: '/api/forge/install' },
+				{ list: jobs.neoForgeInstalls ?? [], name: 'NeoForge', prefix: '/api/neoforge/install' },
+				{ list: jobs.fabricInstalls ?? [], name: 'Fabric', prefix: '/api/fabric/install' },
+				{ list: jobs.quiltInstalls ?? [], name: 'Quilt', prefix: '/api/quilt/install' },
+			];
+
+			for (const loader of loaders) {
+				const install = loader.list.find((i: any) => i.serverName === serverName);
+				if (install) {
+					activeInstall = {
+						loaderName: loader.name,
+						streamUrl: `${loader.prefix}/${install.installId}/stream`,
+						progress: install.progress ?? 0,
+						step: install.currentStep ?? 'Installing...'
+					};
+
+					// Stream install logs to the terminal
+					terminal?.writeln(`\x1b[1;33m=== ${loader.name} Installation in Progress ===\x1b[0m`);
+					terminal?.writeln(`\x1b[90m${install.currentStep || 'Starting...'}\x1b[0m`);
+
+					const source = new EventSource(activeInstall.streamUrl);
+					source.onmessage = (event) => {
+						try {
+							const d = JSON.parse(event.data);
+							if (d.currentStep && activeInstall) {
+								activeInstall.step = d.currentStep;
+								activeInstall.progress = d.progress ?? 0;
+							}
+							// Write new output lines (now incremental from backend)
+							if (d.output && terminal) {
+								const text = typeof d.output === 'string' ? d.output : d.output.join('\n');
+								for (const line of text.split('\n')) {
+									if (line.trim()) terminal.writeln(line);
+								}
+							}
+							if (d.status === 'completed') {
+								source.close();
+								terminal?.writeln('\x1b[1;32m=== Installation Complete! ===\x1b[0m');
+								activeInstall = null;
+								// Reconnect to normal server logs
+								connectToLogs();
+							} else if (d.status === 'failed') {
+								source.close();
+								terminal?.writeln(`\x1b[1;31m=== Installation Failed: ${d.error || 'Unknown error'} ===\x1b[0m`);
+								activeInstall = null;
+							}
+						} catch {}
+					};
+					source.onerror = () => {
+						source.close();
+						if (activeInstall) {
+							terminal?.writeln('\x1b[90mInstall stream disconnected\x1b[0m');
+							activeInstall = null;
+							connectToLogs();
+						}
+					};
+					return true; // Found an active install
+				}
+			}
+		} catch {}
+		return false;
+	}
+
 	function connectToLogs() {
 		if (!data.server) return;
 
@@ -217,9 +297,19 @@
 		};
 
 		eventSource.onerror = () => {
-			terminal?.writeln('\x1b[31mConnection lost. Reconnecting...\x1b[0m');
 			eventSource?.close();
-			setTimeout(connectToLogs, 2000);
+			// Check if this is an auth issue before reconnecting
+			fetch('/api/auth/me').then((res) => {
+				if (res.status === 401 || res.status === 403) {
+					window.location.href = '/login';
+				} else {
+					terminal?.writeln('\x1b[31mConnection lost. Reconnecting...\x1b[0m');
+					setTimeout(connectToLogs, 3000);
+				}
+			}).catch(() => {
+				terminal?.writeln('\x1b[31mConnection lost. Reconnecting...\x1b[0m');
+				setTimeout(connectToLogs, 3000);
+			});
 		};
 	}
 
@@ -241,7 +331,13 @@
 		heartbeatSource.onerror = () => {
 			heartbeatSource?.close();
 			heartbeatSource = null;
-			setTimeout(connectToHeartbeat, 2000);
+			fetch('/api/auth/me').then((res) => {
+				if (res.status === 401 || res.status === 403) {
+					window.location.href = '/login';
+				} else {
+					setTimeout(connectToHeartbeat, 3000);
+				}
+			}).catch(() => setTimeout(connectToHeartbeat, 3000));
 		};
 	}
 
@@ -409,7 +505,7 @@
 					</div>
 					<div class="info-row">
 						<span class="label">Java Binary</span>
-						<span class="value">{data.server.config.java.javaBinary || 'N/A'}</span>
+						<span class="value">{data.server.config.java.javaBinary || 'Auto-detect'}</span>
 					</div>
 					<div class="info-row">
 						<span class="label">Xmx / Xms</span>

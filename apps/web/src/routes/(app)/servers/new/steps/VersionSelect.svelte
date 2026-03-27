@@ -25,9 +25,10 @@
 		servers: ServerDetail[];
 		onselect: (selection: VersionSelection) => void;
 		onback: () => void;
+		onready?: (confirmFn: (() => void) | null) => void;
 	}
 
-	let { implementation, profiles, servers, onselect, onback }: Props = $props();
+	let { implementation, profiles, servers, onselect, onback, onready }: Props = $props();
 
 	const labels: Record<string, string> = {
 		vanilla: 'Vanilla',
@@ -45,45 +46,51 @@
 
 <div class="step">
 	<div class="header">
-		<button class="back-btn" onclick={onback} type="button">&larr; Back</button>
 		<h2>Select {labels[implementation]} version</h2>
 	</div>
 
-	{#if implementation === 'vanilla' || implementation === 'paper' || implementation === 'spigot' || implementation === 'craftbukkit'}
+	{#if implementation === 'vanilla' || implementation === 'paper' || implementation === 'spigot'}
 		<VanillaVersions
 			{profiles}
 			{implementation}
 			onselect={(profile) => onselect({ profileId: profile.id, minecraftVersion: profile.version })}
+			onready={onready}
 		/>
 	{:else if implementation === 'forge'}
 		<ForgeVersions
 			onselect={(mc, forge) =>
 				onselect({ minecraftVersion: mc, forgeVersion: forge })}
+			onconfirm={onready}
 		/>
 	{:else if implementation === 'neoforge'}
 		<NeoForgeVersions
 			onselect={(mc, nf) =>
 				onselect({ minecraftVersion: mc, neoForgeVersion: nf })}
+			onconfirm={onready}
 		/>
 	{:else if implementation === 'fabric'}
 		<FabricVersions
 			onselect={(mc, loader) =>
 				onselect({ minecraftVersion: mc, loaderVersion: loader })}
+			onconfirm={onready}
 		/>
 	{:else if implementation === 'quilt'}
 		<QuiltVersions
 			onselect={(mc, loader) =>
 				onselect({ minecraftVersion: mc, loaderVersion: loader })}
+			onconfirm={onready}
 		/>
 	{:else if implementation === 'bedrock'}
 		<BedrockVersions
 			{profiles}
 			onselect={(profile) => onselect({ profileId: profile.id, minecraftVersion: profile.version })}
+			onready={onready}
 		/>
 	{:else if implementation === 'template'}
 		<TemplateSelect
 			{servers}
 			onselect={(name) => onselect({ cloneSource: name })}
+			onready={onready}
 		/>
 	{/if}
 </div>

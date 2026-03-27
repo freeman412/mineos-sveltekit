@@ -5,9 +5,11 @@
 	interface Props {
 		profiles: Profile[];
 		onselect: (profile: Profile) => void;
+		onready?: (fn: (() => void) | null) => void;
 	}
 
-	let { profiles, onselect }: Props = $props();
+	let { profiles, onselect, onready }: Props = $props();
+	let selectedProfile = $state<Profile | null>(null);
 
 	let showPreview = $state(false);
 
@@ -29,7 +31,12 @@
 
 	<div class="version-list">
 		{#each filtered as profile}
-			<button class="version-row" onclick={() => onselect(profile)} type="button">
+			<button
+				class="version-row"
+				class:selected={selectedProfile?.id === profile.id}
+				onclick={() => { selectedProfile = profile; onready?.(() => onselect(profile)); }}
+				type="button"
+			>
 				<span>{profile.version}</span>
 				<span>
 					{#if profile.group === 'bedrock-server-preview'}

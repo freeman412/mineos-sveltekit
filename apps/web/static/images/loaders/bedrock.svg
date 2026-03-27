@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
+  <!-- Bedrock block - isometric style like Minecraft -->
+  <!-- Top face -->
+  <polygon points="32,8 56,20 32,32 8,20" fill="#8B8B8B"/>
+  <polygon points="32,8 56,20 32,32 8,20" fill="url(#topNoise)" opacity="0.4"/>
+
+  <!-- Right face -->
+  <polygon points="56,20 56,44 32,56 32,32" fill="#5C5C5C"/>
+  <polygon points="56,20 56,44 32,56 32,32" fill="url(#sideNoise)" opacity="0.3"/>
+
+  <!-- Left face -->
+  <polygon points="8,20 32,32 32,56 8,44" fill="#6E6E6E"/>
+  <polygon points="8,20 32,32 32,56 8,44" fill="url(#sideNoise2)" opacity="0.3"/>
+
+  <!-- Cracks/texture on top -->
+  <line x1="20" y1="16" x2="28" y2="22" stroke="#707070" stroke-width="1.2" opacity="0.6"/>
+  <line x1="36" y1="14" x2="42" y2="24" stroke="#707070" stroke-width="1" opacity="0.5"/>
+  <line x1="24" y1="24" x2="38" y2="28" stroke="#707070" stroke-width="0.8" opacity="0.4"/>
+
+  <!-- Cracks on left face -->
+  <line x1="14" y1="28" x2="22" y2="40" stroke="#555" stroke-width="1" opacity="0.5"/>
+  <line x1="20" y1="36" x2="28" y2="48" stroke="#555" stroke-width="0.8" opacity="0.4"/>
+
+  <!-- Cracks on right face -->
+  <line x1="48" y1="28" x2="40" y2="42" stroke="#4A4A4A" stroke-width="1" opacity="0.5"/>
+  <line x1="44" y1="36" x2="38" y2="50" stroke="#4A4A4A" stroke-width="0.8" opacity="0.4"/>
+
+  <!-- Subtle specks -->
+  <circle cx="22" cy="18" r="1" fill="#9E9E9E" opacity="0.5"/>
+  <circle cx="40" cy="20" r="1.2" fill="#9E9E9E" opacity="0.4"/>
+  <circle cx="30" cy="26" r="0.8" fill="#A0A0A0" opacity="0.5"/>
+  <circle cx="16" cy="34" r="1" fill="#787878" opacity="0.4"/>
+  <circle cx="46" cy="34" r="1" fill="#666" opacity="0.4"/>
+
+  <!-- Edge highlights -->
+  <line x1="8" y1="20" x2="32" y2="8" stroke="#B0B0B0" stroke-width="0.8" opacity="0.3"/>
+  <line x1="32" y1="8" x2="56" y2="20" stroke="#A0A0A0" stroke-width="0.8" opacity="0.3"/>
+</svg>

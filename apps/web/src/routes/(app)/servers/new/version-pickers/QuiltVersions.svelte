@@ -5,9 +5,21 @@
 
 	interface Props {
 		onselect: (mcVersion: string, loaderVersion: string) => void;
+		onconfirm?: (fn: (() => void) | null) => void;
 	}
 
-	let { onselect }: Props = $props();
+	let { onselect, onconfirm }: Props = $props();
+
+	function reportReady() {
+		if (!onconfirm) return;
+		if (selectedMcIndex !== null && selectedLoaderIndex !== null) {
+			onconfirm(() => {
+				onselect(stableGameVersions[selectedMcIndex!].version, stableLoaderVersions[selectedLoaderIndex!].version);
+			});
+		} else {
+			onconfirm(null);
+		}
+	}
 
 	let gameVersions = $state<QuiltGameVersion[]>([]);
 	let loaderVersions = $state<QuiltLoaderVersion[]>([]);
@@ -46,18 +58,16 @@
 	rightBadge={(_v) => null}
 	selectedLeftIndex={selectedMcIndex}
 	selectedRightIndex={selectedLoaderIndex}
-	onselectleft={(i, item) => {
+	onselectleft={(i, _item) => {
 		selectedMcIndex = i;
-		if (stableLoaderVersions.length > 0) {
+		if (selectedLoaderIndex === null && stableLoaderVersions.length > 0) {
 			selectedLoaderIndex = 0;
-			onselect(item.version, stableLoaderVersions[0].version);
 		}
+		reportReady();
 	}}
-	onselectright={(i, item) => {
+	onselectright={(i, _item) => {
 		selectedLoaderIndex = i;
-		if (selectedMcIndex !== null) {
-			onselect(stableGameVersions[selectedMcIndex].version, item.version);
-		}
+		reportReady();
 	}}
 	{loading}
 	{error}

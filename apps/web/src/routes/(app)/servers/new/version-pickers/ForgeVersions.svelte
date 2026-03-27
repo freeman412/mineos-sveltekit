@@ -5,9 +5,23 @@
 
 	interface Props {
 		onselect: (mcVersion: string, forgeVersion: ForgeVersion) => void;
+		onconfirm?: (fn: (() => void) | null) => void;
 	}
 
-	let { onselect }: Props = $props();
+	let { onselect, onconfirm }: Props = $props();
+
+	function reportReady() {
+		if (!onconfirm) return;
+		if (selectedMcIndex !== null && selectedForgeIndex !== null) {
+			onconfirm(() => {
+				const mc = mcVersions[selectedMcIndex!];
+				const forgeList = versions.filter((v) => v.minecraftVersion === mc);
+				onselect(mc, forgeList[selectedForgeIndex!]);
+			});
+		} else {
+			onconfirm(null);
+		}
+	}
 
 	let versions = $state<ForgeVersion[]>([]);
 	let loading = $state(true);
@@ -61,25 +75,20 @@
 	onselectleft={(i, _item) => {
 		selectedMcIndex = i;
 		selectedForgeIndex = null;
-		// Auto-select recommended
+		// Auto-select recommended but don't advance
 		const mc = mcVersions[i];
-		const recommended = versions.findIndex(
-			(v) => v.minecraftVersion === mc && v.isRecommended
-		);
-		if (recommended >= 0) {
-			const forgeList = versions.filter((v) => v.minecraftVersion === mc);
-			const recIdx = forgeList.findIndex((v) => v.isRecommended);
-			if (recIdx >= 0) {
-				selectedForgeIndex = recIdx;
-				onselect(mc, forgeList[recIdx]);
-			}
+		const forgeList = versions.filter((v) => v.minecraftVersion === mc);
+		const recIdx = forgeList.findIndex((v) => v.isRecommended);
+		if (recIdx >= 0) {
+			selectedForgeIndex = recIdx;
+		} else if (forgeList.length > 0) {
+			selectedForgeIndex = 0;
 		}
+		reportReady();
 	}}
-	onselectright={(i, item) => {
+	onselectright={(i, _item) => {
 		selectedForgeIndex = i;
-		if (selectedMcIndex !== null) {
-			onselect(mcVersions[selectedMcIndex], item);
-		}
+		reportReady();
 	}}
 	{loading}
 	{error}

@@ -5,9 +5,23 @@
 
 	interface Props {
 		onselect: (mcVersion: string, neoForgeVersion: NeoForgeVersion) => void;
+		onconfirm?: (fn: (() => void) | null) => void;
 	}
 
-	let { onselect }: Props = $props();
+	let { onselect, onconfirm }: Props = $props();
+
+	function reportReady() {
+		if (!onconfirm) return;
+		if (selectedMcIndex !== null && selectedNfIndex !== null) {
+			onconfirm(() => {
+				const mc = mcVersions[selectedMcIndex!];
+				const nfList = versions.filter((v) => v.minecraftVersion === mc);
+				onselect(mc, nfList[selectedNfIndex!]);
+			});
+		} else {
+			onconfirm(null);
+		}
+	}
 
 	let versions = $state<NeoForgeVersion[]>([]);
 	let loading = $state(true);
@@ -61,20 +75,16 @@
 	onselectleft={(i, _item) => {
 		selectedMcIndex = i;
 		selectedNfIndex = null;
-		// Auto-select latest
 		const mc = mcVersions[i];
 		const nfList = versions.filter((v) => v.minecraftVersion === mc);
 		const latestIdx = nfList.findIndex((v) => v.isLatest);
-		if (latestIdx >= 0) {
-			selectedNfIndex = latestIdx;
-			onselect(mc, nfList[latestIdx]);
-		}
+		if (latestIdx >= 0) selectedNfIndex = latestIdx;
+		else if (nfList.length > 0) selectedNfIndex = 0;
+		reportReady();
 	}}
-	onselectright={(i, item) => {
+	onselectright={(i, _item) => {
 		selectedNfIndex = i;
-		if (selectedMcIndex !== null) {
-			onselect(mcVersions[selectedMcIndex], item);
-		}
+		reportReady();
 	}}
 	{loading}
 	{error}

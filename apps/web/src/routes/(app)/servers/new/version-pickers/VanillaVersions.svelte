@@ -3,15 +3,14 @@
 	import StatusBadge from '$lib/components/StatusBadge.svelte';
 
 	interface Props {
-		/** All available profiles from server data */
 		profiles: Profile[];
-		/** Which implementation to filter for */
-		implementation: 'vanilla' | 'paper' | 'spigot' | 'craftbukkit';
-		/** Called when a profile is selected */
+		implementation: 'vanilla' | 'paper' | 'spigot';
 		onselect: (profile: Profile) => void;
+		onready?: (fn: (() => void) | null) => void;
 	}
 
-	let { profiles, implementation, onselect }: Props = $props();
+	let { profiles, implementation, onselect, onready }: Props = $props();
+	let selectedProfile = $state<Profile | null>(null);
 
 	let search = $state('');
 	let showSnapshots = $state(false);
@@ -72,7 +71,15 @@
 
 	<div class="version-list">
 		{#each paged as profile}
-			<button class="version-row" onclick={() => onselect(profile)} type="button">
+			<button
+				class="version-row"
+				class:selected={selectedProfile?.id === profile.id}
+				onclick={() => {
+					selectedProfile = profile;
+					onready?.(() => onselect(profile));
+				}}
+				type="button"
+			>
 				<span class="version-name">{profile.version}</span>
 				<span class="version-meta">
 					{#if profile.downloaded}
@@ -168,6 +175,11 @@
 
 	.version-row:hover {
 		background: rgba(255, 255, 255, 0.05);
+	}
+
+	.version-row.selected {
+		background: rgba(106, 176, 76, 0.15);
+		border-color: var(--mc-grass, #6ab04c);
 	}
 
 	.empty {

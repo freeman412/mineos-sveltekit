@@ -4,16 +4,23 @@
 	interface Props {
 		servers: ServerDetail[];
 		onselect: (serverName: string) => void;
+		onready?: (fn: (() => void) | null) => void;
 	}
 
-	let { servers, onselect }: Props = $props();
+	let { servers, onselect, onready }: Props = $props();
+	let selectedServer = $state<string | null>(null);
 </script>
 
 <div class="template-picker">
 	<p class="hint">Select an existing server to clone as your starting point:</p>
 	<div class="server-list">
 		{#each servers as server}
-			<button class="server-row" onclick={() => onselect(server.name)} type="button">
+			<button
+				class="server-row"
+				class:selected={selectedServer === server.name}
+				onclick={() => { selectedServer = server.name; onready?.(() => onselect(server.name)); }}
+				type="button"
+			>
 				<span class="server-name">{server.name}</span>
 				<span class="server-type">{server.serverType}</span>
 			</button>

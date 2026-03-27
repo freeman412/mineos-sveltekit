@@ -15,7 +15,6 @@
 
 <div class="step">
 	<div class="header">
-		<button class="back-btn" onclick={onback} type="button">&larr; Back</button>
 		<h2>Name your server</h2>
 	</div>
 
@@ -39,9 +38,6 @@
 		{/if}
 	</div>
 
-	<button class="create-btn" onclick={oncreate} disabled={!isValid || !value.trim()} type="button">
-		Create Server
-	</button>
 </div>
 
 <style>

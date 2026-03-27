@@ -48,6 +48,29 @@
 	async function handleAction(action: 'start' | 'stop' | 'restart' | 'kill') {
 		if (!server) return;
 
+		// If starting and EULA not accepted, prompt instead of erroring
+		if (action === 'start' && !server.eulaAccepted && server.serverType !== 'bedrock') {
+			const accepted = await modal.confirm(
+				'This server requires you to accept the Minecraft EULA before starting.\n\n' +
+				'By accepting, you agree to the Minecraft End User License Agreement:\n' +
+				'https://aka.ms/MinecraftEULA',
+				'Accept EULA'
+			);
+			if (!accepted) return;
+
+			actionLoading = true;
+			try {
+				const eulaResult = await api.acceptEula(fetch, server.name);
+				if (eulaResult.error) {
+					await modal.error(`Failed to accept EULA: ${eulaResult.error}`);
+					return;
+				}
+				server.eulaAccepted = true;
+			} finally {
+				actionLoading = false;
+			}
+		}
+
 		actionLoading = true;
 		try {
 			let result;

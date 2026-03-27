@@ -459,6 +459,7 @@ public sealed class NeoForgeService : INeoForgeService
     {
         private readonly object _lock = new();
         private readonly System.Text.StringBuilder _output = new();
+        private int _lastReadPos = 0;
 
         public NeoForgeInstallState(
             string installId, string minecraftVersion, string neoForgeVersion,
@@ -519,9 +520,15 @@ public sealed class NeoForgeService : INeoForgeService
         {
             lock (_lock)
             {
+                var fullOutput = _output.ToString();
+                var newOutput = _lastReadPos < fullOutput.Length
+                    ? fullOutput.Substring(_lastReadPos)
+                    : null;
+                _lastReadPos = fullOutput.Length;
+
                 return new NeoForgeInstallStatusDto(
                     InstallId, MinecraftVersion, NeoForgeVersion, ServerName,
-                    Status, Progress, CurrentStep, Error, _output.ToString(),
+                    Status, Progress, CurrentStep, Error, newOutput,
                     StartedAt, CompletedAt);
             }
         }

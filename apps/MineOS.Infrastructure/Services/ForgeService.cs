@@ -509,6 +509,7 @@ public sealed class ForgeService : IForgeService
     {
         private readonly object _lock = new();
         private readonly System.Text.StringBuilder _output = new();
+        private int _lastReadPos = 0;
 
         public ForgeInstallState(
             string installId,
@@ -589,6 +590,12 @@ public sealed class ForgeService : IForgeService
         {
             lock (_lock)
             {
+                var fullOutput = _output.ToString();
+                var newOutput = _lastReadPos < fullOutput.Length
+                    ? fullOutput.Substring(_lastReadPos)
+                    : null;
+                _lastReadPos = fullOutput.Length;
+
                 return new ForgeInstallStatusDto(
                     InstallId,
                     MinecraftVersion,
@@ -598,7 +605,7 @@ public sealed class ForgeService : IForgeService
                     Progress,
                     CurrentStep,
                     Error,
-                    _output.ToString(),
+                    newOutput,
                     StartedAt,
                     CompletedAt);
             }
