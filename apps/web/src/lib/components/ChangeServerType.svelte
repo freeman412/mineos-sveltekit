@@ -19,15 +19,16 @@
 		onComplete: () => void;
 	} = $props();
 
-	type ServerType = 'vanilla' | 'paper' | 'spigot' | 'craftbukkit' | 'forge' | 'fabric' | 'bedrock';
+	type ServerType = 'vanilla' | 'paper' | 'spigot' | 'forge' | 'neoforge' | 'fabric' | 'quilt';
 
 	const serverTypes: { id: ServerType; name: string; category: string }[] = [
 		{ id: 'vanilla', name: 'Vanilla', category: 'vanilla' },
 		{ id: 'paper', name: 'Paper', category: 'plugins' },
 		{ id: 'spigot', name: 'Spigot', category: 'plugins' },
-		{ id: 'craftbukkit', name: 'CraftBukkit', category: 'plugins' },
 		{ id: 'forge', name: 'Forge', category: 'mods' },
+		{ id: 'neoforge', name: 'NeoForge', category: 'mods' },
 		{ id: 'fabric', name: 'Fabric', category: 'mods' },
+		{ id: 'quilt', name: 'Quilt', category: 'mods' },
 	];
 
 	// Detect current server category from jar name
@@ -62,8 +63,7 @@
 				case 'vanilla': return p.group === 'vanilla';
 				case 'paper': return p.group === 'paper';
 				case 'spigot': return p.group === 'spigot' || (p.group === 'vanilla' && p.type === 'release');
-				case 'craftbukkit': return p.group === 'craftbukkit' || p.group === 'bukkit' || (p.group === 'vanilla' && p.type === 'release');
-				case 'forge': return p.group === 'forge';
+					case 'forge': return p.group === 'forge';
 				case 'fabric': return p.group === 'fabric';
 				case 'bedrock': return p.group === 'bedrock-server' || p.group === 'bedrock-server-preview';
 				default: return false;
@@ -317,7 +317,7 @@
 
 				{#if loading}
 					<p class="loading">Loading versions...</p>
-				{:else if filteredProfiles.length === 0 && (selectedType === 'spigot' || selectedType === 'craftbukkit')}
+				{:else if filteredProfiles.length === 0 && selectedType === 'spigot'}
 					<p class="empty">No built JARs yet.</p>
 					<a href="/profiles/buildtools" class="btn-primary">Open BuildTools</a>
 				{:else if filteredProfiles.length === 0}

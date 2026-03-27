@@ -359,8 +359,13 @@ public static class ServerEndpoints
         {
             try
             {
+                const int maxIconSize = 5 * 1024 * 1024; // 5 MB
                 using var buffer = new MemoryStream();
                 await request.Body.CopyToAsync(buffer, cancellationToken);
+
+                if (buffer.Length > maxIconSize)
+                    return Results.BadRequest(new { error = $"Icon too large ({buffer.Length / 1024 / 1024}MB). Maximum is 5MB." });
+
                 buffer.Position = 0; // Reset stream position for reading
 
                 // Load image using ImageSharp
@@ -493,13 +498,16 @@ public static class ServerEndpoints
 
     private static bool IsAdminOrApiKey(HttpContext context)
     {
-        if (context.User?.Identity?.IsAuthenticated != true)
+        // If authenticated via JWT, check for admin role
+        if (context.User?.Identity?.IsAuthenticated == true)
         {
-            return true;
+            var role = context.User.FindFirstValue(ClaimTypes.Role) ?? "user";
+            return string.Equals(role, "admin", StringComparison.OrdinalIgnoreCase);
         }
 
-        var role = context.User.FindFirstValue(ClaimTypes.Role) ?? "user";
-        return string.Equals(role, "admin", StringComparison.OrdinalIgnoreCase);
+        // If not JWT-authenticated, only allow if an API key header is present
+        // (the ApiKeyMiddleware already validated it before we get here)
+        return context.Request.Headers.ContainsKey("X-Api-Key");
     }
 
     private static async Task<int> ResolveShutdownTimeoutAsync(

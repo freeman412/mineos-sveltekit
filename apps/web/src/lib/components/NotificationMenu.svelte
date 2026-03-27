@@ -56,7 +56,13 @@
 		};
 		notificationsSource.onerror = () => {
 			notificationsSource?.close();
-			setTimeout(connectNotificationStream, 3000);
+			fetch('/api/auth/me').then((res) => {
+				if (res.status === 401 || res.status === 403) {
+					window.location.href = '/login';
+				} else {
+					setTimeout(connectNotificationStream, 5000);
+				}
+			}).catch(() => setTimeout(connectNotificationStream, 5000));
 		};
 	}
 
@@ -78,7 +84,13 @@
 		};
 		jobsSource.onerror = () => {
 			jobsSource?.close();
-			setTimeout(connectJobsStream, 3000);
+			fetch('/api/auth/me').then((res) => {
+				if (res.status === 401 || res.status === 403) {
+					window.location.href = '/login';
+				} else {
+					setTimeout(connectJobsStream, 5000);
+				}
+			}).catch(() => setTimeout(connectJobsStream, 5000));
 		};
 	}
 

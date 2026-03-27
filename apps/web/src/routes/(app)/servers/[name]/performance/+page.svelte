@@ -75,7 +75,7 @@
 	function connectStream() {
 		if (!data.server) return;
 		streamSource?.close();
-		streamSource = new EventSource(`/api/servers/${data.server.name}/performance/streaming`);
+		streamSource = new EventSource(`/api/servers/${encodeURIComponent(data.server.name)}/performance/streaming`);
 		streamStatus = 'connecting';
 
 		streamSource.onmessage = (event) => {

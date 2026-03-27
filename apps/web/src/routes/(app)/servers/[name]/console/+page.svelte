@@ -164,7 +164,7 @@
 
 		existing?.close();
 
-		const eventSource = new EventSource(`/api/servers/${data.server.name}/console/stream?source=${source}`);
+		const eventSource = new EventSource(`/api/servers/${encodeURIComponent(data.server.name)}/console/stream?source=${source}`);
 		if (tab === 'java') {
 			javaEventSource = eventSource;
 		} else if (tab === 'crash') {

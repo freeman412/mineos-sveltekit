@@ -461,12 +461,59 @@ public sealed class ConsoleService : IConsoleService
     {
         try
         {
-            return File.ReadLines(path).Reverse().Take(maxLines).Reverse().ToList();
+            return ReadLastLines(path, maxLines);
         }
         catch
         {
             return Array.Empty<string>();
         }
+    }
+
+    private static List<string> ReadLastLines(string path, int lineCount)
+    {
+        const int bufferSize = 8192;
+        using var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+
+        if (fs.Length == 0) return new List<string>();
+
+        var lines = new List<string>();
+        var remaining = new byte[0];
+        var position = fs.Length;
+
+        while (position > 0 && lines.Count < lineCount + 1)
+        {
+            var bytesToRead = (int)Math.Min(bufferSize, position);
+            position -= bytesToRead;
+            fs.Seek(position, SeekOrigin.Begin);
+
+            var buffer = new byte[bytesToRead + remaining.Length];
+            fs.Read(buffer, 0, bytesToRead);
+            Array.Copy(remaining, 0, buffer, bytesToRead, remaining.Length);
+
+            var text = System.Text.Encoding.UTF8.GetString(buffer);
+            var parts = text.Split('\n');
+
+            remaining = System.Text.Encoding.UTF8.GetBytes(parts[0]);
+
+            for (var i = parts.Length - 1; i >= 1; i--)
+            {
+                var line = parts[i].TrimEnd('\r');
+                if (!string.IsNullOrEmpty(line))
+                    lines.Add(line);
+                if (lines.Count >= lineCount)
+                    break;
+            }
+        }
+
+        if (position == 0 && remaining.Length > 0)
+        {
+            var firstLine = System.Text.Encoding.UTF8.GetString(remaining).TrimEnd('\r');
+            if (!string.IsNullOrEmpty(firstLine) && lines.Count < lineCount)
+                lines.Add(firstLine);
+        }
+
+        lines.Reverse();
+        return lines;
     }
 
     private void TruncateLog(string path)

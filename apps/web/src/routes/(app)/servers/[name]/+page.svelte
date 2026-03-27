@@ -213,7 +213,7 @@
 		if (!data.server) return false;
 		try {
 			const res = await fetch('/api/jobs');
-			if (!res.ok) return;
+			if (!res.ok) return false;
 			const jobs = await res.json();
 			const serverName = data.server.name;
 
@@ -285,7 +285,7 @@
 	function connectToLogs() {
 		if (!data.server) return;
 
-		eventSource = new EventSource(`/api/servers/${data.server.name}/console/stream`);
+		eventSource = new EventSource(`/api/servers/${encodeURIComponent(data.server.name)}/console/stream`);
 
 		eventSource.onmessage = (event) => {
 			try {
@@ -316,7 +316,7 @@
 	function connectToHeartbeat() {
 		if (!data.server) return;
 
-		heartbeatSource = new EventSource(`/api/servers/${data.server.name}/heartbeat/stream`);
+		heartbeatSource = new EventSource(`/api/servers/${encodeURIComponent(data.server.name)}/heartbeat/stream`);
 		heartbeatSource.onmessage = (event) => {
 			try {
 				heartbeat = JSON.parse(event.data);
