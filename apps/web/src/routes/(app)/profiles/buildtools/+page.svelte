@@ -287,12 +287,9 @@
 
 		{#if runId}
 			<div class="run-meta">
-				<p>
-					Run ID: <span>{runId}</span>
-				</p>
 				{#if profileId}
 					<p>
-						Profile ID: <span>{profileId}</span>
+						Profile: <span>{profileId}</span>
 					</p>
 				{/if}
 				<p>
@@ -568,6 +565,8 @@
 		color: #aab2d3;
 		display: grid;
 		gap: 6px;
+		overflow-wrap: break-word;
+		word-break: break-all;
 	}
 
 	.run-meta span {
