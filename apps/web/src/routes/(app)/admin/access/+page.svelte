@@ -822,10 +822,78 @@
 		.users-layout {
 			grid-template-columns: 1fr;
 		}
+	}
+
+	@media (max-width: 768px) {
+		.page-header {
+			margin-bottom: 20px;
+		}
+
+		h1 {
+			font-size: 24px;
+		}
+
+		.users-layout {
+			gap: 16px;
+			margin-bottom: 20px;
+		}
+
+		.panel {
+			padding: 16px;
+			border-radius: 12px;
+		}
+
+		.user-card {
+			flex-direction: column;
+			align-items: stretch;
+			gap: 12px;
+		}
+
+		.user-actions {
+			justify-content: flex-end;
+		}
 
 		.access-row {
 			grid-template-columns: 1fr;
-			align-items: flex-start;
+			gap: 8px;
+		}
+
+		.access-name {
+			font-weight: 600;
+			margin-bottom: 2px;
+		}
+
+		.access-toggle {
+			justify-content: flex-start;
+		}
+
+		.edit-actions {
+			flex-direction: column;
+		}
+
+		.edit-actions button {
+			width: 100%;
+		}
+
+		.info-card {
+			padding: 16px;
+		}
+	}
+
+	@media (max-width: 480px) {
+		.panel {
+			padding: 14px;
+		}
+
+		.user-main {
+			flex-wrap: wrap;
+			gap: 6px;
+		}
+
+		.btn-primary,
+		.btn-secondary {
+			padding: 10px 16px;
+			font-size: 13px;
 		}
 	}
 </style>

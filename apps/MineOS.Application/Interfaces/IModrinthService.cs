@@ -10,6 +10,7 @@ public interface IModrinthService
         int pageSize,
         string? loader,
         string? gameVersion,
+        string? sortBy,
         CancellationToken cancellationToken);
 
     Task<ModrinthSearchResultDto> SearchModpacksAsync(
@@ -18,6 +19,7 @@ public interface IModrinthService
         int pageSize,
         string? loader,
         string? gameVersion,
+        string? sortBy,
         CancellationToken cancellationToken);
 
     Task<ModrinthSearchResultDto> SearchPluginsAsync(
@@ -26,6 +28,7 @@ public interface IModrinthService
         int pageSize,
         string? loader,
         string? gameVersion,
+        string? sortBy,
         CancellationToken cancellationToken);
 
     Task<ModrinthSearchResultDto> SearchResourcePacksAsync(
@@ -33,6 +36,7 @@ public interface IModrinthService
         int index,
         int pageSize,
         string? gameVersion,
+        string? sortBy,
         CancellationToken cancellationToken);
 
     Task<ModrinthProjectDto?> GetProjectAsync(string projectId, CancellationToken cancellationToken);

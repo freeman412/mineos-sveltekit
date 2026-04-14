@@ -359,8 +359,13 @@ public static class ServerEndpoints
         {
             try
             {
+                const int maxIconSize = 5 * 1024 * 1024; // 5 MB
                 using var buffer = new MemoryStream();
                 await request.Body.CopyToAsync(buffer, cancellationToken);
+
+                if (buffer.Length > maxIconSize)
+                    return Results.BadRequest(new { error = $"Icon too large ({buffer.Length / 1024 / 1024}MB). Maximum is 5MB." });
+
                 buffer.Position = 0; // Reset stream position for reading
 
                 // Load image using ImageSharp
@@ -461,13 +466,27 @@ public static class ServerEndpoints
 
         var cron = api.MapGroup("/servers/{name}/cron");
         cron.AddEndpointFilter<ServerAccessFilter>();
-        cron.MapGet("/", (string name) => Results.Ok(Array.Empty<CronJobDto>()));
-        cron.MapPost("/", (string name, CreateCronRequest _) =>
-            EndpointHelpers.NotImplementedFeature($"cron.create:{name}"));
-        cron.MapPatch("/{hash}", (string name, string hash, UpdateCronRequest _) =>
-            EndpointHelpers.NotImplementedFeature($"cron.update:{name}:{hash}"));
-        cron.MapDelete("/{hash}", (string name, string hash) =>
-            EndpointHelpers.NotImplementedFeature($"cron.delete:{name}:{hash}"));
+
+        cron.MapGet("/", async (string name, ICronService cronService, CancellationToken ct) =>
+            Results.Ok(await cronService.ListAsync(name, ct)));
+
+        cron.MapPost("/", async (string name, CreateCronRequest request, ICronService cronService, CancellationToken ct) =>
+        {
+            var dto = await cronService.CreateAsync(name, request, ct);
+            return Results.Created($"/api/v1/servers/{name}/cron/{dto.Hash}", dto);
+        });
+
+        cron.MapPatch("/{hash}", async (string name, string hash, UpdateCronRequest request, ICronService cronService, CancellationToken ct) =>
+        {
+            var dto = await cronService.UpdateAsync(name, hash, request, ct);
+            return dto is null ? Results.NotFound() : Results.Ok(dto);
+        });
+
+        cron.MapDelete("/{hash}", async (string name, string hash, ICronService cronService, CancellationToken ct) =>
+        {
+            var deleted = await cronService.DeleteAsync(name, hash, ct);
+            return deleted ? Results.NoContent() : Results.NotFound();
+        });
 
         var logs = api.MapGroup("/servers/{name}/logs");
         logs.AddEndpointFilter<ServerAccessFilter>();
@@ -479,13 +498,16 @@ public static class ServerEndpoints
 
     private static bool IsAdminOrApiKey(HttpContext context)
     {
-        if (context.User?.Identity?.IsAuthenticated != true)
+        // If authenticated via JWT, check for admin role
+        if (context.User?.Identity?.IsAuthenticated == true)
         {
-            return true;
+            var role = context.User.FindFirstValue(ClaimTypes.Role) ?? "user";
+            return string.Equals(role, "admin", StringComparison.OrdinalIgnoreCase);
         }
 
-        var role = context.User.FindFirstValue(ClaimTypes.Role) ?? "user";
-        return string.Equals(role, "admin", StringComparison.OrdinalIgnoreCase);
+        // If not JWT-authenticated, only allow if an API key header is present
+        // (the ApiKeyMiddleware already validated it before we get here)
+        return context.Request.Headers.ContainsKey("X-Api-Key");
     }
 
     private static async Task<int> ResolveShutdownTimeoutAsync(

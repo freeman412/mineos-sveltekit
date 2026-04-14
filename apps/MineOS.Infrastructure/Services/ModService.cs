@@ -215,6 +215,109 @@ public sealed class ModService : IModService
         return Task.FromResult(targetPath);
     }
 
+    public Task<IReadOnlyList<InstalledModWithModpackDto>> ListClientModsAsync(string serverName, CancellationToken cancellationToken)
+    {
+        var serverPath = GetServerPath(serverName);
+        if (!Directory.Exists(serverPath))
+        {
+            throw new DirectoryNotFoundException($"Server '{serverName}' not found");
+        }
+
+        var clientModsPath = GetClientModsPath(serverName);
+        if (!Directory.Exists(clientModsPath))
+        {
+            return Task.FromResult<IReadOnlyList<InstalledModWithModpackDto>>(Array.Empty<InstalledModWithModpackDto>());
+        }
+
+        var sourceMap = ReadClientModSourceMap(serverName);
+
+        var mods = Directory.GetFiles(clientModsPath)
+            .Select(path =>
+            {
+                var info = new FileInfo(path);
+                sourceMap.TryGetValue(info.Name, out var source);
+                return new InstalledModWithModpackDto(
+                    info.Name,
+                    info.Length,
+                    info.LastWriteTimeUtc,
+                    info.Name.EndsWith(".disabled", StringComparison.OrdinalIgnoreCase),
+                    null,
+                    source,
+                    null);
+            })
+            .OrderBy(m => m.FileName)
+            .ToList();
+
+        return Task.FromResult<IReadOnlyList<InstalledModWithModpackDto>>(mods);
+    }
+
+    public async Task SaveClientModAsync(string serverName, string fileName, Stream content, CancellationToken cancellationToken)
+    {
+        var serverPath = GetServerPath(serverName);
+        if (!Directory.Exists(serverPath))
+        {
+            throw new DirectoryNotFoundException($"Server '{serverName}' not found");
+        }
+
+        var safeName = ValidateFileName(fileName);
+        var clientModsPath = EnsureClientModsPath(serverName);
+        var targetPath = Path.Combine(clientModsPath, safeName);
+        await using var target = new FileStream(targetPath, FileMode.Create, FileAccess.Write, FileShare.None);
+        await content.CopyToAsync(target, cancellationToken);
+        await OwnershipHelper.ChangeOwnershipAsync(
+            targetPath, _hostOptions.RunAsUid, _hostOptions.RunAsGid, _logger, cancellationToken);
+        _logger.LogInformation("Uploaded client mod {FileName} for server {ServerName}", safeName, serverName);
+    }
+
+    public async Task DeleteClientModAsync(string serverName, string fileName, CancellationToken cancellationToken)
+    {
+        var serverPath = GetServerPath(serverName);
+        if (!Directory.Exists(serverPath))
+        {
+            throw new DirectoryNotFoundException($"Server '{serverName}' not found");
+        }
+
+        var safeName = ValidateFileName(fileName);
+        var targetPath = Path.Combine(GetClientModsPath(serverName), safeName);
+
+        if (!File.Exists(targetPath))
+        {
+            throw new FileNotFoundException($"Client mod '{safeName}' not found");
+        }
+
+        File.Delete(targetPath);
+
+        // Remove from source map
+        var map = ReadClientModSourceMap(serverName);
+        if (map.Remove(safeName))
+        {
+            var mapPath = GetClientModSourceMapPath(serverName);
+            var json = JsonSerializer.Serialize(map, new JsonSerializerOptions { WriteIndented = true });
+            await File.WriteAllTextAsync(mapPath, json, cancellationToken);
+        }
+
+        _logger.LogInformation("Deleted client mod {FileName} for server {ServerName}", safeName, serverName);
+    }
+
+    public Task<string> GetClientModPathAsync(string serverName, string fileName, CancellationToken cancellationToken)
+    {
+        var serverPath = GetServerPath(serverName);
+        if (!Directory.Exists(serverPath))
+        {
+            throw new DirectoryNotFoundException($"Server '{serverName}' not found");
+        }
+
+        var safeName = ValidateFileName(fileName);
+        var targetPath = Path.Combine(GetClientModsPath(serverName), safeName);
+
+        if (!File.Exists(targetPath))
+        {
+            throw new FileNotFoundException($"Client mod '{safeName}' not found");
+        }
+
+        return Task.FromResult(targetPath);
+    }
+
     public async Task InstallModFromCurseForgeAsync(
         string serverName,
         int modId,
@@ -1189,7 +1292,8 @@ public sealed class ModService : IModService
                 $"Missing required Modrinth dependencies: {string.Join(", ", dependencyResolution.Errors)}. See {Path.GetFileName(missingDependencyReportPath)}.");
         }
 
-        total = installFiles.Count + excludedMods.Count + dependencyResolution.Installs.Count + 1;
+        total = installFiles.Count + excludedMods.Count + dependencyResolution.Installs.Count
+            + dependencyResolution.ClientOnlyInstalls.Count + 1;
 
         foreach (var decision in installFiles)
         {
@@ -1335,6 +1439,67 @@ public sealed class ModService : IModService
             }
         }
 
+        if (dependencyResolution.ClientOnlyInstalls.Count > 0)
+        {
+            var clientModsPath = Path.Combine(serverPath, "client-mods", "mods");
+            Directory.CreateDirectory(clientModsPath);
+            OwnershipHelper.TrySetOwnership(clientModsPath, _hostOptions.RunAsUid, _hostOptions.RunAsGid, _logger, recursive: true);
+
+            foreach (var dependency in dependencyResolution.ClientOnlyInstalls)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                var file = SelectModrinthFile(dependency.Version);
+                if (file == null || string.IsNullOrWhiteSpace(file.Url))
+                {
+                    _logger.LogWarning(
+                        "Missing download URL for client-only dependency {ProjectName} ({ProjectId})",
+                        dependency.ProjectName, dependency.ProjectId);
+                    completed++;
+                    continue;
+                }
+
+                var targetPath = Path.Combine(clientModsPath, ValidateFileName(file.FileName));
+                var stepMessage = $"Saving client-only dependency {Path.GetFileName(file.FileName)}";
+                ReportProgress(progress, serverName, "modrinth-modpack-install", completed, total, stepMessage);
+
+                await DownloadFileWithRetriesAsync(
+                    file.Url,
+                    targetPath,
+                    cancellationToken,
+                    null,
+                    message => ReportProgress(progress, serverName, "modrinth-modpack-install", completed, total, message));
+
+                await OwnershipHelper.ChangeOwnershipAsync(
+                    targetPath,
+                    _hostOptions.RunAsUid,
+                    _hostOptions.RunAsGid,
+                    _logger,
+                    cancellationToken);
+
+                completed++;
+                ReportProgress(progress, serverName, "modrinth-modpack-install", completed, total,
+                    $"Saved client-only dependency {Path.GetFileName(targetPath)}");
+            }
+        }
+
+        var clientModFileNames = new List<string>();
+        foreach (var excluded in excludedMods)
+        {
+            clientModFileNames.Add(Path.GetFileName(excluded.File.Path));
+        }
+        foreach (var dep in dependencyResolution.ClientOnlyInstalls)
+        {
+            var depFile = SelectModrinthFile(dep.Version);
+            if (depFile != null)
+            {
+                clientModFileNames.Add(ValidateFileName(depFile.FileName));
+            }
+        }
+        if (clientModFileNames.Count > 0)
+        {
+            await UpdateClientModSourceMapAsync(serverName, clientModFileNames, modpackName, cancellationToken);
+        }
+
         AddOverrideModRecords(installedRecords, overrideModFiles, serverName);
 
         await _modpackRepo.UpsertModpackAsync(
@@ -1358,7 +1523,7 @@ public sealed class ModService : IModService
             serverName,
             "running",
             100,
-            $"Installed {installedRecords.Count} mod(s), excluded {excludedMods.Count} mod(s), missing {dependencyResolution.Errors.Count} dependency(ies). Report saved to {Path.GetFileName(reportPath)}.",
+            $"Installed {installedRecords.Count} mod(s), excluded {excludedMods.Count} client-only mod(s), {dependencyResolution.ClientOnlyInstalls.Count} client-only dep(s), missing {dependencyResolution.Errors.Count} dependency(ies). Report saved to {Path.GetFileName(reportPath)}.",
             DateTimeOffset.UtcNow));
     }
 
@@ -1981,6 +2146,62 @@ public sealed class ModService : IModService
     private string GetModsPath(string serverName) =>
         Path.Combine(GetServerPath(serverName), "mods");
 
+    private string GetClientModsPath(string serverName) =>
+        Path.Combine(GetServerPath(serverName), "client-mods", "mods");
+
+    private string EnsureClientModsPath(string serverName)
+    {
+        var path = GetClientModsPath(serverName);
+        Directory.CreateDirectory(path);
+        OwnershipHelper.TrySetOwnership(path, _hostOptions.RunAsUid, _hostOptions.RunAsGid, _logger);
+        return path;
+    }
+
+    private string GetClientModSourceMapPath(string serverName) =>
+        Path.Combine(GetServerPath(serverName), "client-mods", "source-map.json");
+
+    private Dictionary<string, string> ReadClientModSourceMap(string serverName)
+    {
+        var path = GetClientModSourceMapPath(serverName);
+        if (!File.Exists(path))
+        {
+            return new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        }
+
+        try
+        {
+            var json = File.ReadAllText(path);
+            var map = JsonSerializer.Deserialize<Dictionary<string, string>>(json);
+            return map != null
+                ? new Dictionary<string, string>(map, StringComparer.OrdinalIgnoreCase)
+                : new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to read client mod source map for {ServerName}", serverName);
+            return new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        }
+    }
+
+    private async Task UpdateClientModSourceMapAsync(
+        string serverName,
+        IEnumerable<string> fileNames,
+        string modpackName,
+        CancellationToken cancellationToken)
+    {
+        var map = ReadClientModSourceMap(serverName);
+        foreach (var fileName in fileNames)
+        {
+            map[fileName] = modpackName;
+        }
+
+        var clientModsRoot = Path.Combine(GetServerPath(serverName), "client-mods");
+        Directory.CreateDirectory(clientModsRoot);
+        var path = GetClientModSourceMapPath(serverName);
+        var json = JsonSerializer.Serialize(map, new JsonSerializerOptions { WriteIndented = true });
+        await File.WriteAllTextAsync(path, json, cancellationToken);
+    }
+
     private string EnsureModsPath(string serverName)
     {
         var path = GetModsPath(serverName);
@@ -2252,6 +2473,7 @@ public sealed class ModService : IModService
         CancellationToken cancellationToken)
     {
         var installs = new List<ModrinthDependencyInstall>();
+        var clientOnlyInstalls = new List<ModrinthDependencyInstall>();
         var errors = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var installedProjectIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var installedVersionIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -2365,16 +2587,34 @@ public sealed class ModService : IModService
                 continue;
             }
 
-            if (string.Equals(dependencyProject.ServerSide, "unsupported", StringComparison.OrdinalIgnoreCase))
-            {
-                errors.Add($"{dependencyProject.Title} (client-only)");
-                continue;
-            }
+            var isClientOnly = string.Equals(dependencyProject.ServerSide, "unsupported", StringComparison.OrdinalIgnoreCase)
+                || (string.IsNullOrWhiteSpace(dependencyProject.ServerSide) && IsKnownClientOnlyCategory(dependencyProject.Categories));
 
-            if (string.IsNullOrWhiteSpace(dependencyProject.ServerSide) &&
-                IsKnownClientOnlyCategory(dependencyProject.Categories))
+            if (isClientOnly)
             {
-                errors.Add($"{dependencyProject.Title} (client-only)");
+                _logger.LogInformation(
+                    "Client-only dependency {ProjectTitle} ({ProjectId}) — will be saved to client-mods",
+                    dependencyProject.Title, dependencyProject.Id);
+                clientOnlyInstalls.Add(new ModrinthDependencyInstall(
+                    dependencyProject.Id,
+                    dependencyProject.Title,
+                    dependencyVersion));
+                installedProjectIds.Add(dependencyProject.Id);
+                installedVersionIds.Add(dependencyVersion.Id);
+                if (dependencyVersion.Dependencies != null)
+                {
+                    foreach (var child in dependencyVersion.Dependencies)
+                    {
+                        if (string.Equals(child.DependencyType, "required", StringComparison.OrdinalIgnoreCase))
+                        {
+                            var childKey = GetDependencyKey(child);
+                            if (!string.IsNullOrWhiteSpace(childKey) && queuedDependencyKeys.Add(childKey))
+                            {
+                                dependencyQueue.Enqueue(child);
+                            }
+                        }
+                    }
+                }
                 continue;
             }
 
@@ -2385,7 +2625,15 @@ public sealed class ModService : IModService
 
             if (excludedProjectIds.Contains(dependencyProject.Id))
             {
-                errors.Add($"{dependencyProject.Title} (excluded)");
+                _logger.LogInformation(
+                    "Client-only dependency {ProjectTitle} ({ProjectId}) — already excluded from modpack, will be saved to client-mods",
+                    dependencyProject.Title, dependencyProject.Id);
+                clientOnlyInstalls.Add(new ModrinthDependencyInstall(
+                    dependencyProject.Id,
+                    dependencyProject.Title,
+                    dependencyVersion));
+                installedProjectIds.Add(dependencyProject.Id);
+                installedVersionIds.Add(dependencyVersion.Id);
                 continue;
             }
 
@@ -2412,7 +2660,7 @@ public sealed class ModService : IModService
             }
         }
 
-        return new ModrinthDependencyResolution(installs, errors.OrderBy(error => error).ToList());
+        return new ModrinthDependencyResolution(installs, clientOnlyInstalls, errors.OrderBy(error => error).ToList());
     }
 
     private static string? GetDependencyKey(ModrinthDependencyDto dependency)
@@ -2634,6 +2882,45 @@ public sealed class ModService : IModService
         return reportPath;
     }
 
+    public static string ComputeToggleName(string filename, bool enabled)
+    {
+        var isCurrentlyDisabled = filename.EndsWith(".disabled", StringComparison.OrdinalIgnoreCase);
+
+        if (enabled && isCurrentlyDisabled)
+            return filename[..^".disabled".Length];
+
+        if (!enabled && !isCurrentlyDisabled)
+            return filename + ".disabled";
+
+        return filename;
+    }
+
+    public async Task<string> SetModEnabledAsync(string serverName, string filename, bool enabled, CancellationToken cancellationToken)
+    {
+        var safeName = ValidateFileName(filename);
+        var modsPath = GetModsPath(serverName);
+        var filePath = Path.Combine(modsPath, safeName);
+
+        if (!File.Exists(filePath))
+            throw new FileNotFoundException($"Mod file not found: {safeName}");
+
+        var newFilename = ComputeToggleName(safeName, enabled);
+        if (newFilename == safeName)
+            return safeName;
+
+        var newPath = Path.Combine(modsPath, newFilename);
+        File.Move(filePath, newPath);
+
+        var serverPath = Path.Combine(_hostOptions.BaseDirectory, _hostOptions.ServersPathSegment, serverName);
+        await File.WriteAllTextAsync(
+            Path.Combine(serverPath, ".mineos-restart-required"), "", cancellationToken);
+
+        _logger.LogInformation("Mod {OldName} -> {NewName} for server {Server}",
+            filename, newFilename, serverName);
+
+        return newFilename;
+    }
+
     private sealed class ModpackManifest
     {
         public List<ModpackFile> Files { get; set; } = new();
@@ -2699,6 +2986,7 @@ public sealed class ModService : IModService
 
     private sealed record ModrinthDependencyResolution(
         IReadOnlyList<ModrinthDependencyInstall> Installs,
+        IReadOnlyList<ModrinthDependencyInstall> ClientOnlyInstalls,
         IReadOnlyList<string> Errors);
 
     private sealed record ModrinthInstallReport(

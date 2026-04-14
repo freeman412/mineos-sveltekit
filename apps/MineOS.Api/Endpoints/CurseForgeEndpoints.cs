@@ -18,6 +18,8 @@ public static class CurseForgeEndpoints
             [FromQuery] string? sort,
             [FromQuery] string? order,
             [FromQuery] long? minDownloads,
+            [FromQuery] string? gameVersion,
+            [FromQuery] string? loader,
             ICurseForgeService curseForgeService,
             CancellationToken cancellationToken) =>
         {
@@ -36,6 +38,8 @@ public static class CurseForgeEndpoints
                     sort,
                     order,
                     minDownloads,
+                    gameVersion,
+                    loader,
                     cancellationToken);
                 return Results.Ok(results);
             }

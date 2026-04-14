@@ -17,15 +17,21 @@ public sealed class BackupService : IBackupService
     private readonly ILogger<BackupService> _logger;
     private readonly HostOptions _hostOptions;
     private readonly AppDbContext _db;
+    private readonly IFeatureUsageTracker _featureTracker;
+    private readonly ITelemetryService _telemetryService;
 
     public BackupService(
         ILogger<BackupService> logger,
         IOptions<HostOptions> hostOptions,
-        AppDbContext db)
+        AppDbContext db,
+        IFeatureUsageTracker featureTracker,
+        ITelemetryService telemetryService)
     {
         _logger = logger;
         _hostOptions = hostOptions.Value;
         _db = db;
+        _featureTracker = featureTracker;
+        _telemetryService = telemetryService;
     }
 
     private string GetServerPath(string serverName) =>
@@ -61,45 +67,60 @@ public sealed class BackupService : IBackupService
 
     public async Task CreateBackupAsync(string serverName, CancellationToken cancellationToken)
     {
-        var serverPath = GetServerPath(serverName);
-        var backupPath = GetBackupPath(serverName);
-
-        if (!Directory.Exists(serverPath))
+        try
         {
-            throw new DirectoryNotFoundException($"Server '{serverName}' not found");
+            var serverPath = GetServerPath(serverName);
+            var backupPath = GetBackupPath(serverName);
+
+            if (!Directory.Exists(serverPath))
+            {
+                throw new DirectoryNotFoundException($"Server '{serverName}' not found");
+            }
+
+            _logger.LogInformation("Creating backup for server {ServerName} at {BackupPath}", serverName, backupPath);
+
+            // Ensure backup directory exists
+            Directory.CreateDirectory(backupPath);
+
+            // Use rdiff-backup to create incremental backup
+            var psi = new ProcessStartInfo
+            {
+                FileName = "rdiff-backup",
+                Arguments = $"backup \"{serverPath}\" \"{backupPath}\"",
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true
+            };
+
+            using var process = Process.Start(psi);
+            if (process == null)
+            {
+                throw new InvalidOperationException("Failed to start rdiff-backup process");
+            }
+
+            await process.WaitForExitAsync(cancellationToken);
+
+            if (process.ExitCode != 0)
+            {
+                var error = await process.StandardError.ReadToEndAsync(cancellationToken);
+                throw new InvalidOperationException($"Backup failed: {error}");
+            }
+
+            _logger.LogInformation("Created backup for server {ServerName}", serverName);
+            _featureTracker.Increment("backups_created");
         }
-
-        _logger.LogInformation("Creating backup for server {ServerName} at {BackupPath}", serverName, backupPath);
-
-        // Ensure backup directory exists
-        Directory.CreateDirectory(backupPath);
-
-        // Use rdiff-backup to create incremental backup
-        var psi = new ProcessStartInfo
+        catch (Exception ex)
         {
-            FileName = "rdiff-backup",
-            Arguments = $"backup \"{serverPath}\" \"{backupPath}\"",
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            UseShellExecute = false,
-            CreateNoWindow = true
-        };
-
-        using var process = Process.Start(psi);
-        if (process == null)
-        {
-            throw new InvalidOperationException("Failed to start rdiff-backup process");
+            await _telemetryService.ReportErrorAsync(
+                "BACKUP_FAILED",
+                ex.Message,
+                ex.StackTrace,
+                "high",
+                serverName,
+                cancellationToken);
+            throw;
         }
-
-        await process.WaitForExitAsync(cancellationToken);
-
-        if (process.ExitCode != 0)
-        {
-            var error = await process.StandardError.ReadToEndAsync(cancellationToken);
-            throw new InvalidOperationException($"Backup failed: {error}");
-        }
-
-        _logger.LogInformation("Created backup for server {ServerName}", serverName);
     }
 
     public async Task RestoreBackupAsync(string serverName, string timestamp, CancellationToken cancellationToken)
@@ -204,11 +225,11 @@ public sealed class BackupService : IBackupService
             return Enumerable.Empty<IncrementEntryDto>();
         }
 
-        // Use rdiff-backup to list increment sizes
+        // Use rdiff-backup v2 syntax to list increment sizes
         var psi = new ProcessStartInfo
         {
             FileName = "rdiff-backup",
-            Arguments = $"--list-increment-sizes \"{backupPath}\"",
+            Arguments = $"list increment-sizes \"{backupPath}\"",
             RedirectStandardOutput = true,
             RedirectStandardError = true,
             UseShellExecute = false,
@@ -335,7 +356,9 @@ public sealed class BackupService : IBackupService
         {
             var trimmed = line.Trim();
             if (string.IsNullOrWhiteSpace(trimmed) ||
-                trimmed.StartsWith("Found ", StringComparison.OrdinalIgnoreCase))
+                trimmed.StartsWith("Found ", StringComparison.OrdinalIgnoreCase) ||
+                trimmed.StartsWith("Time", StringComparison.OrdinalIgnoreCase) ||
+                trimmed.StartsWith("---"))
             {
                 continue;
             }
@@ -354,10 +377,22 @@ public sealed class BackupService : IBackupService
             }
 
             var remainder = trimmed[(match.Index + match.Length)..];
-            var sizeMatch = Regex.Match(remainder, @"\b(\d+)\b");
-            if (!sizeMatch.Success || !long.TryParse(sizeMatch.Groups[1].Value, out var size))
+
+            // Try parenthesized byte count first (rdiff-backup v2 human-readable format: "1.2 MB (1234567)")
+            // then fall back to first standalone number (raw byte format: "1234567")
+            var parenMatch = Regex.Match(remainder, @"\((\d+)\)");
+            long size;
+            if (parenMatch.Success && long.TryParse(parenMatch.Groups[1].Value, out size))
             {
-                continue;
+                // Found byte count in parentheses
+            }
+            else
+            {
+                var sizeMatch = Regex.Match(remainder, @"\b(\d+)\b");
+                if (!sizeMatch.Success || !long.TryParse(sizeMatch.Groups[1].Value, out size))
+                {
+                    continue;
+                }
             }
 
             cumulativeSize += size;

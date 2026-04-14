@@ -45,11 +45,12 @@ RUN apt-get update -o Acquire::Check-Valid-Until=false && apt-get install -y --n
     && echo "deb [signed-by=/etc/apt/keyrings/adoptium.gpg] https://packages.adoptium.net/artifactory/deb $(. /etc/os-release && echo $VERSION_CODENAME) main" \
        > /etc/apt/sources.list.d/adoptium.list \
     && apt-get update -o Acquire::Check-Valid-Until=false \
-    && apt-get install -y --no-install-recommends temurin-21-jdk temurin-8-jre \
+    && apt-get install -y --no-install-recommends temurin-25-jdk temurin-21-jdk temurin-8-jre \
     && rm -rf /var/lib/apt/lists/*
 
-# Default to JDK 21 for toolchains like BuildTools; servers can still target other Java versions.
-ENV JAVA_HOME=/usr/lib/jvm/temurin-21-jdk-amd64
+# Default to JDK 25 (latest) — servers auto-select the right version based on MC version.
+ARG TARGETARCH
+ENV JAVA_HOME=/usr/lib/jvm/temurin-25-jdk-${TARGETARCH}
 ENV PATH="${JAVA_HOME}/bin:${PATH}"
 
 # Create minecraft user with UID 1000 and GID 1000

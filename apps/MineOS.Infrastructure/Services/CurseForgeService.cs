@@ -25,6 +25,8 @@ public sealed class CurseForgeService : ICurseForgeService
         string? sort,
         string? order,
         long? minDownloads,
+        string? gameVersion,
+        string? loader,
         CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(query))
@@ -45,12 +47,31 @@ public sealed class CurseForgeService : ICurseForgeService
             parameters.Add($"classId={classId.Value}");
         }
 
+        if (!string.IsNullOrWhiteSpace(gameVersion))
+        {
+            parameters.Add($"gameVersion={Uri.EscapeDataString(gameVersion)}");
+        }
+
         var sortField = ResolveSortField(sort);
         if (sortField.HasValue)
         {
             var sortOrder = ResolveSortOrder(order, sortField.Value);
             parameters.Add($"sortField={sortField.Value}");
             parameters.Add($"sortOrder={sortOrder}");
+        }
+
+        if (!string.IsNullOrWhiteSpace(loader))
+        {
+            var modLoaderType = loader.Trim().ToLowerInvariant() switch
+            {
+                "forge" => 1,
+                "fabric" => 4,
+                "quilt" => 5,
+                "neoforge" => 6,
+                _ => (int?)null
+            };
+            if (modLoaderType.HasValue)
+                parameters.Add($"modLoaderType={modLoaderType.Value}");
         }
 
         var path = $"/v1/mods/search?{string.Join("&", parameters)}";

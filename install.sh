@@ -281,7 +281,7 @@ if [ "$BUILD" = true ]; then
     cd "$INSTALL_DIR"
     tmp_dir=$(mktemp -d)
     install_cli
-    run_cli_installer --build "${FORWARD_ARGS[@]}"
+    run_cli_installer --build ${FORWARD_ARGS[@]+"${FORWARD_ARGS[@]}"}
     exit 0
 fi
 
@@ -329,4 +329,4 @@ tar -xzf "$bundle_path" -C "$INSTALL_DIR"
 
 cd "$INSTALL_DIR"
 install_cli
-run_cli_installer "${FORWARD_ARGS[@]}"
+run_cli_installer ${FORWARD_ARGS[@]+"${FORWARD_ARGS[@]}"}

@@ -3,6 +3,7 @@
 	import '@xterm/xterm/css/xterm.css';
 	import { modal } from '$lib/stores/modal';
 	import { formatBytes, formatDate } from '$lib/utils/formatting';
+	import ChangeServerType from '$lib/components/ChangeServerType.svelte';
 	import type { PageData } from './$types';
 	import type { LayoutData } from './$types';
 
@@ -10,6 +11,63 @@
 	type FitAddonType = import('@xterm/addon-fit').FitAddon;
 
 	let { data }: { data: PageData & { server: LayoutData['server'] } } = $props();
+
+	let showChangeType = $state(false);
+	let activeInstall = $state<{ loaderName: string; streamUrl: string; progress: number; step: string } | null>(null);
+	let lastInstallStep = '';
+
+	let detectedType = $state('Unknown');
+
+	// Detect server type from jar, profile, jar args, and server directory
+	function detectServerTypeFromConfig(server: any): string {
+		if (server.serverType === 'bedrock') return 'Bedrock';
+		const jar = (server.config?.java?.jarFile ?? '').toLowerCase();
+		const profile = (server.config?.minecraft?.profile ?? '').toLowerCase();
+		const jarArgs = (server.config?.java?.jarArgs ?? '').toLowerCase();
+		const hint = jar + ' ' + profile + ' ' + jarArgs;
+		if (hint.includes('neoforge')) return 'NeoForge';
+		if (hint.includes('forge')) return 'Forge';
+		if (hint.includes('fabric')) return 'Fabric';
+		if (hint.includes('quilt')) return 'Quilt';
+		if (hint.includes('paper')) return 'Paper';
+		if (hint.includes('spigot')) return 'Spigot';
+		if (hint.includes('purpur')) return 'Purpur';
+		if (hint.includes('bukkit')) return 'CraftBukkit';
+		// Check if jar field uses @argfile syntax (Forge modpacks)
+		if (jar.startsWith('@')) return 'Forge';
+		return '';
+	}
+
+	// Also check via the loader detection API for a definitive answer
+	async function detectServerType(server: any) {
+		// Try config-based detection first
+		const configType = detectServerTypeFromConfig(server);
+		if (configType) {
+			detectedType = configType;
+			return;
+		}
+
+		// Fall back to the loader API (checks jar filename regex + directory contents)
+		try {
+			const res = await fetch(`/api/servers/${encodeURIComponent(server.name)}/loader`);
+			if (res.ok) {
+				const info = await res.json();
+				if (info.loader) {
+					const loaderMap: Record<string, string> = {
+						forge: 'Forge', neoforge: 'NeoForge', fabric: 'Fabric', quilt: 'Quilt'
+					};
+					detectedType = loaderMap[info.loader] ?? info.loader;
+					return;
+				}
+			}
+		} catch { /* ignore */ }
+
+		detectedType = server.config?.java?.jarFile ? 'Vanilla' : 'Unknown';
+	}
+
+	$effect(() => {
+		if (data.server) detectServerType(data.server);
+	});
 
 	let terminalContainer: HTMLDivElement;
 	let terminal: TerminalType | null = $state(null);
@@ -123,11 +181,16 @@
 			fitAddon.fit();
 
 			terminal.writeln('\x1b[1;36m=== MineOS Console ===\x1b[0m');
-			terminal.writeln('\x1b[90mConnecting to server logs...\x1b[0m');
 			terminal.writeln('');
 
-			connectToLogs();
 			connectToHeartbeat();
+
+			// Check for active installs first — show install logs instead of server logs
+			const hasInstall = await checkActiveInstalls();
+			if (!hasInstall) {
+				terminal.writeln('\x1b[90mConnecting to server logs...\x1b[0m');
+				connectToLogs();
+			}
 
 			resizeObserver = new ResizeObserver(() => {
 				fitAddon?.fit();
@@ -146,10 +209,83 @@
 		};
 	});
 
+	async function checkActiveInstalls(): Promise<boolean> {
+		if (!data.server) return false;
+		try {
+			const res = await fetch('/api/jobs');
+			if (!res.ok) return false;
+			const jobs = await res.json();
+			const serverName = data.server.name;
+
+			// Check all loader install types
+			const loaders = [
+				{ list: jobs.forgeInstalls ?? [], name: 'Forge', prefix: '/api/forge/install' },
+				{ list: jobs.neoForgeInstalls ?? [], name: 'NeoForge', prefix: '/api/neoforge/install' },
+				{ list: jobs.fabricInstalls ?? [], name: 'Fabric', prefix: '/api/fabric/install' },
+				{ list: jobs.quiltInstalls ?? [], name: 'Quilt', prefix: '/api/quilt/install' },
+			];
+
+			for (const loader of loaders) {
+				const install = loader.list.find((i: any) => i.serverName === serverName);
+				if (install) {
+					activeInstall = {
+						loaderName: loader.name,
+						streamUrl: `${loader.prefix}/${install.installId}/stream`,
+						progress: install.progress ?? 0,
+						step: install.currentStep ?? 'Installing...'
+					};
+
+					// Stream install logs to the terminal
+					terminal?.writeln(`\x1b[1;33m=== ${loader.name} Installation in Progress ===\x1b[0m`);
+					terminal?.writeln(`\x1b[90m${install.currentStep || 'Starting...'}\x1b[0m`);
+
+					const source = new EventSource(activeInstall.streamUrl);
+					source.onmessage = (event) => {
+						try {
+							const d = JSON.parse(event.data);
+							if (d.currentStep && activeInstall) {
+								activeInstall.step = d.currentStep;
+								activeInstall.progress = d.progress ?? 0;
+							}
+							// Write new output lines (now incremental from backend)
+							if (d.output && terminal) {
+								const text = typeof d.output === 'string' ? d.output : d.output.join('\n');
+								for (const line of text.split('\n')) {
+									if (line.trim()) terminal.writeln(line);
+								}
+							}
+							if (d.status === 'completed') {
+								source.close();
+								terminal?.writeln('\x1b[1;32m=== Installation Complete! ===\x1b[0m');
+								activeInstall = null;
+								// Reconnect to normal server logs
+								connectToLogs();
+							} else if (d.status === 'failed') {
+								source.close();
+								terminal?.writeln(`\x1b[1;31m=== Installation Failed: ${d.error || 'Unknown error'} ===\x1b[0m`);
+								activeInstall = null;
+							}
+						} catch {}
+					};
+					source.onerror = () => {
+						source.close();
+						if (activeInstall) {
+							terminal?.writeln('\x1b[90mInstall stream disconnected\x1b[0m');
+							activeInstall = null;
+							connectToLogs();
+						}
+					};
+					return true; // Found an active install
+				}
+			}
+		} catch {}
+		return false;
+	}
+
 	function connectToLogs() {
 		if (!data.server) return;
 
-		eventSource = new EventSource(`/api/servers/${data.server.name}/console/stream`);
+		eventSource = new EventSource(`/api/servers/${encodeURIComponent(data.server.name)}/console/stream`);
 
 		eventSource.onmessage = (event) => {
 			try {
@@ -161,16 +297,26 @@
 		};
 
 		eventSource.onerror = () => {
-			terminal?.writeln('\x1b[31mConnection lost. Reconnecting...\x1b[0m');
 			eventSource?.close();
-			setTimeout(connectToLogs, 2000);
+			// Check if this is an auth issue before reconnecting
+			fetch('/api/auth/me').then((res) => {
+				if (res.status === 401 || res.status === 403) {
+					window.location.href = '/login';
+				} else {
+					terminal?.writeln('\x1b[31mConnection lost. Reconnecting...\x1b[0m');
+					setTimeout(connectToLogs, 3000);
+				}
+			}).catch(() => {
+				terminal?.writeln('\x1b[31mConnection lost. Reconnecting...\x1b[0m');
+				setTimeout(connectToLogs, 3000);
+			});
 		};
 	}
 
 	function connectToHeartbeat() {
 		if (!data.server) return;
 
-		heartbeatSource = new EventSource(`/api/servers/${data.server.name}/heartbeat/stream`);
+		heartbeatSource = new EventSource(`/api/servers/${encodeURIComponent(data.server.name)}/heartbeat/stream`);
 		heartbeatSource.onmessage = (event) => {
 			try {
 				heartbeat = JSON.parse(event.data);
@@ -185,7 +331,13 @@
 		heartbeatSource.onerror = () => {
 			heartbeatSource?.close();
 			heartbeatSource = null;
-			setTimeout(connectToHeartbeat, 2000);
+			fetch('/api/auth/me').then((res) => {
+				if (res.status === 401 || res.status === 403) {
+					window.location.href = '/login';
+				} else {
+					setTimeout(connectToHeartbeat, 3000);
+				}
+			}).catch(() => setTimeout(connectToHeartbeat, 3000));
 		};
 	}
 
@@ -340,11 +492,20 @@
 
 		{#if data.server?.config}
 			<div class="card">
-				<h3>Java Configuration</h3>
+				<div class="card-header-row">
+					<h3>Server Configuration</h3>
+					<button class="btn-change-type" onclick={() => showChangeType = true}>
+						Change Type
+					</button>
+				</div>
 				<div class="info-grid">
 					<div class="info-row">
+						<span class="label">Server Type</span>
+						<span class="value type-badge">{detectedType}</span>
+					</div>
+					<div class="info-row">
 						<span class="label">Java Binary</span>
-						<span class="value">{data.server.config.java.javaBinary || 'N/A'}</span>
+						<span class="value">{data.server.config.java.javaBinary || 'Auto-detect'}</span>
 					</div>
 					<div class="info-row">
 						<span class="label">Xmx / Xms</span>
@@ -395,7 +556,43 @@
 	</section>
 </div>
 
+{#if showChangeType && data.server}
+	<ChangeServerType
+		serverName={data.server.name}
+		currentJar={data.server.config?.java?.jarFile ?? null}
+		currentServerType={data.server.serverType}
+		onClose={() => showChangeType = false}
+		onComplete={() => showChangeType = false}
+	/>
+{/if}
+
 <style>
+	.card-header-row {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		margin-bottom: 12px;
+	}
+
+	.card-header-row h3 { margin: 0; }
+
+	.btn-change-type {
+		padding: 6px 14px;
+		background: rgba(96, 141, 255, 0.15);
+		border: 1px solid rgba(96, 141, 255, 0.3);
+		border-radius: 6px;
+		color: #608dff;
+		font-size: 12px;
+		font-weight: 600;
+		cursor: pointer;
+		transition: all 0.2s;
+	}
+
+	.btn-change-type:hover {
+		background: rgba(96, 141, 255, 0.25);
+		border-color: rgba(96, 141, 255, 0.5);
+	}
+
 	.dashboard {
 		display: flex;
 		flex-direction: column;

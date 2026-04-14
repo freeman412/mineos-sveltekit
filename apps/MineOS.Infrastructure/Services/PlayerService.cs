@@ -232,6 +232,19 @@ public sealed class PlayerService : IPlayerService
 
         entries.Add(new WhitelistEntry(uuid, resolvedName));
         await SaveJsonListAsync(GetWhitelistPath(serverName), entries, cancellationToken);
+
+        // Send command to running server if applicable
+        var isRunning = await _processManager.IsServerRunningAsync(serverName, cancellationToken);
+        if (isRunning)
+        {
+            await _processManager.SendCommandAsync(
+                serverName,
+                $"whitelist add {resolvedName}",
+                _hostOptions.RunAsUid,
+                _hostOptions.RunAsGid,
+                cancellationToken);
+            _logger.LogInformation("Sent WHITELIST ADD command to running server {ServerName} for player {PlayerName}", serverName, resolvedName);
+        }
     }
 
     public async Task RemoveWhitelistAsync(string serverName, string uuid, CancellationToken cancellationToken)
@@ -243,8 +256,27 @@ public sealed class PlayerService : IPlayerService
         }
 
         var entries = await LoadJsonListAsync<WhitelistEntry>(GetWhitelistPath(serverName), cancellationToken);
+        var existing = entries.FirstOrDefault(e => string.Equals(e.Uuid, uuid, StringComparison.OrdinalIgnoreCase));
+        var playerName = existing?.Name;
+
         entries.RemoveAll(e => string.Equals(e.Uuid, uuid, StringComparison.OrdinalIgnoreCase));
         await SaveJsonListAsync(GetWhitelistPath(serverName), entries, cancellationToken);
+
+        // Send command to running server if applicable
+        if (!string.IsNullOrWhiteSpace(playerName))
+        {
+            var isRunning = await _processManager.IsServerRunningAsync(serverName, cancellationToken);
+            if (isRunning)
+            {
+                await _processManager.SendCommandAsync(
+                    serverName,
+                    $"whitelist remove {playerName}",
+                    _hostOptions.RunAsUid,
+                    _hostOptions.RunAsGid,
+                    cancellationToken);
+                _logger.LogInformation("Sent WHITELIST REMOVE command to running server {ServerName} for player {PlayerName}", serverName, playerName);
+            }
+        }
     }
 
     public async Task OpPlayerAsync(

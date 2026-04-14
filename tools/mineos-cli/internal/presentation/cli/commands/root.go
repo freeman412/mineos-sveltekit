@@ -10,7 +10,6 @@ import (
 
 	"github.com/freemancraft/mineos-sveltekit/tools/mineos-cli/internal/application/usecases"
 	"github.com/freemancraft/mineos-sveltekit/tools/mineos-cli/internal/domain/ports"
-	"github.com/freemancraft/mineos-sveltekit/tools/mineos-cli/internal/presentation/cli/tui"
 )
 
 type RootDeps struct {
@@ -28,7 +27,7 @@ func NewRootCommand(deps RootDeps) *cobra.Command {
 		Short: "MineOS management CLI",
 		Long:  "MineOS management CLI for server setup and operations.",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return tui.RunTui(cmd.Context(), deps.LoadConfig, deps.Version, cmd.InOrStdin(), cmd.OutOrStdout())
+			return cmd.Help()
 		},
 		PersistentPreRunE: func(cmd *cobra.Command, _ []string) error {
 			if envPath != "" {
@@ -39,6 +38,7 @@ func NewRootCommand(deps RootDeps) *cobra.Command {
 			skipEnvCheck := cmd.Name() == "mineos" ||
 				cmd.Name() == "tui" ||
 				cmd.Name() == "install" ||
+				cmd.Name() == "update" ||
 				cmd.Name() == "upgrade" ||
 				cmd.Name() == "version" ||
 				cmd.Name() == "help"
@@ -89,6 +89,7 @@ func NewRootCommand(deps RootDeps) *cobra.Command {
 	cmd.AddCommand(NewServersCommand(deps.LoadConfig))
 	cmd.AddCommand(NewStatusCommand(deps.LoadConfig))
 	cmd.AddCommand(NewUninstallCommand())
+	cmd.AddCommand(NewUpdateCommand(deps.LoadConfig, deps.Version))
 	cmd.AddCommand(NewUpgradeCommand(deps.Version))
 	cmd.AddCommand(NewVersionCommand(deps.Version))
 

@@ -24,18 +24,108 @@
 	let clientPackageLoading = $state(false);
 	let clientPackageCreating = $state(false);
 	let clientPackageActions = $state<Record<string, boolean>>({});
+	let packageFormat = $state<'curseforge' | 'mrpack'>('curseforge');
+	let packageMcVersion = $state('');
+	let packageModLoader = $state('');
+	let packageModLoaderVersion = $state('');
+	let showPackageOptions = $state(false);
 	let serverVersion = $state<string | null>(null);
+	let clientMods = $state<InstalledModWithModpack[]>([]);
+	let clientModsLoading = $state(false);
+	let clientModUploading = $state(false);
+	let clientModUploadProgress = $state(0);
+	let clientModUploadingFileName = $state('');
+	let clientModIsDragging = $state(false);
+
+	let detectedLoader = $state<string | null>(null);
+	let detectedVersion = $state<string | null>(null);
+	let loaderLoading = $state(true);
+	let showLoaderPicker = $state(false);
+
+	const loaderLogos: Record<string, string> = {
+		forge: '/images/loaders/forge.png',
+		fabric: '/images/loaders/fabric.png',
+		neoforge: '/images/loaders/neoforge.png',
+		quilt: '/images/loaders/quilt.svg'
+	};
+
+	const loaderNames: Record<string, string> = {
+		forge: 'Forge',
+		fabric: 'Fabric',
+		neoforge: 'NeoForge',
+		quilt: 'Quilt'
+	};
 
 	const isServerRunning = $derived(data.server?.status === 'running');
 
-	onMount(() => {
+	onMount(async () => {
 		loadServerVersion();
+		loadMods();
+		loadClientMods();
+		loadClientPackages();
+
+		const serverName = data.server?.name;
+		if (!serverName) {
+			loaderLoading = false;
+			return;
+		}
+
+		try {
+			const res = await fetch(`/api/servers/${serverName}/loader`);
+			if (res.ok) {
+				const info = await res.json();
+				if (info.loader) {
+					detectedLoader = info.loader;
+					detectedVersion = info.version;
+				} else {
+					const stored = localStorage.getItem(`mineos-loader-${serverName}`);
+					if (stored) {
+						detectedLoader = stored;
+					} else {
+						showLoaderPicker = true;
+					}
+				}
+			}
+		} catch {
+			showLoaderPicker = true;
+		} finally {
+			loaderLoading = false;
+		}
 	});
 
-	$effect(() => {
-		loadMods();
-		loadClientPackages();
-	});
+	function selectLoader(loader: string) {
+		detectedLoader = loader;
+		showLoaderPicker = false;
+		localStorage.setItem(`mineos-loader-${data.server?.name}`, loader);
+	}
+
+	async function toggleMod(mod: any) {
+		if (!data.server) return;
+		const action = mod.isDisabled ? 'enable' : 'disable';
+		const oldState = mod.isDisabled;
+		const oldName = mod.fileName;
+
+		// Optimistic update
+		mod.isDisabled = !mod.isDisabled;
+
+		try {
+			const res = await fetch(
+				`/api/servers/${data.server.name}/mods/${encodeURIComponent(oldName)}/${action}`,
+				{ method: 'POST' }
+			);
+			if (!res.ok) {
+				mod.isDisabled = oldState;
+				const err = await res.json().catch(() => ({ error: 'Toggle failed' }));
+				console.error(err.error);
+			} else {
+				const result = await res.json();
+				mod.fileName = result.filename;
+			}
+		} catch {
+			mod.isDisabled = oldState;
+		}
+	}
+
 
 	async function loadServerVersion() {
 		if (!data.server) return;
@@ -86,11 +176,128 @@
 		}
 	}
 
+	function reloadAll() {
+		loadMods();
+		loadClientMods();
+		loadClientPackages();
+	}
+
+	async function loadClientMods() {
+		if (!data.server) return;
+		clientModsLoading = true;
+		try {
+			const res = await fetch(`/api/servers/${data.server.name}/client-mods`);
+			if (res.ok) {
+				clientMods = await res.json();
+			}
+		} catch (err) {
+			console.error('Failed to load client mods:', err);
+		} finally {
+			clientModsLoading = false;
+		}
+	}
+
+	async function uploadClientMod(file: File) {
+		if (!data.server) return;
+		const fileName = file.name.toLowerCase();
+		if (!fileName.endsWith('.jar')) {
+			await modal.error(`Only .jar files are supported for client mods. Got: ${file.name}`);
+			return;
+		}
+
+		const serverName = data.server.name;
+		clientModUploading = true;
+		clientModUploadingFileName = file.name;
+		clientModUploadProgress = 0;
+
+		try {
+			const form = new FormData();
+			form.append('file', file);
+
+			const xhr = new XMLHttpRequest();
+			const uploadPromise = new Promise((resolve, reject) => {
+				xhr.upload.addEventListener('progress', (e) => {
+					if (e.lengthComputable) {
+						clientModUploadProgress = Math.round((e.loaded / e.total) * 100);
+					}
+				});
+				xhr.addEventListener('load', () => {
+					if (xhr.status >= 200 && xhr.status < 300) {
+						resolve(xhr.response);
+					} else {
+						reject(new Error(`Upload failed: ${xhr.statusText}`));
+					}
+				});
+				xhr.addEventListener('error', () => reject(new Error('Upload failed')));
+				xhr.addEventListener('abort', () => reject(new Error('Upload cancelled')));
+				xhr.open('POST', `/api/servers/${serverName}/client-mods/upload`);
+				xhr.send(form);
+			});
+
+			await uploadPromise;
+			await loadClientMods();
+		} catch (err) {
+			await modal.error(err instanceof Error ? err.message : `Upload failed for ${file.name}`);
+		} finally {
+			clientModUploading = false;
+			clientModUploadProgress = 0;
+			clientModUploadingFileName = '';
+		}
+	}
+
+	function handleClientModUpload(event: Event) {
+		const input = event.target as HTMLInputElement;
+		const files = Array.from(input.files || []);
+		for (const file of files) {
+			uploadClientMod(file);
+		}
+		input.value = '';
+	}
+
+	function handleClientModDrop(event: DragEvent) {
+		event.preventDefault();
+		clientModIsDragging = false;
+		const files = Array.from(event.dataTransfer?.files || []);
+		for (const file of files) {
+			uploadClientMod(file);
+		}
+	}
+
+	async function deleteClientMod(fileName: string) {
+		if (!data.server) return;
+		const confirmed = await modal.confirm(`Delete client mod "${fileName}"?`, 'Delete Client Mod');
+		if (!confirmed) return;
+
+		try {
+			const res = await fetch(
+				`/api/servers/${data.server.name}/client-mods/${encodeURIComponent(fileName)}`,
+				{ method: 'DELETE' }
+			);
+			if (!res.ok) {
+				const payload = await res.json().catch(() => ({}));
+				await modal.error(payload.error || 'Failed to delete client mod');
+			} else {
+				await loadClientMods();
+			}
+		} catch (err) {
+			await modal.error(err instanceof Error ? err.message : 'Delete failed');
+		}
+	}
+
 	async function createClientPackage() {
 		if (!data.server) return;
 		clientPackageCreating = true;
 		try {
-			const res = await fetch(`/api/servers/${data.server.name}/client-packages`, { method: 'POST' });
+			const body: Record<string, string> = { format: packageFormat };
+			if (packageMcVersion.trim()) body.minecraftVersion = packageMcVersion.trim();
+			if (packageModLoader.trim()) body.modLoader = packageModLoader.trim();
+			if (packageModLoaderVersion.trim()) body.modLoaderVersion = packageModLoaderVersion.trim();
+
+			const res = await fetch(`/api/servers/${data.server.name}/client-packages`, {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify(body)
+			});
 			if (res.ok) {
 				await loadClientPackages();
 			} else {
@@ -178,7 +385,7 @@
 				const payload = await res.json().catch(() => ({}));
 				await modal.error(payload.error || 'Failed to uninstall modpack');
 			} else {
-				await loadMods();
+				reloadAll();
 			}
 		} catch (err) {
 			await modal.error(err instanceof Error ? err.message : 'Uninstall failed');
@@ -365,260 +572,448 @@
 
 <div class="page">
 	<div class="page-header">
-		<div>
-			<h2>Mods</h2>
-			<p class="subtitle">Upload, manage, and install mods for this server</p>
-		</div>
-		<div class="action-buttons">
-			{#if groupedMods.standalone.length > 0}
-				<button
-					class="delete-all-btn"
-					onclick={deleteAllMods}
-					disabled={deletingAll || isServerRunning}
-					title={isServerRunning
-						? 'Stop server to delete mods'
-						: `Delete all ${groupedMods.standalone.length} standalone mods from this server`}
-				>
-					{deletingAll ? 'Deleting...' : `Delete All Mods (${groupedMods.standalone.length})`}
-				</button>
-			{/if}
-			<label class="upload-button">
-				<input
-					type="file"
-					accept=".jar,.zip,.tar,.tar.gz,.tgz"
-					multiple
-					onchange={handleUpload}
-					disabled={uploading}
-				/>
-				{uploading ? 'Uploading...' : 'Upload Mods'}
-			</label>
-		</div>
+		<h2>Mods</h2>
+		<p class="subtitle">Upload, manage, and install mods for this server</p>
 	</div>
 
-	<!-- svelte-ignore a11y_no_static_element_interactions -->
-	<div
-		class="upload-drop"
-		class:active={isDragging}
-		ondragover={(event) => {
-			event.preventDefault();
-			isDragging = true;
-		}}
-		ondragleave={() => {
-			isDragging = false;
-		}}
-		ondrop={handleDrop}
-	>
-		<div class="drop-content">
-			<strong>Drag & drop</strong> mod files here (.jar, .zip, .tar, .tar.gz), or use Upload Mods button
-			above.
-		</div>
-	</div>
-
-	<!-- Upload Progress -->
-	{#if uploading}
-		<div class="upload-progress-container">
-			<div class="progress-header">
-				<span class="progress-title">Uploading: {uploadingFileName}</span>
-			</div>
-			<ProgressBar value={uploadProgress} color="green" size="sm" showLabel />
-			{#if uploadProgress === 100}
-				<p class="progress-message">Processing and extracting files...</p>
-			{/if}
-		</div>
-	{/if}
-
-	<!-- Installed Modpacks -->
-	{#if modpacks.length > 0}
-		<div class="mods-section">
-			<h3>Installed Modpacks</h3>
-			<div class="modpack-list">
-				{#each modpacks as modpack}
-					<div class="modpack-card">
-						<div class="modpack-header">
-							{#if modpack.logoUrl}
-								<img class="modpack-logo" src={modpack.logoUrl} alt={modpack.name} />
-							{:else}
-								<div class="modpack-logo-placeholder"></div>
-							{/if}
-							<div class="modpack-info">
-								<h4>{modpack.name}</h4>
-								<p class="modpack-meta">
-									{modpack.modCount} mods
-									{#if modpack.version}
-										<span class="separator">|</span>
-										{modpack.version}
-									{/if}
-								</p>
-							</div>
-							<button
-								class="btn-action danger"
-								onclick={() => uninstallModpack(modpack.id, modpack.name)}
-								disabled={uninstallingModpack === modpack.id || isServerRunning}
-								title={isServerRunning ? 'Stop server to uninstall' : ''}
-							>
-								{uninstallingModpack === modpack.id ? 'Removing...' : 'Uninstall'}
-							</button>
-						</div>
-						{#if groupedMods.grouped[modpack.id]?.length}
-							<details class="modpack-mods">
-								<summary>View {groupedMods.grouped[modpack.id].length} mods</summary>
-								<ul class="mod-file-list">
-									{#each groupedMods.grouped[modpack.id] as mod}
-										<li class:disabled={mod.isDisabled}>
-											<span class="mod-name">{mod.fileName}</span>
-											<span class="mod-size">{formatBytes(mod.sizeBytes)}</span>
-										</li>
-									{/each}
-								</ul>
-							</details>
-						{/if}
-					</div>
+	{#if loaderLoading}
+		<div class="loader-banner loading">Detecting mod loader...</div>
+	{:else if showLoaderPicker}
+		<div class="loader-picker">
+			<h3>Select your mod loader</h3>
+			<p>We couldn't detect a mod loader for this server. Choose one to filter compatible mods.</p>
+			<div class="loader-options">
+				{#each ['forge', 'fabric', 'neoforge', 'quilt'] as loader}
+					<button class="loader-option" onclick={() => selectLoader(loader)}>
+						<img src={loaderLogos[loader]} alt={loaderNames[loader]} class="loader-logo" />
+						<span>{loaderNames[loader]}</span>
+					</button>
 				{/each}
 			</div>
 		</div>
+	{:else if detectedLoader}
+		<div class="loader-banner">
+			<img src={loaderLogos[detectedLoader]} alt={loaderNames[detectedLoader] ?? detectedLoader} class="loader-logo" />
+			<span class="loader-name">{loaderNames[detectedLoader] ?? detectedLoader}</span>
+			{#if detectedVersion}
+				<span class="loader-version">{detectedVersion}</span>
+			{/if}
+		</div>
 	{/if}
 
-	<!-- Client-Only Mods Info -->
-	<div class="mods-section info-section">
-		<h3>Client-Only Mods</h3>
-		<p class="muted">
-			You can create a <code>client-mods/mods</code> folder in your server directory to store mods that should only be packaged for clients and NOT run on the server.
-		</p>
-		<p class="muted">
-			These are useful for client-side mods like minimap, performance mods, or visual enhancements that don't need to be on the server.
-		</p>
-		<p class="muted">
-			When you generate a client package, these mods will be included automatically.
-		</p>
-	</div>
-
-	<!-- Standalone Mods -->
+	<!-- Server Mods -->
 	<div class="mods-section">
-		<h3>Server Mods</h3>
-		{#if loading}
-			<p class="muted">Loading mods...</p>
-		{:else if groupedMods.standalone.length === 0}
-			<p class="muted">No server mods installed.</p>
-		{:else}
-			<div class="mod-list">
-				<table>
-					<thead>
-						<tr>
-							<th>Name</th>
-							<th>Size</th>
-							<th>Modified</th>
-							<th>Actions</th>
-						</tr>
-					</thead>
-					<tbody>
-						{#each groupedMods.standalone as mod}
-							<tr>
-								<td>
-									<span class:disabled={mod.isDisabled}>{mod.fileName}</span>
-								</td>
-								<td>{formatBytes(mod.sizeBytes)}</td>
-								<td>{new Date(mod.modifiedAt).toLocaleString()}</td>
-								<td class="actions">
-									<a
-										class="btn-action"
-										href={`/api/servers/${data.server?.name}/mods/${encodeURIComponent(
-											mod.fileName
-										)}/download`}
-										download={mod.fileName}
-									>
-										Download
-									</a>
-									<button
-										class="btn-action danger"
-										onclick={() => deleteMod(mod.fileName)}
-										disabled={isServerRunning}
-										title={isServerRunning ? 'Stop server to delete' : ''}
-									>
-										Delete
-									</button>
-								</td>
-							</tr>
-						{/each}
-					</tbody>
-				</table>
+		<div class="section-header">
+			<h3>Server Mods</h3>
+			<div class="section-actions">
+				{#if groupedMods.standalone.length > 0}
+					<button
+						class="delete-all-btn"
+						onclick={deleteAllMods}
+						disabled={deletingAll || isServerRunning}
+						title={isServerRunning
+							? 'Stop server to delete mods'
+							: `Delete all ${groupedMods.standalone.length} standalone mods`}
+					>
+						{deletingAll ? 'Deleting...' : `Delete All (${groupedMods.standalone.length})`}
+					</button>
+				{/if}
+				<label class="upload-button small">
+					<input
+						type="file"
+						accept=".jar,.zip,.tar,.tar.gz,.tgz"
+						multiple
+						onchange={handleUpload}
+						disabled={uploading}
+					/>
+					{uploading ? 'Uploading...' : 'Upload'}
+				</label>
 			</div>
-		{/if}
-	</div>
-
-	<!-- Client Packages -->
-	<div class="mods-section">
-		<div class="client-package-header">
-			<div>
-				<h3>Client Package</h3>
-				<p class="muted">
-					Generate a modpack zip containing all mods, configs, resource packs, and other client assets from this server.
-				</p>
-				<p class="muted">
-					The package is CurseForge-compatible and can be imported into any launcher that supports CurseForge format.
-				</p>
-				<p class="muted">
-					CurseForge app: Create Custom Profile → Import → select the zip.
-				</p>
-			</div>
-			<button class="btn-action" onclick={createClientPackage} disabled={clientPackageCreating}>
-				{clientPackageCreating ? 'Generating...' : 'Generate Package'}
-			</button>
 		</div>
 
-		{#if clientPackageLoading}
-			<p class="muted">Loading client packages...</p>
-		{:else if clientPackages.length === 0}
-			<p class="muted">No client packages yet.</p>
-		{:else}
-			<div class="mod-list">
-				<table>
-					<thead>
-						<tr>
-							<th>Filename</th>
-							<th>Created</th>
-							<th>Size</th>
-							<th>Actions</th>
-						</tr>
-					</thead>
-					<tbody>
-						{#each clientPackages as pkg}
-							<tr>
-								<td>{pkg.filename}</td>
-								<td>{formatDate(pkg.time)}</td>
-								<td>{formatBytes(pkg.size)}</td>
-								<td class="actions">
-									<button class="btn-action" onclick={() => downloadClientPackage(pkg.filename)}>
-										Download
-									</button>
-									<button class="btn-action" onclick={() => copyClientPackageLink(pkg.filename)}>
-										Copy Link
-									</button>
-									<button
-										class="btn-action danger"
-										onclick={() => deleteClientPackage(pkg.filename)}
-										disabled={clientPackageActions[pkg.filename]}
-									>
-										{clientPackageActions[pkg.filename] ? 'Deleting...' : 'Delete'}
-									</button>
-								</td>
-							</tr>
-						{/each}
-					</tbody>
-				</table>
+		<!-- svelte-ignore a11y_no_static_element_interactions -->
+		<div
+			class="upload-drop"
+			class:active={isDragging}
+			ondragover={(event) => {
+				event.preventDefault();
+				isDragging = true;
+			}}
+			ondragleave={() => {
+				isDragging = false;
+			}}
+			ondrop={handleDrop}
+		>
+			<div class="drop-content">
+				<strong>Drag & drop</strong> mod files here (.jar, .zip, .tar, .tar.gz)
+			</div>
+		</div>
+
+		{#if uploading}
+			<div class="upload-progress-container">
+				<div class="progress-header">
+					<span class="progress-title">Uploading: {uploadingFileName}</span>
+				</div>
+				<ProgressBar value={uploadProgress} color="green" size="sm" showLabel />
+				{#if uploadProgress === 100}
+					<p class="progress-message">Processing and extracting files...</p>
+				{/if}
 			</div>
 		{/if}
+
+		<!-- Installed Modpacks -->
+		{#if modpacks.length > 0}
+			<div class="subsection">
+				<h4>Installed Modpacks</h4>
+				<div class="modpack-list">
+					{#each modpacks as modpack}
+						<div class="modpack-card">
+							<div class="modpack-header">
+								{#if modpack.logoUrl}
+									<img class="modpack-logo" src={modpack.logoUrl} alt={modpack.name} />
+								{:else}
+									<div class="modpack-logo-placeholder"></div>
+								{/if}
+								<div class="modpack-info">
+									<h4>{modpack.name}</h4>
+									<p class="modpack-meta">
+										{modpack.modCount} mods
+										{#if modpack.version}
+											<span class="separator">|</span>
+											{modpack.version}
+										{/if}
+									</p>
+								</div>
+								<button
+									class="btn-action danger"
+									onclick={() => uninstallModpack(modpack.id, modpack.name)}
+									disabled={uninstallingModpack === modpack.id || isServerRunning}
+									title={isServerRunning ? 'Stop server to uninstall' : ''}
+								>
+									{uninstallingModpack === modpack.id ? 'Removing...' : 'Uninstall'}
+								</button>
+							</div>
+							{#if groupedMods.grouped[modpack.id]?.length}
+								<details class="modpack-mods">
+									<summary>View {groupedMods.grouped[modpack.id].length} mods</summary>
+									<ul class="mod-file-list">
+										{#each groupedMods.grouped[modpack.id] as mod}
+											<li class:disabled={mod.isDisabled}>
+												<label class="mod-toggle" title={mod.isDisabled ? 'Enable mod' : 'Disable mod'}>
+													<input
+														type="checkbox"
+														checked={!mod.isDisabled}
+														onchange={() => toggleMod(mod)}
+													/>
+													<span class="toggle-slider"></span>
+												</label>
+												<span class="mod-name">{mod.fileName}</span>
+												<span class="mod-size">{formatBytes(mod.sizeBytes)}</span>
+											</li>
+										{/each}
+									</ul>
+								</details>
+							{/if}
+						</div>
+					{/each}
+				</div>
+			</div>
+		{/if}
+
+		<!-- All Mod Files -->
+		<details class="server-mods-details">
+			<summary>
+				<h4>All Files{#if !loading && mods.length > 0} <span class="mod-count">({mods.length})</span>{/if}</h4>
+			</summary>
+			{#if loading}
+				<p class="muted">Loading mods...</p>
+			{:else if mods.length === 0}
+				<p class="muted">No server mods installed.</p>
+			{:else}
+				<div class="mod-list">
+					<table>
+						<thead>
+							<tr>
+								<th>Name</th>
+								<th>Source</th>
+								<th>Size</th>
+								<th>Modified</th>
+								<th>Actions</th>
+							</tr>
+						</thead>
+						<tbody>
+							{#each mods as mod}
+								<tr class:modpack-mod={!!mod.modpackName}>
+									<td>
+										<label class="mod-toggle" title={mod.isDisabled ? 'Enable mod' : 'Disable mod'}>
+											<input
+												type="checkbox"
+												checked={!mod.isDisabled}
+												onchange={() => toggleMod(mod)}
+											/>
+											<span class="toggle-slider"></span>
+										</label>
+										<span class:disabled={mod.isDisabled}>{mod.fileName}</span>
+									</td>
+									<td>
+										{#if mod.modpackName}
+											<span class="source-badge modpack">{mod.modpackName}</span>
+										{:else}
+											<span class="source-badge manual">Manual</span>
+										{/if}
+									</td>
+									<td>{formatBytes(mod.sizeBytes)}</td>
+									<td>{new Date(mod.modifiedAt).toLocaleString()}</td>
+									<td class="actions">
+										<a
+											class="btn-action"
+											href={`/api/servers/${data.server?.name}/mods/${encodeURIComponent(
+												mod.fileName
+											)}/download`}
+											download={mod.fileName}
+										>
+											Download
+										</a>
+										<button
+											class="btn-action danger"
+											onclick={() => deleteMod(mod.fileName)}
+											disabled={isServerRunning}
+											title={isServerRunning ? 'Stop server to delete' : ''}
+										>
+											Delete
+										</button>
+									</td>
+								</tr>
+							{/each}
+						</tbody>
+					</table>
+				</div>
+			{/if}
+		</details>
+
+		<!-- Install from CurseForge -->
+		<div class="subsection">
+			<h4>Install from CurseForge</h4>
+			<CurseForgeSearch serverName={data.server?.name ?? ''} {serverVersion} loader={detectedLoader} onInstallComplete={reloadAll} />
+		</div>
+
+		<!-- Install from Modrinth -->
+		<div class="subsection">
+			<h4>Install from Modrinth</h4>
+			<ModrinthSearch serverName={data.server?.name ?? ''} {serverVersion} loader={detectedLoader} onInstallComplete={reloadAll} />
+		</div>
 	</div>
 
-	<!-- CurseForge Install -->
-	<div class="curseforge-section">
-		<h3>Install from CurseForge</h3>
-		<CurseForgeSearch serverName={data.server?.name ?? ''} {serverVersion} onInstallComplete={loadMods} />
-	</div>
+	<!-- Client Distribution -->
+	<div class="mods-section">
+		<div class="section-header">
+			<h3>Client Distribution</h3>
+			<p class="muted">
+				Manage client-only mods and generate downloadable packages for players to import into their launcher.
+			</p>
+		</div>
 
-	<!-- Modrinth Install -->
-	<div class="modrinth-section">
-		<h3>Install from Modrinth</h3>
-		<ModrinthSearch serverName={data.server?.name ?? ''} {serverVersion} onInstallComplete={loadMods} />
+		<!-- Client-Only Mods -->
+		<div class="subsection">
+			<div class="client-mods-header">
+				<h4>Client-Only Mods{#if clientMods.length > 0} <span class="mod-count">({clientMods.length})</span>{/if}</h4>
+				<label class="upload-button small">
+					<input
+						type="file"
+						accept=".jar"
+						multiple
+						onchange={handleClientModUpload}
+						disabled={clientModUploading}
+					/>
+					{clientModUploading ? 'Uploading...' : 'Upload'}
+				</label>
+			</div>
+			<p class="muted">
+				These mods are included in client packages but not loaded by the server.
+				Useful for minimaps, shaders, performance mods, and visual enhancements.
+			</p>
+
+			<!-- svelte-ignore a11y_no_static_element_interactions -->
+			<div
+				class="upload-drop"
+				class:active={clientModIsDragging}
+				ondragover={(event) => {
+					event.preventDefault();
+					clientModIsDragging = true;
+				}}
+				ondragleave={() => {
+					clientModIsDragging = false;
+				}}
+				ondrop={handleClientModDrop}
+			>
+				<div class="drop-content">
+					<strong>Drag & drop</strong> client mod files here (.jar)
+				</div>
+			</div>
+
+			{#if clientModUploading}
+				<div class="upload-progress-container">
+					<div class="progress-header">
+						<span class="progress-title">Uploading: {clientModUploadingFileName}</span>
+					</div>
+					<ProgressBar value={clientModUploadProgress} color="green" size="sm" showLabel />
+				</div>
+			{/if}
+
+			{#if clientModsLoading}
+				<p class="muted">Loading client mods...</p>
+			{:else if clientMods.length === 0}
+				<p class="muted">No client-only mods yet. They are added automatically when installing modpacks, or you can upload them manually.</p>
+			{:else}
+				<div class="mod-list">
+					<table>
+						<thead>
+							<tr>
+								<th>Name</th>
+								<th>Source</th>
+								<th>Size</th>
+								<th>Modified</th>
+								<th>Actions</th>
+							</tr>
+						</thead>
+						<tbody>
+							{#each clientMods as mod}
+								<tr>
+									<td>
+										<span class:disabled={mod.isDisabled}>{mod.fileName}</span>
+									</td>
+									<td>
+										{#if mod.modpackName}
+											<span class="source-badge modpack">{mod.modpackName}</span>
+										{:else}
+											<span class="source-badge manual">Manual</span>
+										{/if}
+									</td>
+									<td>{formatBytes(mod.sizeBytes)}</td>
+									<td>{new Date(mod.modifiedAt).toLocaleString()}</td>
+									<td class="actions">
+										<a
+											class="btn-action"
+											href={`/api/servers/${data.server?.name}/client-mods/${encodeURIComponent(mod.fileName)}/download`}
+											download={mod.fileName}
+										>
+											Download
+										</a>
+										<button
+											class="btn-action danger"
+											onclick={() => deleteClientMod(mod.fileName)}
+										>
+											Delete
+										</button>
+									</td>
+								</tr>
+							{/each}
+						</tbody>
+					</table>
+				</div>
+			{/if}
+		</div>
+
+		<!-- Generate Package -->
+		<div class="subsection">
+			<h4>Generate Package</h4>
+			<p class="muted">
+				Bundles all server mods, client-only mods, configs, resource packs, and other assets into a single file.
+				Share the download link with friends.
+			</p>
+
+			<div class="format-selector">
+				<button class="format-btn" class:active={packageFormat === 'curseforge'} onclick={() => packageFormat = 'curseforge'}>
+					CurseForge (.zip)
+				</button>
+				<button class="format-btn" class:active={packageFormat === 'mrpack'} onclick={() => packageFormat = 'mrpack'}>
+					Modrinth (.mrpack)
+				</button>
+			</div>
+
+			<button class="toggle-options" onclick={() => showPackageOptions = !showPackageOptions}>
+				{showPackageOptions ? 'Hide' : 'Show'} Advanced Options
+			</button>
+
+			{#if showPackageOptions}
+				<div class="package-options">
+					<p class="muted" style="margin-bottom: 12px;">
+						These are auto-detected when possible. Only fill in if auto-detection fails or you need to override.
+					</p>
+					<div class="option-row">
+						<label for="pkg-mc-version">Minecraft Version</label>
+						<input id="pkg-mc-version" type="text" bind:value={packageMcVersion} placeholder="e.g. 1.20.1 (auto-detected)" />
+					</div>
+					<div class="option-row">
+						<label for="pkg-mod-loader">Mod Loader</label>
+						<select id="pkg-mod-loader" bind:value={packageModLoader}>
+							<option value="">Auto-detect</option>
+							<option value="forge">Forge</option>
+							<option value="neoforge">NeoForge</option>
+							<option value="fabric">Fabric</option>
+							<option value="quilt">Quilt</option>
+						</select>
+					</div>
+					<div class="option-row">
+						<label for="pkg-loader-version">Loader Version</label>
+						<input id="pkg-loader-version" type="text" bind:value={packageModLoaderVersion} placeholder="e.g. 47.2.0 (auto-detected)" />
+					</div>
+				</div>
+			{/if}
+
+			<button class="btn-action generate-btn" onclick={createClientPackage} disabled={clientPackageCreating}>
+				{clientPackageCreating ? 'Generating...' : `Generate ${packageFormat === 'mrpack' ? '.mrpack' : 'CurseForge'} Package`}
+			</button>
+
+			{#if clientPackageLoading}
+				<p class="muted">Loading packages...</p>
+			{:else if clientPackages.length === 0}
+				<p class="muted">No packages generated yet.</p>
+			{:else}
+				<div class="mod-list">
+					<table>
+						<thead>
+							<tr>
+								<th>Format</th>
+								<th>Filename</th>
+								<th>Created</th>
+								<th>Size</th>
+								<th>Actions</th>
+							</tr>
+						</thead>
+						<tbody>
+							{#each clientPackages as pkg}
+								<tr>
+									<td>
+										<span class="format-badge" class:mrpack={pkg.format === 'mrpack'} class:curseforge={pkg.format === 'curseforge'}>
+											{pkg.format === 'mrpack' ? 'Modrinth' : 'CurseForge'}
+										</span>
+									</td>
+									<td>{pkg.filename}</td>
+									<td>{formatDate(pkg.time)}</td>
+									<td>{formatBytes(pkg.size)}</td>
+									<td class="actions">
+										<button class="btn-action" onclick={() => downloadClientPackage(pkg.filename)}>
+											Download
+										</button>
+										<button class="btn-action" onclick={() => copyClientPackageLink(pkg.filename)}>
+											Copy Link
+										</button>
+										<button
+											class="btn-action danger"
+											onclick={() => deleteClientPackage(pkg.filename)}
+											disabled={clientPackageActions[pkg.filename]}
+										>
+											{clientPackageActions[pkg.filename] ? 'Deleting...' : 'Delete'}
+										</button>
+									</td>
+								</tr>
+							{/each}
+						</tbody>
+					</table>
+				</div>
+			{/if}
+		</div>
 	</div>
 </div>
 
@@ -629,16 +1024,8 @@
 		gap: 24px;
 	}
 
-	.page-header {
-		display: flex;
-		justify-content: space-between;
-		align-items: center;
-		gap: 24px;
-		flex-wrap: wrap;
-	}
-
-	h2 {
-		margin: 0 0 8px;
+	.page-header h2 {
+		margin: 0 0 4px;
 		font-size: 24px;
 		font-weight: 600;
 	}
@@ -649,21 +1036,37 @@
 		font-size: 14px;
 	}
 
-	.action-buttons {
-		display: flex;
-		gap: 12px;
-	}
-
-	.client-package-header {
+	.section-header {
 		display: flex;
 		justify-content: space-between;
-		align-items: center;
-		gap: 16px;
+		align-items: flex-start;
+		gap: 12px;
 		flex-wrap: wrap;
 	}
 
-	.client-package-header h3 {
-		margin: 0 0 6px;
+	.section-header h3 {
+		margin: 0;
+	}
+
+	.section-actions {
+		display: flex;
+		gap: 8px;
+		align-items: center;
+	}
+
+	.subsection {
+		background: #141827;
+		border-radius: 12px;
+		padding: 16px;
+		display: flex;
+		flex-direction: column;
+		gap: 12px;
+	}
+
+	.subsection h4 {
+		margin: 0;
+		font-size: 15px;
+		font-weight: 600;
 	}
 
 	.upload-drop {
@@ -700,7 +1103,7 @@
 		display: none;
 	}
 
-	.mods-section, .curseforge-section, .modrinth-section {
+	.mods-section {
 		background: #1a1e2f;
 		border-radius: 16px;
 		padding: 20px;
@@ -710,18 +1113,16 @@
 		gap: 16px;
 	}
 
-	.info-section {
-		background: rgba(106, 176, 76, 0.08);
-		border: 1px solid rgba(106, 176, 76, 0.2);
+	.client-mods-header {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		gap: 12px;
 	}
 
-	.info-section code {
-		background: rgba(0, 0, 0, 0.3);
-		padding: 2px 6px;
-		border-radius: 4px;
-		font-family: 'Consolas', 'Monaco', monospace;
+	.upload-button.small {
+		padding: 6px 14px;
 		font-size: 13px;
-		color: #b7f5a2;
 	}
 
 
@@ -747,6 +1148,68 @@
 
 	td {
 		color: #eef0f8;
+	}
+
+	.server-mods-details summary {
+		cursor: pointer;
+		list-style: none;
+		user-select: none;
+	}
+
+	.server-mods-details summary::-webkit-details-marker {
+		display: none;
+	}
+
+	.server-mods-details summary h4 {
+		display: inline-flex;
+		align-items: center;
+		gap: 8px;
+		margin: 0;
+		font-size: 15px;
+		font-weight: 600;
+	}
+
+	.server-mods-details summary h4::before {
+		content: '\25B6';
+		font-size: 10px;
+		color: #8890b1;
+		transition: transform 0.2s;
+	}
+
+	.server-mods-details[open] summary h4::before {
+		transform: rotate(90deg);
+	}
+
+	.mod-count {
+		font-weight: 400;
+		color: #8890b1;
+		font-size: 14px;
+	}
+
+	.modpack-mod td {
+		opacity: 0.55;
+	}
+
+	.modpack-mod:hover td {
+		opacity: 0.85;
+	}
+
+	.source-badge {
+		font-size: 11px;
+		padding: 2px 8px;
+		border-radius: 4px;
+		font-weight: 600;
+		white-space: nowrap;
+	}
+
+	.source-badge.modpack {
+		background: rgba(138, 118, 255, 0.15);
+		color: #b0a0ff;
+	}
+
+	.source-badge.manual {
+		background: rgba(255, 255, 255, 0.06);
+		color: #8890b1;
 	}
 
 	.actions {
@@ -784,10 +1247,6 @@
 	.muted {
 		color: #8890b1;
 		margin: 0;
-	}
-
-	.curseforge-section h3 {
-		margin: 0 0 16px 0;
 	}
 
 	.modpack-list {
@@ -901,8 +1360,8 @@
 		color: #ff9f9f;
 		border: 1px solid rgba(255, 92, 92, 0.3);
 		border-radius: 8px;
-		padding: 10px 20px;
-		font-size: 14px;
+		padding: 6px 14px;
+		font-size: 13px;
 		font-weight: 600;
 		cursor: pointer;
 		transition: all 0.2s;
@@ -946,5 +1405,226 @@
 		color: #9aa2c5;
 		font-size: 13px;
 		font-style: italic;
+	}
+
+	.format-selector {
+		display: flex;
+		gap: 8px;
+	}
+
+	.format-btn {
+		background: #2b2f45;
+		color: #9aa2c5;
+		border: 1px solid #2a2f47;
+		border-radius: 8px;
+		padding: 8px 16px;
+		font-family: inherit;
+		font-size: 13px;
+		font-weight: 500;
+		cursor: pointer;
+		transition: all 0.2s;
+	}
+
+	.format-btn.active {
+		background: rgba(90, 107, 255, 0.2);
+		color: #a4b0ff;
+		border-color: #5a6bff;
+	}
+
+	.toggle-options {
+		background: none;
+		border: none;
+		color: #8890b1;
+		font-family: inherit;
+		font-size: 13px;
+		cursor: pointer;
+		padding: 0;
+		text-decoration: underline;
+		text-underline-offset: 3px;
+		align-self: flex-start;
+	}
+
+	.toggle-options:hover {
+		color: #d4d9f1;
+	}
+
+	.package-options {
+		background: #0d0f16;
+		border-radius: 12px;
+		padding: 16px;
+		display: flex;
+		flex-direction: column;
+		gap: 12px;
+	}
+
+	.option-row {
+		display: flex;
+		align-items: center;
+		gap: 12px;
+	}
+
+	.option-row label {
+		width: 140px;
+		flex-shrink: 0;
+		font-size: 13px;
+		color: #9aa2c5;
+	}
+
+	.option-row input,
+	.option-row select {
+		flex: 1;
+		background: #0d0f16;
+		border: 1px solid #2a2f47;
+		border-radius: 6px;
+		padding: 8px 12px;
+		color: #eef0f8;
+		font-family: inherit;
+		font-size: 13px;
+	}
+
+	.option-row select {
+		cursor: pointer;
+	}
+
+	.generate-btn {
+		align-self: flex-start;
+		padding: 10px 20px;
+		font-size: 14px;
+		font-weight: 600;
+		background: var(--mc-grass);
+		color: white;
+	}
+
+	.format-badge {
+		display: inline-block;
+		padding: 3px 8px;
+		border-radius: 4px;
+		font-size: 11px;
+		font-weight: 600;
+		text-transform: uppercase;
+		letter-spacing: 0.05em;
+	}
+
+	.format-badge.curseforge {
+		background: rgba(241, 100, 54, 0.2);
+		color: #f1a472;
+	}
+
+	.format-badge.mrpack {
+		background: rgba(30, 200, 100, 0.2);
+		color: #7ae68d;
+	}
+
+	.loader-banner {
+		display: flex;
+		align-items: center;
+		gap: 12px;
+		padding: 12px 20px;
+		background: rgba(22, 27, 46, 0.9);
+		border: 1px solid rgba(42, 47, 71, 0.8);
+		border-radius: 12px;
+		margin-bottom: 16px;
+	}
+
+	.loader-banner.loading {
+		color: #8890b1;
+		font-style: italic;
+	}
+
+	.loader-logo {
+		width: 28px;
+		height: 28px;
+		object-fit: contain;
+	}
+
+	.loader-name {
+		font-weight: 600;
+		font-size: 16px;
+		color: #eef0f8;
+	}
+
+	.loader-version {
+		color: #8890b1;
+		font-size: 14px;
+	}
+
+	.loader-picker {
+		padding: 24px;
+		background: rgba(22, 27, 46, 0.9);
+		border: 1px solid rgba(42, 47, 71, 0.8);
+		border-radius: 12px;
+		margin-bottom: 16px;
+		text-align: center;
+	}
+
+	.loader-picker h3 { margin: 0 0 8px; font-size: 18px; }
+	.loader-picker p { margin: 0 0 20px; color: #8890b1; font-size: 14px; }
+
+	.loader-options {
+		display: flex;
+		gap: 16px;
+		justify-content: center;
+		flex-wrap: wrap;
+	}
+
+	.loader-option {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: 8px;
+		padding: 16px 24px;
+		background: rgba(30, 36, 58, 0.8);
+		border: 1px solid rgba(62, 69, 100, 0.6);
+		border-radius: 12px;
+		color: #cdd3ee;
+		cursor: pointer;
+		transition: all 0.2s;
+		font-size: 14px;
+		font-weight: 500;
+	}
+
+	.loader-option:hover {
+		border-color: var(--mc-grass);
+		background: rgba(106, 176, 76, 0.1);
+	}
+
+	.mod-toggle {
+		position: relative;
+		display: inline-block;
+		width: 36px;
+		height: 20px;
+		flex-shrink: 0;
+	}
+
+	.mod-toggle input { opacity: 0; width: 0; height: 0; }
+
+	.toggle-slider {
+		position: absolute;
+		inset: 0;
+		background: #2a2f47;
+		border-radius: 20px;
+		cursor: pointer;
+		transition: background 0.2s;
+	}
+
+	.toggle-slider::before {
+		content: '';
+		position: absolute;
+		height: 14px;
+		width: 14px;
+		left: 3px;
+		bottom: 3px;
+		background: #8890b1;
+		border-radius: 50%;
+		transition: transform 0.2s, background 0.2s;
+	}
+
+	.mod-toggle input:checked + .toggle-slider {
+		background: rgba(106, 176, 76, 0.3);
+	}
+
+	.mod-toggle input:checked + .toggle-slider::before {
+		transform: translateX(16px);
+		background: var(--mc-grass);
 	}
 </style>

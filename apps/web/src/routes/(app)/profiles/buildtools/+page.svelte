@@ -287,12 +287,9 @@
 
 		{#if runId}
 			<div class="run-meta">
-				<p>
-					Run ID: <span>{runId}</span>
-				</p>
 				{#if profileId}
 					<p>
-						Profile ID: <span>{profileId}</span>
+						Profile: <span>{profileId}</span>
 					</p>
 				{/if}
 				<p>
@@ -413,8 +410,14 @@
 
 	.buildtools-layout {
 		display: grid;
-		grid-template-columns: minmax(240px, 320px) 1fr;
+		grid-template-columns: minmax(300px, 400px) 1fr;
 		gap: 24px;
+	}
+
+	@media (max-width: 900px) {
+		.buildtools-layout {
+			grid-template-columns: 1fr;
+		}
 	}
 
 	.buildtools-panel,
@@ -562,6 +565,8 @@
 		color: #aab2d3;
 		display: grid;
 		gap: 6px;
+		overflow-wrap: break-word;
+		word-break: break-all;
 	}
 
 	.run-meta span {

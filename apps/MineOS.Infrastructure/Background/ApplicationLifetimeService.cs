@@ -11,14 +11,17 @@ public sealed class ApplicationLifetimeService : BackgroundService
 
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly ILogger<ApplicationLifetimeService> _logger;
+    private readonly TelemetryReporterService _telemetryReporter;
     private readonly DateTime _startTime;
 
     public ApplicationLifetimeService(
         IServiceScopeFactory scopeFactory,
-        ILogger<ApplicationLifetimeService> logger)
+        ILogger<ApplicationLifetimeService> logger,
+        TelemetryReporterService telemetryReporter)
     {
         _scopeFactory = scopeFactory;
         _logger = logger;
+        _telemetryReporter = telemetryReporter;
         _startTime = DateTime.UtcNow;
     }
 
@@ -63,6 +66,18 @@ public sealed class ApplicationLifetimeService : BackgroundService
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Failed to report application shutdown event");
+        }
+
+        // Send final usage report to capture data for short-lived instances
+        try
+        {
+            _logger.LogInformation("Sending final telemetry usage report before shutdown...");
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+            await _telemetryReporter.ReportTelemetryAsync(cts.Token);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to send final telemetry usage report on shutdown");
         }
     }
 

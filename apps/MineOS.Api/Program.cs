@@ -135,10 +135,6 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
 builder.Services.AddAuthorization();
 
 var defaultConnectionString = builder.Configuration.GetConnectionString("Default");
-builder.Services.AddDbContext<AppDbContext>(options =>
-{
-    options.UseSqlite(defaultConnectionString);
-});
 builder.Services.AddDbContextFactory<AppDbContext>(options =>
 {
     options.UseSqlite(defaultConnectionString);
@@ -164,7 +160,12 @@ builder.Services.AddScoped<ICurseForgeService, CurseForgeService>();
 builder.Services.AddScoped<IWorldService, WorldService>();
 builder.Services.AddScoped<IPlayerService, PlayerService>();
 builder.Services.AddScoped<IPlayerActivityService, PlayerActivityService>();
+builder.Services.AddScoped<ICronService, CronService>();
+builder.Services.AddHostedService<CronSchedulerService>();
 builder.Services.AddHttpClient<IForgeService, ForgeService>();
+builder.Services.AddHttpClient<IFabricService, FabricService>();
+builder.Services.AddHttpClient<INeoForgeService, NeoForgeService>();
+builder.Services.AddHttpClient<IQuiltService, QuiltService>();
 builder.Services.AddHttpClient<IMojangApiService, MojangApiService>();
 builder.Services.AddMemoryCache();
 builder.Services.AddScoped<IAdminShellSession, AdminShellService>();
@@ -177,8 +178,10 @@ builder.Services.AddHostedService(sp => sp.GetRequiredService<BackgroundJobServi
 builder.Services.AddHostedService<PerformanceCollectorService>();
 builder.Services.AddHostedService<LanBroadcastService>();
 builder.Services.AddHostedService<StartupServerService>();
+builder.Services.AddSingleton<TelemetryReporterService>();
+builder.Services.AddSingleton<ITelemetryReportTrigger>(sp => sp.GetRequiredService<TelemetryReporterService>());
+builder.Services.AddHostedService(sp => sp.GetRequiredService<TelemetryReporterService>());
 builder.Services.AddHostedService<ApplicationLifetimeService>();
-builder.Services.AddHostedService<TelemetryReporterService>();
 builder.Services.AddSingleton<WatchdogService>();
 builder.Services.AddSingleton<IWatchdogService>(sp => sp.GetRequiredService<WatchdogService>());
 builder.Services.AddHostedService(sp => sp.GetRequiredService<WatchdogService>());
@@ -197,6 +200,11 @@ builder.Services.AddScoped<ApiKeySeeder>();
 builder.Services.AddScoped<UserSeeder>();
 builder.Services.AddScoped<ISettingsService, SettingsService>();
 builder.Services.AddHttpClient<ITelemetryService, TelemetryService>();
+builder.Services.AddDataProtection();
+builder.Services.AddHttpClient<DeviceAuthService>();
+builder.Services.AddSingleton<IDeviceAuthService>(sp =>
+    sp.GetRequiredService<DeviceAuthService>());
+builder.Services.AddSingleton<IFeatureUsageTracker, FeatureUsageTracker>();
 
 var allowedOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>() ?? Array.Empty<string>();
 
@@ -250,8 +258,11 @@ using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
 
-    // Run migrations on startup
-    await db.Database.MigrateAsync();
+    // Run migrations on startup (skip for InMemory provider used in tests)
+    if (db.Database.ProviderName != "Microsoft.EntityFrameworkCore.InMemory")
+        await db.Database.MigrateAsync();
+    else
+        await db.Database.EnsureCreatedAsync();
 
     // Seed initial data
     var seeder = scope.ServiceProvider.GetRequiredService<ApiKeySeeder>();
@@ -263,3 +274,6 @@ using (var scope = app.Services.CreateScope())
 app.MapApiEndpoints();
 
 app.Run();
+
+// Make Program accessible to test project
+public partial class Program { }

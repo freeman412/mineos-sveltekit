@@ -29,9 +29,10 @@ public sealed class ModrinthService : IModrinthService
         int pageSize,
         string? loader,
         string? gameVersion,
+        string? sortBy,
         CancellationToken cancellationToken)
     {
-        return SearchAsync("mod", query, index, pageSize, loader, gameVersion, cancellationToken);
+        return SearchAsync("mod", query, index, pageSize, loader, gameVersion, sortBy, cancellationToken);
     }
 
     public Task<ModrinthSearchResultDto> SearchModpacksAsync(
@@ -40,9 +41,10 @@ public sealed class ModrinthService : IModrinthService
         int pageSize,
         string? loader,
         string? gameVersion,
+        string? sortBy,
         CancellationToken cancellationToken)
     {
-        return SearchAsync("modpack", query, index, pageSize, loader, gameVersion, cancellationToken);
+        return SearchAsync("modpack", query, index, pageSize, loader, gameVersion, sortBy, cancellationToken);
     }
 
     public async Task<ModrinthSearchResultDto> SearchPluginsAsync(
@@ -51,9 +53,10 @@ public sealed class ModrinthService : IModrinthService
         int pageSize,
         string? loader,
         string? gameVersion,
+        string? sortBy,
         CancellationToken cancellationToken)
     {
-        return await SearchAsync("plugin", query, index, pageSize, loader, gameVersion, cancellationToken);
+        return await SearchAsync("plugin", query, index, pageSize, loader, gameVersion, sortBy, cancellationToken);
     }
 
     public async Task<ModrinthSearchResultDto> SearchResourcePacksAsync(
@@ -61,10 +64,11 @@ public sealed class ModrinthService : IModrinthService
         int index,
         int pageSize,
         string? gameVersion,
+        string? sortBy,
         CancellationToken cancellationToken)
     {
         // Resource packs don't use loaders, so pass null for loader parameter
-        return await SearchAsync("resourcepack", query, index, pageSize, null, gameVersion, cancellationToken);
+        return await SearchAsync("resourcepack", query, index, pageSize, null, gameVersion, sortBy, cancellationToken);
     }
 
     public async Task<ModrinthProjectDto?> GetProjectAsync(string projectId, CancellationToken cancellationToken)
@@ -161,6 +165,9 @@ public sealed class ModrinthService : IModrinthService
         return await _httpClient.GetStreamAsync(url, cancellationToken);
     }
 
+    private static readonly HashSet<string> ValidSortIndices = new(StringComparer.OrdinalIgnoreCase)
+        { "relevance", "downloads", "follows", "newest", "updated" };
+
     private async Task<ModrinthSearchResultDto> SearchAsync(
         string projectType,
         string query,
@@ -168,6 +175,7 @@ public sealed class ModrinthService : IModrinthService
         int pageSize,
         string? loader,
         string? gameVersion,
+        string? sortBy,
         CancellationToken cancellationToken)
     {
         var facets = new List<List<string>>
@@ -185,9 +193,13 @@ public sealed class ModrinthService : IModrinthService
             facets.Add(new List<string> { $"versions:{gameVersion}" });
         }
 
+        var sortIndex = !string.IsNullOrWhiteSpace(sortBy) && ValidSortIndices.Contains(sortBy)
+            ? sortBy.ToLowerInvariant()
+            : "relevance";
+
         var facetsJson = JsonSerializer.Serialize(facets);
         var url =
-            $"search?query={Uri.EscapeDataString(query)}&offset={index}&limit={pageSize}&facets={Uri.EscapeDataString(facetsJson)}";
+            $"search?query={Uri.EscapeDataString(query)}&offset={index}&limit={pageSize}&index={sortIndex}&facets={Uri.EscapeDataString(facetsJson)}";
 
         var response = await _httpClient.GetFromJsonAsync<ModrinthSearchResponse>(url, JsonOptions, cancellationToken);
         if (response == null)

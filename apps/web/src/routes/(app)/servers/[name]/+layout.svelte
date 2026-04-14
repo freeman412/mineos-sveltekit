@@ -14,20 +14,77 @@
 		version: null
 	});
 
-	const tabs = $derived.by(() => [
-		{ href: `/servers/${server?.name}`, label: 'Dashboard', exact: true },
-		{ href: `/servers/${server?.name}/config`, label: 'Properties' },
-		{ href: `/servers/${server?.name}/advanced`, label: 'Config' },
-		{ href: `/servers/${server?.name}/backups`, label: 'Backups' },
-		{ href: `/servers/${server?.name}/archives`, label: 'Archives' },
-		{ href: `/servers/${server?.name}/files`, label: 'Files' },
-		{ href: `/servers/${server?.name}/performance`, label: 'Performance' },
-		{ href: `/servers/${server?.name}/worlds`, label: 'Worlds' },
-		{ href: `/servers/${server?.name}/players`, label: 'Players' },
-		{ href: `/servers/${server?.name}/mods`, label: 'Mods' },
-		{ href: `/servers/${server?.name}/plugins`, label: 'Plugins' },
-		{ href: `/servers/${server?.name}/cron`, label: 'Cron Jobs' }
-	]);
+	const isBedrock = $derived(server?.serverType === 'bedrock');
+	const profile = $derived(server?.config?.minecraft?.profile?.toLowerCase() ?? '');
+	const jarFile = $derived(server?.config?.java?.jarFile?.toLowerCase() ?? '');
+	const javaTweaks = $derived(server?.config?.java?.javaTweaks?.toLowerCase() ?? '');
+	const jarArgs = $derived(server?.config?.java?.jarArgs?.toLowerCase() ?? '');
+	const serverHint = $derived(profile + ' ' + jarFile + ' ' + javaTweaks + ' ' + jarArgs);
+	const isModded = $derived(
+		!isBedrock &&
+			(serverHint.includes('forge') ||
+				serverHint.includes('fabric') ||
+				serverHint.includes('neoforge') ||
+				serverHint.includes('quilt'))
+	);
+	const isPluginServer = $derived(
+		!isBedrock &&
+			(serverHint.includes('paper') ||
+				serverHint.includes('spigot') ||
+				serverHint.includes('purpur') ||
+				serverHint.includes('bukkit') ||
+				serverHint.includes('folia'))
+	);
+
+	type Tab = {
+		href: string;
+		label: string;
+		exact?: boolean;
+		disabled?: boolean;
+		tooltip?: string;
+	};
+
+	const tabs: Tab[] = $derived.by(() => {
+		const s = server?.name;
+		return [
+			{ href: `/servers/${s}`, label: 'Dashboard', exact: true },
+			{ href: `/servers/${s}/config`, label: 'Properties' },
+			{
+				href: `/servers/${s}/advanced`,
+				label: 'Config',
+				disabled: isBedrock,
+				tooltip: 'Bedrock servers do not use Java configuration'
+			},
+			{ href: `/servers/${s}/backups`, label: 'Backups' },
+			{ href: `/servers/${s}/archives`, label: 'Archives' },
+			{ href: `/servers/${s}/files`, label: 'Files' },
+			{ href: `/servers/${s}/performance`, label: 'Performance' },
+			{ href: `/servers/${s}/worlds`, label: 'Worlds' },
+			{
+				href: `/servers/${s}/players`,
+				label: 'Players',
+				disabled: isBedrock,
+				tooltip: 'Player management is not available for Bedrock servers'
+			},
+			{
+				href: `/servers/${s}/mods`,
+				label: 'Mods',
+				disabled: isBedrock || !isModded,
+				tooltip: isBedrock
+					? 'Bedrock servers do not support Java mods'
+					: 'Mods require a modded server (Forge, Fabric, NeoForge, or Quilt)'
+			},
+			{
+				href: `/servers/${s}/plugins`,
+				label: 'Plugins',
+				disabled: isBedrock || !isPluginServer,
+				tooltip: isBedrock
+					? 'Bedrock servers do not support Java plugins'
+					: 'Plugins require a plugin server (Paper, Spigot, Purpur, or Bukkit)'
+			},
+			{ href: `/servers/${s}/cron`, label: 'Cron Jobs' }
+		];
+	});
 
 	function isActiveTab(href: string, exact = false) {
 		if (exact) {
@@ -148,9 +205,15 @@
 
 	<nav class="tabs">
 		{#each tabs as tab}
-			<a href={tab.href} class="tab" class:active={isActiveTab(tab.href, tab.exact)}>
-				{tab.label}
-			</a>
+			{#if tab.disabled}
+				<span class="tab disabled" title={tab.tooltip}>
+					{tab.label}
+				</span>
+			{:else}
+				<a href={tab.href} class="tab" class:active={isActiveTab(tab.href, tab.exact)}>
+					{tab.label}
+				</a>
+			{/if}
 		{/each}
 	</nav>
 
@@ -321,6 +384,12 @@
 	.tab.active {
 		color: var(--mc-grass);
 		border-bottom-color: var(--mc-grass);
+	}
+
+	.tab.disabled {
+		color: #4a5070;
+		cursor: not-allowed;
+		pointer-events: auto;
 	}
 
 	.content {

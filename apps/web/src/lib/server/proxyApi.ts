@@ -76,6 +76,12 @@ async function forward(event: RequestEvent, opts: ProxyOptions, method?: string)
 
 	const res = await fetch(upstreamUrl, fetchInit);
 
+	// If the API rejects the JWT (expired/invalid), clear the cookie
+	// so the client knows to redirect to login
+	if (res.status === 401 && token) {
+		event.cookies.delete(authCookieName, { path: '/' });
+	}
+
 	return new Response(res.body, {
 		status: res.status,
 		headers: passthroughHeaders(res)

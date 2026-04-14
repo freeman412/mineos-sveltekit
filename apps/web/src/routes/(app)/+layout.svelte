@@ -8,6 +8,21 @@
 	import { sheepEnabled, theme } from '$lib/stores/uiPreferences';
 
 	let { data, children }: { data: LayoutData; children: any } = $props();
+	let sidebarOpen = $state(false);
+
+	function toggleSidebar() {
+		sidebarOpen = !sidebarOpen;
+	}
+
+	function closeSidebar() {
+		sidebarOpen = false;
+	}
+
+	// Close sidebar on navigation
+	$effect(() => {
+		$page.url.pathname;
+		sidebarOpen = false;
+	});
 
 	const logoSrc = $derived(
 		$theme === 'nether' ? '/mineos-logo-nether.svg' :
@@ -20,15 +35,10 @@
 		'/favicon.svg'
 	);
 
-	async function handleLogout() {
-		window.location.href = '/logout';
-	}
-
 	const navItems = [
 		{ href: '/dashboard', label: 'Dashboard', icon: '[D]' },
 		{ href: '/servers', label: 'Servers', icon: '[S]' },
 		{ href: '/profiles', label: 'Profiles', icon: '[P]' },
-		{ href: '/mods', label: 'Mods', icon: '[M]' },
 		{ href: '/admin/access', label: 'Users', icon: '[U]', requiresAdmin: true },
 		{ href: '/admin/settings', label: 'Settings', icon: '[G]', requiresAdmin: true },
 		{ href: '/admin/shell', label: 'Admin Shell', icon: '[T]', requiresAdmin: true }
@@ -89,7 +99,11 @@
 <svelte:window onkeydown={handleKeyboardShortcut} />
 
 <div class="app-container" data-theme={$theme}>
-	<nav class="sidebar">
+	{#if sidebarOpen}
+		<!-- svelte-ignore a11y_no_static_element_interactions -->
+		<div class="sidebar-overlay" onclick={closeSidebar} onkeydown={(e) => e.key === 'Escape' && closeSidebar()}></div>
+	{/if}
+	<nav class="sidebar" class:open={sidebarOpen}>
 		<div class="sidebar-header">
 			<a href="/dashboard" class="logo-wrap logo-link" aria-label="Go to dashboard">
 				<img src={logoSrc} alt="MineOS logo" class="logo-icon" />
@@ -128,15 +142,17 @@
 			<span class="icon">[☕]</span>
 			<span>Buy Me a Coffee</span>
 		</a>
-		<button class="logout-btn" onclick={handleLogout}>
-			<span class="icon">[X]</span>
-			<span>Logout</span>
-		</button>
+		<form action="/logout" method="POST" style="display: contents;">
+			<button type="submit" class="logout-btn">
+				<span class="icon">[X]</span>
+				<span>Logout</span>
+			</button>
+		</form>
 	</div>
 	</nav>
 
 	<div class="main-wrapper">
-		<TopBar user={data.user} servers={data.servers} profiles={data.profiles} />
+		<TopBar user={data.user} servers={data.servers} profiles={data.profiles} onToggleSidebar={toggleSidebar} />
 		<main class="main-content">
 			{@render children()}
 		</main>
@@ -1810,6 +1826,107 @@
 		animation: endAmbientGlow 6s ease-in-out infinite;
 	}
 
+	/* ═══ RETRO THEME — Classic MineOS (hexparrot era) ═══════════════════ */
+
+	:global([data-theme='retro']) {
+		/* Classic MineOS (hexparrot era): teal-blue #55859f, light panels */
+		--mc-grass: #55859f;
+		--mc-grass-dark: #3d6073;
+		--mc-dirt: #e8e8e8;
+		--mc-dirt-dark: #d0d0d0;
+		--mc-sky: #f5f5f5;
+		--mc-stone: #55859f;
+
+		/* Panel backgrounds — light gray like Bootstrap 2 */
+		--mc-panel-darkest: #ffffff;
+		--mc-panel-dark: #f9f9f9;
+		--mc-panel: #f5f5f5;
+		--mc-panel-light: #eeeeee;
+		--mc-panel-lighter: #e5e5e5;
+
+		/* Text — dark on light */
+		--mc-text: #333333;
+		--mc-text-secondary: #555555;
+		--mc-text-muted: #777777;
+		--mc-text-dim: #999999;
+
+		/* Status colors — Bootstrap 2 palette */
+		--color-success: #5cb85c;
+		--color-success-light: #449d44;
+		--color-success-bg: rgba(92, 184, 92, 0.12);
+		--color-success-border: rgba(92, 184, 92, 0.3);
+
+		--color-error: #d9534f;
+		--color-error-light: #c9302c;
+		--color-error-bg: rgba(217, 83, 79, 0.1);
+		--color-error-border: rgba(217, 83, 79, 0.3);
+
+		--color-warning: #f0ad4e;
+		--color-warning-light: #ec971f;
+		--color-warning-bg: rgba(240, 173, 78, 0.1);
+		--color-warning-border: rgba(240, 173, 78, 0.3);
+
+		--color-info: #55859f;
+		--color-info-light: #6895ae;
+		--color-info-bg: rgba(85, 133, 159, 0.1);
+		--color-info-border: rgba(85, 133, 159, 0.25);
+
+		/* Borders — light gray */
+		--border-color: #dddddd;
+		--border-color-light: rgba(221, 221, 221, 0.6);
+
+		/* Focus */
+		--focus-color: rgba(85, 133, 159, 0.5);
+		--focus-shadow: 0 0 0 2px rgba(85, 133, 159, 0.15);
+
+		/* Scrollbars */
+		--scrollbar-track: #f0f0f0;
+		--scrollbar-thumb: rgba(85, 133, 159, 0.4);
+		--scrollbar-thumb-hover: rgba(85, 133, 159, 0.6);
+		--scrollbar-thumb-border: rgba(85, 133, 159, 0.5);
+	}
+
+	:global([data-theme='retro'] body),
+	:global(body:has([data-theme='retro'])) {
+		background: #e8e8e8 !important;
+		color: #333333 !important;
+		font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif !important;
+	}
+
+	:global([data-theme='retro'] select) {
+		background: #ffffff;
+		border-color: #cccccc;
+		color: #333333;
+	}
+
+	:global([data-theme='retro'] select:focus) {
+		border-color: #55859f;
+	}
+
+	:global([data-theme='retro'] input[type='text']),
+	:global([data-theme='retro'] input[type='number']),
+	:global([data-theme='retro'] input[type='password']),
+	:global([data-theme='retro'] textarea) {
+		background: #ffffff;
+		border-color: #cccccc;
+		color: #333333;
+	}
+
+	:global([data-theme='retro']) .sidebar {
+		background: #324d5d !important;
+		border-radius: 0;
+	}
+
+	:global([data-theme='retro']) .sidebar a,
+	:global([data-theme='retro']) .sidebar span {
+		color: #d0e0e8 !important;
+	}
+
+	:global([data-theme='retro']) .topbar {
+		background: #3d6073 !important;
+		border-bottom: 2px solid #55859f;
+	}
+
 	/* ═══ THEME TRANSITIONS — Smooth switching ═══ */
 	:global([data-theme] body),
 	:global([data-theme] .sidebar),
@@ -1825,15 +1942,35 @@
 		transition: background 0.4s ease, background-color 0.4s ease, border-color 0.4s ease, color 0.4s ease, box-shadow 0.4s ease;
 	}
 
+	.sidebar-overlay {
+		display: none;
+	}
+
 	@media (max-width: 768px) {
 		.sidebar {
-			width: 200px;
+			width: 260px;
+			transform: translateX(-100%);
+			transition: transform 0.3s ease;
+			z-index: 200;
+		}
+
+		.sidebar.open {
+			transform: translateX(0);
+		}
+
+		.sidebar-overlay {
+			display: block;
+			position: fixed;
+			inset: 0;
+			background: rgba(0, 0, 0, 0.6);
+			z-index: 150;
+			backdrop-filter: blur(2px);
 		}
 
 		.main-wrapper {
-			margin-left: 200px;
-			width: calc(100vw - 200px);
-			max-width: calc(100vw - 200px);
+			margin-left: 0;
+			width: 100vw;
+			max-width: 100vw;
 		}
 
 		.main-content {
@@ -1843,7 +1980,11 @@
 
 	@media (max-width: 480px) {
 		.main-content {
-			padding: 16px;
+			padding: 14px;
+		}
+
+		.sidebar {
+			width: 240px;
 		}
 	}
 </style>

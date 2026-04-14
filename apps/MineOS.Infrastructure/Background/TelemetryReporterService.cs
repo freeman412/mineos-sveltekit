@@ -1,4 +1,7 @@
 using System.Diagnostics;
+using System.Security.Cryptography;
+using System.Text;
+using System.Threading.Channels;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -7,14 +10,15 @@ using ServerStatusStrings = MineOS.Infrastructure.Constants.ServerStatus;
 
 namespace MineOS.Infrastructure.Background;
 
-public sealed class TelemetryReporterService : BackgroundService
+public sealed class TelemetryReporterService : BackgroundService, ITelemetryReportTrigger
 {
-    private static readonly TimeSpan ReportInterval = TimeSpan.FromHours(24);
-    private static readonly TimeSpan InitialDelay = TimeSpan.FromMinutes(5);
+    private static readonly TimeSpan ReportInterval = TimeSpan.FromHours(4);
+    private static readonly TimeSpan InitialDelay = TimeSpan.FromSeconds(30);
     private static readonly long StartTimestamp = Stopwatch.GetTimestamp();
 
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly ILogger<TelemetryReporterService> _logger;
+    private readonly Channel<bool> _triggerChannel;
 
     public TelemetryReporterService(
         IServiceScopeFactory scopeFactory,
@@ -22,11 +26,20 @@ public sealed class TelemetryReporterService : BackgroundService
     {
         _scopeFactory = scopeFactory;
         _logger = logger;
+        _triggerChannel = Channel.CreateBounded<bool>(new BoundedChannelOptions(1)
+        {
+            FullMode = BoundedChannelFullMode.DropOldest
+        });
+    }
+
+    public void RequestImmediateReport()
+    {
+        _triggerChannel.Writer.TryWrite(true);
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        _logger.LogInformation("Telemetry reporter started, first report in {Delay} minutes", InitialDelay.TotalMinutes);
+        _logger.LogInformation("Telemetry reporter started, first report in {Delay} seconds", InitialDelay.TotalSeconds);
 
         try
         {
@@ -54,16 +67,21 @@ public sealed class TelemetryReporterService : BackgroundService
 
             try
             {
-                await Task.Delay(ReportInterval, stoppingToken);
+                using var cts = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
+                cts.CancelAfter(ReportInterval);
+                await _triggerChannel.Reader.ReadAsync(cts.Token);
+                _logger.LogInformation("Immediate telemetry report triggered");
             }
             catch (OperationCanceledException)
             {
-                break;
+                if (stoppingToken.IsCancellationRequested)
+                    break;
+                // Interval elapsed without a trigger — normal periodic report
             }
         }
     }
 
-    private async Task ReportTelemetryAsync(CancellationToken cancellationToken)
+    public async Task ReportTelemetryAsync(CancellationToken cancellationToken)
     {
         using var scope = _scopeFactory.CreateScope();
 
@@ -81,11 +99,17 @@ public sealed class TelemetryReporterService : BackgroundService
 
         var serverService = scope.ServiceProvider.GetRequiredService<IServerService>();
         var userService = scope.ServiceProvider.GetRequiredService<IUserService>();
+        var backupService = scope.ServiceProvider.GetRequiredService<IBackupService>();
+        var featureTracker = scope.ServiceProvider.GetRequiredService<IFeatureUsageTracker>();
+        var playerService = scope.ServiceProvider.GetRequiredService<IPlayerService>();
 
         var servers = await serverService.ListServersAsync(cancellationToken);
         var users = await userService.ListUsersAsync(cancellationToken);
 
         var activeServerCount = 0;
+        var serverTypes = new List<string>();
+        var playerNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
         foreach (var server in servers)
         {
             try
@@ -93,25 +117,97 @@ public sealed class TelemetryReporterService : BackgroundService
                 var status = await serverService.GetServerStatusAsync(server.Name, cancellationToken);
                 if (status.Status == ServerStatusStrings.Running)
                     activeServerCount++;
+
+                // Extract server type from profile (e.g., "paper", "vanilla", "forge")
+                var profile = server.Config?.Minecraft?.Profile;
+                if (!string.IsNullOrEmpty(profile))
+                    serverTypes.Add(profile.ToLowerInvariant());
             }
             catch (Exception ex)
             {
-                // Log but don't fail telemetry for individual server errors
                 _logger.LogDebug(ex, "Failed to get status for server {ServerName}", server.Name);
+            }
+
+            try
+            {
+                var players = await playerService.ListPlayersAsync(server.Name, cancellationToken);
+                foreach (var player in players)
+                {
+                    if (!string.IsNullOrWhiteSpace(player.Name))
+                        playerNames.Add(player.Name);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Failed to get players for server {ServerName}", server.Name);
             }
         }
 
+        // Gather backup health
+        int? backupCount = null;
+        bool? lastBackupSuccess = null;
+        int? backupTotalSizeMb = null;
+
+        try
+        {
+            var allBackups = new List<(bool success, long sizeBytes)>();
+            foreach (var server in servers)
+            {
+                try
+                {
+                    var backups = await backupService.ListBackupsAsync(server.Name, cancellationToken);
+                    foreach (var backup in backups)
+                    {
+                        allBackups.Add((true, backup.Size ?? 0));
+                    }
+                }
+                catch
+                {
+                    // Ignore per-server backup errors
+                }
+            }
+
+            if (allBackups.Count > 0)
+            {
+                backupCount = allBackups.Count;
+                lastBackupSuccess = true; // If we can list them, they exist
+                backupTotalSizeMb = (int)(allBackups.Sum(b => b.sizeBytes) / (1024 * 1024));
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Failed to gather backup health");
+        }
+
+        // SHA-256 hash player names client-side so plain usernames never leave the machine
+        var userHashes = playerNames
+            .Select(name => SHA256Hash(name.ToLowerInvariant().Trim()))
+            .ToList();
+
         var uptimeSeconds = (long)Stopwatch.GetElapsedTime(StartTimestamp).TotalSeconds;
+        var featureUsage = featureTracker.GetAndReset();
 
         var data = new UsageData(
             ServerCount: servers.Count,
             ActiveServerCount: activeServerCount,
             TotalUserCount: users.Count,
             ActiveUserCount: users.Count,
-            UptimeSeconds: uptimeSeconds);
+            UptimeSeconds: uptimeSeconds,
+            ServerTypes: serverTypes.Count > 0 ? serverTypes.ToArray() : null,
+            BackupCount: backupCount,
+            LastBackupSuccess: lastBackupSuccess,
+            BackupTotalSizeMb: backupTotalSizeMb,
+            FeatureUsage: featureUsage.Count > 0 ? featureUsage : null,
+            UserHashes: userHashes.Count > 0 ? userHashes : null);
 
         _logger.LogInformation("Sending usage telemetry report...");
         var telemetryService = scope.ServiceProvider.GetRequiredService<ITelemetryService>();
         await telemetryService.ReportUsageAsync(data, cancellationToken);
+    }
+
+    private static string SHA256Hash(string input)
+    {
+        var bytes = SHA256.HashData(Encoding.UTF8.GetBytes(input));
+        return Convert.ToHexString(bytes).ToLowerInvariant();
     }
 }

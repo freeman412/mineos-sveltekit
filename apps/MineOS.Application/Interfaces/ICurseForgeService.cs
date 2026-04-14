@@ -12,6 +12,8 @@ public interface ICurseForgeService
         string? sort,
         string? order,
         long? minDownloads,
+        string? gameVersion,
+        string? loader,
         CancellationToken cancellationToken);
 
     Task<CurseForgeModDto> GetModAsync(int modId, CancellationToken cancellationToken);

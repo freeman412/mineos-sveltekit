@@ -8,6 +8,9 @@
 	let activeJobs = $state<JobStatus[]>([]);
 	let activeModpacks = $state<ModpackInstallProgress[]>([]);
 	let activeForgeInstalls = $state<ForgeInstallStatus[]>([]);
+	let activeNeoForgeInstalls = $state<any[]>([]);
+	let activeFabricInstalls = $state<any[]>([]);
+	let activeQuiltInstalls = $state<any[]>([]);
 	let isOpen = $state(false);
 	let loading = $state(false);
 	let showDismissed = $state(false);
@@ -15,8 +18,12 @@
 	let jobsSource: EventSource | null = null;
 
 	const activeUploads = $derived($uploads.filter((u) => u.status === 'uploading'));
+	const allActiveInstalls = $derived(
+		activeForgeInstalls.length + activeNeoForgeInstalls.length +
+		activeFabricInstalls.length + activeQuiltInstalls.length
+	);
 	const activeTaskCount = $derived(
-		activeJobs.length + activeModpacks.length + activeForgeInstalls.length + activeUploads.length
+		activeJobs.length + activeModpacks.length + allActiveInstalls + activeUploads.length
 	);
 	const unreadCount = $derived(notifications.filter((n) => !n.isRead && !n.dismissedAt).length);
 	const totalBadgeCount = $derived(unreadCount + activeTaskCount);
@@ -49,7 +56,13 @@
 		};
 		notificationsSource.onerror = () => {
 			notificationsSource?.close();
-			setTimeout(connectNotificationStream, 3000);
+			fetch('/api/auth/me').then((res) => {
+				if (res.status === 401 || res.status === 403) {
+					window.location.href = '/login';
+				} else {
+					setTimeout(connectNotificationStream, 5000);
+				}
+			}).catch(() => setTimeout(connectNotificationStream, 5000));
 		};
 	}
 
@@ -62,13 +75,22 @@
 				activeJobs = data.jobs ?? [];
 				activeModpacks = data.modpackInstalls ?? [];
 				activeForgeInstalls = data.forgeInstalls ?? [];
+				activeNeoForgeInstalls = data.neoForgeInstalls ?? [];
+				activeFabricInstalls = data.fabricInstalls ?? [];
+				activeQuiltInstalls = data.quiltInstalls ?? [];
 			} catch (err) {
 				console.error('Failed to parse jobs stream:', err);
 			}
 		};
 		jobsSource.onerror = () => {
 			jobsSource?.close();
-			setTimeout(connectJobsStream, 3000);
+			fetch('/api/auth/me').then((res) => {
+				if (res.status === 401 || res.status === 403) {
+					window.location.href = '/login';
+				} else {
+					setTimeout(connectJobsStream, 5000);
+				}
+			}).catch(() => setTimeout(connectJobsStream, 5000));
 		};
 	}
 
@@ -95,6 +117,9 @@
 				activeJobs = data.jobs ?? [];
 				activeModpacks = data.modpackInstalls ?? [];
 				activeForgeInstalls = data.forgeInstalls ?? [];
+				activeNeoForgeInstalls = data.neoForgeInstalls ?? [];
+				activeFabricInstalls = data.fabricInstalls ?? [];
+				activeQuiltInstalls = data.quiltInstalls ?? [];
 			}
 		} catch (err) {
 			console.error('Failed to load active jobs:', err);
@@ -283,8 +308,12 @@
 								<span class="task-type">{getJobTypeLabel(job.type)}</span>
 								<span class="task-server">{job.serverName}</span>
 							</div>
-							{#if job.serverName}
+							{#if job.serverName && job.type !== 'buildtools'}
 								<a class="task-link" href={`/servers/${encodeURIComponent(job.serverName)}`}>
+									Details
+								</a>
+							{:else if job.type === 'buildtools'}
+								<a class="task-link" href="/profiles/buildtools">
 									Details
 								</a>
 							{/if}
@@ -315,18 +344,23 @@
 							{/if}
 						</div>
 					{/each}
-					{#each activeForgeInstalls as forgeInstall (forgeInstall.installId)}
+					{#each [
+						...activeForgeInstalls.map(i => ({ ...i, loaderName: 'Forge' })),
+						...activeNeoForgeInstalls.map(i => ({ ...i, loaderName: 'NeoForge' })),
+						...activeFabricInstalls.map(i => ({ ...i, loaderName: 'Fabric' })),
+						...activeQuiltInstalls.map(i => ({ ...i, loaderName: 'Quilt' }))
+					] as install (install.installId)}
 						<div class="task-item">
 							<div class="task-info">
-								<span class="task-type">Forge Install</span>
-								<span class="task-server">{forgeInstall.serverName}</span>
+								<span class="task-type">{install.loaderName} Install</span>
+								<span class="task-server">{install.serverName}</span>
 							</div>
-							<a class="task-link" href={`/servers/${encodeURIComponent(forgeInstall.serverName)}`}>
+							<a class="task-link" href={`/servers/${encodeURIComponent(install.serverName)}`}>
 								Details
 							</a>
-							<ProgressBar value={forgeInstall.progress} color="blue" size="sm" showLabel />
-							{#if forgeInstall.currentStep}
-								<span class="task-message">{forgeInstall.currentStep}</span>
+							<ProgressBar value={install.progress} color="blue" size="sm" showLabel />
+							{#if install.currentStep}
+								<span class="task-message">{install.currentStep}</span>
 							{/if}
 						</div>
 					{/each}
@@ -391,7 +425,11 @@
 								</div>
 								<p>{notification.message}</p>
 								{#if notification.serverName}
-									<span class="server-tag">{notification.serverName}</span>
+									{#if notification.title?.includes('BuildTools')}
+										<a class="server-tag" href="/profiles/buildtools">{notification.serverName}</a>
+									{:else}
+										<a class="server-tag" href={`/servers/${encodeURIComponent(notification.serverName)}`}>{notification.serverName}</a>
+									{/if}
 								{/if}
 							</div>
 							<div class="notification-actions">

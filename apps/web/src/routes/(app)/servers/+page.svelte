@@ -46,6 +46,92 @@
 	>({});
 	const importStreams = new Map<string, EventSource>();
 	let jobsInterval: ReturnType<typeof setInterval> | null = null;
+	const IMPORT_JOBS_STORAGE_KEY = 'mineos-import-jobs';
+	const IMPORTED_SERVERS_STORAGE_KEY = 'mineos-imported-servers';
+
+	// Track which archives have been imported and to which server name
+	let importedServers = $state<Record<string, string>>({});
+	// Track the server name being used for each import (for post-import conflict check)
+	let pendingImportNames = $state<Record<string, string>>({});
+
+	// Persist import job mappings to sessionStorage so they survive navigation
+	function saveImportJobsToStorage() {
+		if (!browser) return;
+		const mapping: Record<string, string> = {};
+		for (const [filename, job] of Object.entries(importJobs)) {
+			if (job.status === 'queued' || job.status === 'running') {
+				mapping[filename] = job.jobId;
+			}
+		}
+		if (Object.keys(mapping).length > 0) {
+			sessionStorage.setItem(IMPORT_JOBS_STORAGE_KEY, JSON.stringify(mapping));
+		} else {
+			sessionStorage.removeItem(IMPORT_JOBS_STORAGE_KEY);
+		}
+	}
+
+	// Restore and reconnect to active import jobs from sessionStorage
+	function restoreImportJobsFromStorage() {
+		if (!browser) return;
+		try {
+			const stored = sessionStorage.getItem(IMPORT_JOBS_STORAGE_KEY);
+			if (!stored) return;
+			const mapping = JSON.parse(stored) as Record<string, string>;
+			for (const [filename, jobId] of Object.entries(mapping)) {
+				if (!importStreams.has(jobId)) {
+					startImportJob(filename, jobId);
+				}
+			}
+		} catch {
+			sessionStorage.removeItem(IMPORT_JOBS_STORAGE_KEY);
+		}
+	}
+
+	// Save imported server mappings to sessionStorage
+	function saveImportedServersToStorage() {
+		if (!browser) return;
+		if (Object.keys(importedServers).length > 0) {
+			sessionStorage.setItem(IMPORTED_SERVERS_STORAGE_KEY, JSON.stringify(importedServers));
+		} else {
+			sessionStorage.removeItem(IMPORTED_SERVERS_STORAGE_KEY);
+		}
+	}
+
+	// Restore imported server mappings from sessionStorage
+	function restoreImportedServersFromStorage() {
+		if (!browser) return;
+		try {
+			const stored = sessionStorage.getItem(IMPORTED_SERVERS_STORAGE_KEY);
+			if (stored) {
+				importedServers = JSON.parse(stored) as Record<string, string>;
+			}
+		} catch {
+			sessionStorage.removeItem(IMPORTED_SERVERS_STORAGE_KEY);
+		}
+	}
+
+	// Check for port conflicts with existing servers
+	async function checkPortConflicts(newServerName: string): Promise<string[]> {
+		const conflicts: string[] = [];
+		try {
+			// Fetch server properties to get port
+			const propsRes = await fetch(`/api/servers/${encodeURIComponent(newServerName)}/properties`);
+			if (!propsRes.ok) return conflicts;
+			const props = await propsRes.json();
+			const newPort = props.data?.['server-port'];
+			if (!newPort) return conflicts;
+
+			// Check against existing servers
+			for (const server of servers) {
+				if (server.name !== newServerName && server.port === parseInt(newPort, 10)) {
+					conflicts.push(`Port ${newPort} is already used by server "${server.name}"`);
+				}
+			}
+		} catch {
+			// Ignore errors in conflict check
+		}
+		return conflicts;
+	}
 
 	const maxMemoryPoints = 30;
 	const creatingServers = $derived.by(
@@ -87,12 +173,10 @@
 	}
 
 	function handleCardClick(serverName: string) {
-		if (creatingServers.has(serverName)) return;
 		goto(`/servers/${encodeURIComponent(serverName)}`);
 	}
 
 	function handleCardKeydown(event: KeyboardEvent, serverName: string) {
-		if (creatingServers.has(serverName)) return;
 		if (event.key === 'Enter' || event.key === ' ') {
 			event.preventDefault();
 			handleCardClick(serverName);
@@ -237,6 +321,9 @@
 
 	function startImportJob(filename: string, jobId: string) {
 		if (!jobId) return;
+		// Don't restart if already streaming
+		if (importStreams.has(jobId)) return;
+
 		importJobs[filename] = {
 			jobId,
 			status: 'queued',
@@ -244,6 +331,7 @@
 			message: 'Queued'
 		};
 		importJobs = { ...importJobs };
+		saveImportJobsToStorage();
 
 		const source = new EventSource(`/api/jobs/${encodeURIComponent(jobId)}/stream`);
 		importStreams.set(jobId, source);
@@ -267,9 +355,34 @@
 				if (update.status === 'completed' || update.status === 'failed') {
 					source.close();
 					importStreams.delete(jobId);
+					saveImportJobsToStorage();
 					if (update.status === 'completed') {
-						void modal.success(`Import for "${filename}" finished.`, 'Import complete');
-						void invalidateAll();
+						const serverName = pendingImportNames[filename];
+						if (serverName) {
+							// Record successful import
+							importedServers[filename] = serverName;
+							importedServers = { ...importedServers };
+							saveImportedServersToStorage();
+							delete pendingImportNames[filename];
+							pendingImportNames = { ...pendingImportNames };
+
+							// Check for port conflicts after a brief delay (server needs to be fully created)
+							setTimeout(async () => {
+								const conflicts = await checkPortConflicts(serverName);
+								if (conflicts.length > 0) {
+									await modal.alert(
+										`Import complete, but there are port conflicts:\n\n${conflicts.join('\n')}\n\nYou may need to change the server-port in server.properties.`,
+										'Port Conflict Warning'
+									);
+								} else {
+									await modal.success(`Server "${serverName}" imported successfully from "${filename}".`, 'Import complete');
+								}
+								void invalidateAll();
+							}, 500);
+						} else {
+							void modal.success(`Import for "${filename}" finished.`, 'Import complete');
+							void invalidateAll();
+						}
 					} else {
 						void modal.error(`Import for "${filename}" failed.`, 'Import failed');
 					}
@@ -310,6 +423,9 @@
 				const result = await res.json();
 				const jobId = result.jobId as string | undefined;
 				if (jobId) {
+					// Track the server name for this import (for conflict check later)
+					pendingImportNames[filename] = serverName;
+					pendingImportNames = { ...pendingImportNames };
 					startImportJob(filename, jobId);
 					await modal.alert(
 						`Import for "${filename}" queued. You can keep working while it unpacks.`,
@@ -354,6 +470,10 @@
 		updateMemoryHistory(servers);
 		loadActiveTasks();
 		jobsInterval = setInterval(loadActiveTasks, 5000);
+
+		// Restore active import jobs from previous navigation
+		restoreImportJobsFromStorage();
+		restoreImportedServersFromStorage();
 
 		serversStream = createEventStream<ServerSummary[]>({
 			url: '/api/host/servers/stream',
@@ -405,8 +525,7 @@
 				class="server-card"
 				class:creating={isCreating}
 				role="link"
-				tabindex={isCreating ? -1 : 0}
-				aria-disabled={isCreating}
+				tabindex="0"
 				onclick={() => handleCardClick(server.name)}
 				onkeydown={(event) => handleCardKeydown(event, server.name)}
 			>
@@ -609,21 +728,40 @@
 				</thead>
 				<tbody>
 					{#each imports as entry}
-						<tr>
+						{@const alreadyImported = importedServers[entry.filename]}
+						{@const hasActiveJob = importJobs[entry.filename] &&
+							(importJobs[entry.filename].status === 'queued' || importJobs[entry.filename].status === 'running')}
+						<tr class:imported={!!alreadyImported}>
 							<td class="mono">{entry.filename}</td>
 							<td>{formatBytes(entry.size)}</td>
 							<td>{formatDate(entry.time)}</td>
 							<td>
-								<input
-									type="text"
-									placeholder="new-server"
-									value={serverNames[entry.filename] ?? ''}
-									oninput={(event) => {
-										const value = (event.currentTarget as HTMLInputElement).value;
-										serverNames[entry.filename] = value;
-										serverNames = { ...serverNames };
-									}}
-								/>
+								{#if alreadyImported && !hasActiveJob}
+									<div class="imported-info">
+										<span class="imported-badge">Imported as "{alreadyImported}"</span>
+										<input
+											type="text"
+											placeholder="different-name"
+											value={serverNames[entry.filename] ?? ''}
+											oninput={(event) => {
+												const value = (event.currentTarget as HTMLInputElement).value;
+												serverNames[entry.filename] = value;
+												serverNames = { ...serverNames };
+											}}
+										/>
+									</div>
+								{:else}
+									<input
+										type="text"
+										placeholder="new-server"
+										value={serverNames[entry.filename] ?? ''}
+										oninput={(event) => {
+											const value = (event.currentTarget as HTMLInputElement).value;
+											serverNames[entry.filename] = value;
+											serverNames = { ...serverNames };
+										}}
+									/>
+								{/if}
 							</td>
 							<td>
 								{#if importJobs[entry.filename]}
@@ -636,6 +774,8 @@
 									<div class="job-meta">
 										{importJobs[entry.filename].status} {importJobs[entry.filename].percentage}%
 									</div>
+								{:else if alreadyImported}
+									<span class="imported-status">Complete</span>
 								{:else}
 									<span class="muted">--</span>
 								{/if}
@@ -645,14 +785,20 @@
 									<button
 										class="btn-action"
 										onclick={() => handleCreateImport(entry.filename)}
-										disabled={importLoading[entry.filename]}
+										disabled={importLoading[entry.filename] || hasActiveJob}
 									>
-										{importLoading[entry.filename] ? 'Queueing...' : 'Import'}
+										{#if importLoading[entry.filename]}
+											Queueing...
+										{:else if alreadyImported}
+											Re-import
+										{:else}
+											Import
+										{/if}
 									</button>
 									<button
 										class="btn-delete-import"
 										onclick={() => handleDeleteImport(entry.filename)}
-										disabled={importLoading[entry.filename]}
+										disabled={importLoading[entry.filename] || hasActiveJob}
 										title="Delete import"
 									>
 										🗑️
@@ -759,9 +905,8 @@
 	}
 
 	.server-card.creating {
-		opacity: 0.6;
-		cursor: progress;
-		pointer-events: none;
+		opacity: 0.75;
+		cursor: pointer;
 	}
 
 	.server-card:hover {
@@ -1088,6 +1233,32 @@
 	.muted {
 		color: #6a7192;
 		font-size: 12px;
+	}
+
+	tr.imported {
+		background: rgba(106, 176, 76, 0.05);
+	}
+
+	.imported-info {
+		display: flex;
+		flex-direction: column;
+		gap: 6px;
+	}
+
+	.imported-badge {
+		display: inline-block;
+		background: rgba(106, 176, 76, 0.15);
+		color: #b7f5a2;
+		padding: 3px 8px;
+		border-radius: 4px;
+		font-size: 11px;
+		font-weight: 500;
+	}
+
+	.imported-status {
+		color: #b7f5a2;
+		font-size: 12px;
+		font-weight: 500;
 	}
 
 	.error-text {

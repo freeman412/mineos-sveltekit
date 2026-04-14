@@ -4,6 +4,7 @@
 		unit?: string;
 		color?: string;
 		points: number[];
+		timestamps?: string[];
 		maxValue?: number;
 		minValue?: number;
 	};
@@ -13,6 +14,7 @@
 		unit = '',
 		color = '#7ae68d',
 		points,
+		timestamps = [],
 		maxValue,
 		minValue
 	}: Props = $props();
@@ -49,6 +51,22 @@
 		};
 	});
 
+	const timeLabels = $derived.by(() => {
+		if (!timestamps || timestamps.length < 2) return [];
+		const count = Math.min(5, timestamps.length);
+		const labels: { label: string; position: number }[] = [];
+		for (let i = 0; i < count; i++) {
+			const idx = Math.round((i / (count - 1)) * (timestamps.length - 1));
+			const date = new Date(timestamps[idx]);
+			if (isNaN(date.getTime())) continue;
+			labels.push({
+				label: date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+				position: (idx / (timestamps.length - 1)) * 100
+			});
+		}
+		return labels;
+	});
+
 	function formatNumber(value: number | null | undefined, fallback = '0.0', decimals = 1) {
 		if (value == null || !Number.isFinite(value)) {
 			return fallback;
@@ -78,6 +96,13 @@
 		<svg viewBox="0 0 100 40" preserveAspectRatio="none">
 			<polyline points={normalized.path} style={`stroke: ${color};`} />
 		</svg>
+		{#if timeLabels.length > 0}
+			<div class="time-axis">
+				{#each timeLabels as tick}
+					<span class="time-label" style={`left: ${tick.position}%`}>{tick.label}</span>
+				{/each}
+			</div>
+		{/if}
 	{:else}
 		<div class="placeholder">Collecting data...</div>
 	{/if}
@@ -143,6 +168,28 @@
 		stroke-width: 2.2;
 		stroke-linecap: round;
 		stroke-linejoin: round;
+	}
+
+	.time-axis {
+		position: relative;
+		height: 16px;
+		margin-top: -4px;
+	}
+
+	.time-label {
+		position: absolute;
+		transform: translateX(-50%);
+		font-size: 10px;
+		color: #737aa3;
+		white-space: nowrap;
+	}
+
+	.time-label:first-child {
+		transform: translateX(0);
+	}
+
+	.time-label:last-child {
+		transform: translateX(-100%);
 	}
 
 	.placeholder {

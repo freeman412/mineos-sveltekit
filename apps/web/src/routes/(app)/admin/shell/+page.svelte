@@ -313,4 +313,41 @@
 		color: #ff9f9f;
 		font-size: 13px;
 	}
+
+	@media (max-width: 768px) {
+		.shell-page {
+			gap: 16px;
+		}
+
+		.page-header {
+			flex-direction: column;
+			align-items: flex-start;
+			gap: 12px;
+		}
+
+		h1 {
+			font-size: 24px;
+			margin-bottom: 4px;
+		}
+
+		.header-actions {
+			width: 100%;
+			justify-content: space-between;
+		}
+
+		.shell-panel {
+			padding: 12px;
+			border-radius: 12px;
+		}
+
+		.terminal {
+			border-radius: 8px;
+		}
+	}
+
+	@media (max-width: 480px) {
+		.shell-panel {
+			padding: 8px;
+		}
+	}
 </style>

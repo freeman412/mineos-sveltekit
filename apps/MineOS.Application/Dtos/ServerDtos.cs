@@ -1,5 +1,7 @@
 namespace MineOS.Application.Dtos;
 
+public record ServerLoaderDto(string? Loader, string? Version);
+
 public record CronJobDto(string Hash, string Source, string Action, string? Msg, bool Enabled);
 
 public record NoticeDto(
@@ -40,6 +42,7 @@ public record ServerDetailDto(
     int? JavaPid,
     int? ScreenPid,
     ServerConfigDto? Config,
+    string ServerType,
     bool EulaAccepted,
     bool NeedsRestart);
 
@@ -47,7 +50,8 @@ public record ServerConfigDto(
     JavaConfigDto Java,
     MinecraftConfigDto Minecraft,
     OnRebootConfigDto OnReboot,
-    AutoRestartConfigDto AutoRestart);
+    AutoRestartConfigDto AutoRestart,
+    MonitoringConfigDto? Monitoring = null);
 
 public record JavaConfigDto(
     string JavaBinary,
@@ -73,6 +77,10 @@ public record AutoRestartConfigDto(
     bool NotifyOnCrash,        // Send notification when crash detected
     bool NotifyOnRestart);     // Send notification when auto-restart triggered
 
+public record MonitoringConfigDto(
+    bool TpsEnabled,
+    string? TpsCommand);
+
 public record CrashEventDto(
     int Id,
     string ServerName,
@@ -84,7 +92,7 @@ public record CrashEventDto(
 
 public record ConsoleCommandDto(string Command);
 
-public record CreateServerRequest(string Name, int OwnerUid, int OwnerGid);
+public record CreateServerRequest(string Name, int OwnerUid, int OwnerGid, string ServerType = "java");
 
 public record CloneServerRequest(string NewName);
 

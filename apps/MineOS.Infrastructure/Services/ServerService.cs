@@ -19,17 +19,20 @@ public class ServerService : IServerService
     private readonly HostOptions _options;
     private readonly ILogger<ServerService> _logger;
     private readonly ITelemetryService _telemetryService;
+    private readonly ITelemetryReportTrigger _telemetryReportTrigger;
 
     public ServerService(
         IProcessManager processManager,
         IOptions<HostOptions> options,
         ILogger<ServerService> logger,
-        ITelemetryService telemetryService)
+        ITelemetryService telemetryService,
+        ITelemetryReportTrigger telemetryReportTrigger)
     {
         _processManager = processManager;
         _options = options.Value;
         _logger = logger;
         _telemetryService = telemetryService;
+        _telemetryReportTrigger = telemetryReportTrigger;
     }
 
     private string GetServerPath(string name) =>
@@ -41,11 +44,86 @@ public class ServerService : IServerService
     private string GetArchivePath(string name) =>
         Path.Combine(_options.BaseDirectory, "archive", name);
 
+    private const string ServerTypeFile = ".mineos-server-type";
+
+    /// <summary>
+    /// Returns the Java binary path appropriate for the given Minecraft version.
+    /// MC 1.26+ requires Java 25, 1.21-1.25 requires Java 21,
+    /// 1.17-1.20 requires Java 17 (falls back to 21), older requires Java 8.
+    /// </summary>
+    public static string ResolveJavaBinary(string? minecraftVersion)
+    {
+        if (string.IsNullOrWhiteSpace(minecraftVersion))
+            return "java"; // Use default JAVA_HOME
+
+        // Parse major.minor from version like "1.21.11", "26.1", etc.
+        var parts = minecraftVersion.Split('.');
+        if (!int.TryParse(parts[0], out var major))
+            return "java";
+
+        // New versioning: 26.x+ (Minecraft dropped the "1." prefix)
+        if (major >= 26)
+            return FindJavaBinary(25, 21);
+
+        // Old versioning: 1.x.y
+        if (major == 1 && parts.Length >= 2 && int.TryParse(parts[1], out var minor))
+        {
+            if (minor >= 21) return FindJavaBinary(21);
+            if (minor >= 17) return FindJavaBinary(21, 17); // 17 preferred, 21 fallback
+            return FindJavaBinary(8);
+        }
+
+        return "java";
+    }
+
+    private static string FindJavaBinary(params int[] preferredVersions)
+    {
+        foreach (var ver in preferredVersions)
+        {
+            // Check common Adoptium/Temurin install paths
+            var paths = new[]
+            {
+                $"/usr/lib/jvm/temurin-{ver}-jdk-amd64/bin/java",
+                $"/usr/lib/jvm/temurin-{ver}-jdk-arm64/bin/java",
+                $"/usr/lib/jvm/temurin-{ver}-jdk/bin/java",
+                $"/usr/lib/jvm/java-{ver}-openjdk-amd64/bin/java",
+                $"/usr/lib/jvm/java-{ver}-openjdk/bin/java",
+            };
+
+            foreach (var path in paths)
+            {
+                if (File.Exists(path))
+                    return path;
+            }
+        }
+
+        return "java"; // Fallback to PATH default
+    }
+
     private string GetPropertiesPath(string name) =>
         Path.Combine(GetServerPath(name), "server.properties");
 
     private string GetConfigPath(string name) =>
         Path.Combine(GetServerPath(name), "server.config");
+
+    private string GetServerTypePath(string name) =>
+        Path.Combine(GetServerPath(name), ServerTypeFile);
+
+    private string DetectServerType(string name)
+    {
+        var typeFile = GetServerTypePath(name);
+        if (File.Exists(typeFile))
+        {
+            var content = File.ReadAllText(typeFile).Trim();
+            if (!string.IsNullOrWhiteSpace(content))
+                return content;
+        }
+        // Check for bedrock_server binary
+        var serverPath = GetServerPath(name);
+        if (File.Exists(Path.Combine(serverPath, "bedrock_server")))
+            return "bedrock";
+        return "java";
+    }
 
     private string GetRestartFlagPath(string name) =>
         Path.Combine(GetServerPath(name), RestartFlagFile);
@@ -65,10 +143,11 @@ public class ServerService : IServerService
         var dirInfo = new DirectoryInfo(serverPath);
         var processInfo = _processManager.GetServerProcess(name);
 
+        var serverType = DetectServerType(name);
         var config = await GetServerConfigAsync(name, cancellationToken);
 
         var status = processInfo?.JavaPid != null ? "running" : "stopped";
-        var eulaAccepted = await IsEulaAcceptedAsync(serverPath, cancellationToken);
+        var eulaAccepted = serverType == "bedrock" || await IsEulaAcceptedAsync(serverPath, cancellationToken);
         var needsRestart = File.Exists(GetRestartFlagPath(name));
 
         // Get owner info from directory
@@ -90,16 +169,30 @@ public class ServerService : IServerService
             processInfo?.JavaPid,
             processInfo?.ScreenPid,
             config,
+            serverType,
             eulaAccepted,
             needsRestart
         );
     }
+
+    private static readonly System.Text.RegularExpressions.Regex SafeServerNameRegex = new(
+        @"^[a-zA-Z0-9][a-zA-Z0-9 _\-\.]{0,63}$",
+        System.Text.RegularExpressions.RegexOptions.Compiled);
 
     public async Task<ServerDetailDto> CreateServerAsync(
         CreateServerRequest request,
         string username,
         CancellationToken cancellationToken)
     {
+        if (string.IsNullOrWhiteSpace(request.Name))
+            throw new ArgumentException("Server name is required");
+
+        if (!SafeServerNameRegex.IsMatch(request.Name))
+            throw new ArgumentException("Server name contains invalid characters. Use letters, numbers, spaces, hyphens, underscores, or dots.");
+
+        if (request.Name.Contains(".."))
+            throw new ArgumentException("Server name cannot contain '..'");
+
         var serverPath = GetServerPath(request.Name);
         var backupPath = GetBackupPath(request.Name);
         var archivePath = GetArchivePath(request.Name);
@@ -114,63 +207,182 @@ public class ServerService : IServerService
         Directory.CreateDirectory(backupPath);
         Directory.CreateDirectory(archivePath);
 
+        // Write server type marker
+        var serverType = string.IsNullOrWhiteSpace(request.ServerType) ? "java" : request.ServerType.ToLowerInvariant();
+        await File.WriteAllTextAsync(
+            Path.Combine(serverPath, ServerTypeFile), serverType, cancellationToken);
+
         // Create default files
         var propertiesPath = GetPropertiesPath(request.Name);
         var configPath = GetConfigPath(request.Name);
 
         var usedPorts = await GetUsedPortsAsync(excludeName: null, cancellationToken);
-        var defaultPort = GetNextAvailablePort(usedPorts, 25565);
 
-        // Write default server.properties
-        var defaultProperties = new Dictionary<string, string>
+        if (serverType == "bedrock")
         {
-            ["server-port"] = defaultPort.ToString(),
-            ["max-players"] = "20",
-            ["level-seed"] = "",
-            ["gamemode"] = "0",
-            ["difficulty"] = "1",
-            ["level-type"] = "DEFAULT",
-            ["level-name"] = "world",
-            ["max-build-height"] = "256",
-            ["generate-structures"] = "true",
-            ["generator-settings"] = "",
-            ["server-ip"] = "0.0.0.0",
-            ["enable-query"] = "false",
-            ["white-list"] = "true",
-            ["enforce-whitelist"] = "true"
-        };
+            var defaultPort = GetNextAvailablePort(usedPorts, 19132);
 
-        await File.WriteAllTextAsync(propertiesPath, IniParser.WriteSimple(defaultProperties), cancellationToken);
+            // Bedrock server.properties
+            var bedrockProperties = new Dictionary<string, string>
+            {
+                ["server-name"] = request.Name,
+                ["gamemode"] = "survival",
+                ["force-gamemode"] = "false",
+                ["difficulty"] = "easy",
+                ["allow-cheats"] = "false",
+                ["max-players"] = "10",
+                ["online-mode"] = "true",
+                ["allow-list"] = "true",
+                ["server-port"] = defaultPort.ToString(),
+                ["server-portv6"] = (defaultPort + 1).ToString(),
+                ["view-distance"] = "32",
+                ["tick-distance"] = "4",
+                ["player-idle-timeout"] = "30",
+                ["max-threads"] = "8",
+                ["level-name"] = "Bedrock level",
+                ["level-seed"] = "",
+                ["level-type"] = "DEFAULT",
+                ["default-player-permission-level"] = "member",
+                ["texturepack-required"] = "false",
+                ["content-log-file-enabled"] = "false",
+                ["compression-threshold"] = "1",
+                ["compression-algorithm"] = "zlib",
+                ["server-authoritative-movement"] = "server-auth",
+                ["player-movement-score-threshold"] = "20",
+                ["player-movement-action-direction-threshold"] = "0.85",
+                ["player-movement-distance-threshold"] = "0.3",
+                ["player-movement-duration-threshold-in-ms"] = "500",
+                ["correct-player-movement"] = "false",
+                ["server-authoritative-block-breaking"] = "false",
+                ["chat-restriction"] = "None",
+                ["disable-player-interaction"] = "false",
+                ["client-side-chunk-generation-enabled"] = "true",
+                ["block-network-ids-are-hashes"] = "true",
+                ["disable-persona"] = "false",
+                ["disable-custom-skins"] = "false",
+                ["emit-server-telemetry"] = "false"
+            };
 
-        // Write default server.config
-        var defaultConfig = new Dictionary<string, Dictionary<string, string>>
+            await File.WriteAllTextAsync(propertiesPath, IniParser.WriteSimple(bedrockProperties), cancellationToken);
+
+            // Bedrock server.config (minimal - no Java section needed for operation, but kept for compatibility)
+            var bedrockConfig = new Dictionary<string, Dictionary<string, string>>
+            {
+                ["bedrock"] = new()
+                {
+                    ["binary"] = "./bedrock_server"
+                },
+                ["minecraft"] = new()
+                {
+                    ["profile"] = "",
+                    ["unconventional"] = "false",
+                    ["lan_broadcast"] = "false"
+                },
+                ["onreboot"] = new()
+                {
+                    ["start"] = "false"
+                },
+                ["monitoring"] = new()
+                {
+                    ["tps_enabled"] = "false",
+                    ["tps_command"] = ""
+                }
+            };
+
+            await File.WriteAllTextAsync(configPath, IniParser.WriteWithSections(bedrockConfig), cancellationToken);
+        }
+        else
         {
-            ["java"] = new()
+            var defaultPort = GetNextAvailablePort(usedPorts, 25565);
+
+            // Write default server.properties
+            var defaultProperties = new Dictionary<string, string>
             {
-                ["java_binary"] = "",
-                ["java_xmx"] = "4096",
-                ["java_xms"] = "4096"
-            },
-            ["minecraft"] = new()
+                ["server-port"] = defaultPort.ToString(),
+                ["max-players"] = "20",
+                ["level-seed"] = "",
+                ["gamemode"] = "0",
+                ["difficulty"] = "1",
+                ["level-type"] = "DEFAULT",
+                ["level-name"] = "world",
+                ["max-build-height"] = "256",
+                ["generate-structures"] = "true",
+                ["generator-settings"] = "",
+                ["server-ip"] = "0.0.0.0",
+                ["enable-query"] = "false",
+                ["white-list"] = "true",
+                ["enforce-whitelist"] = "true"
+            };
+
+            await File.WriteAllTextAsync(propertiesPath, IniParser.WriteSimple(defaultProperties), cancellationToken);
+
+            // Determine TPS monitoring defaults based on server type
+            var tpsEnabled = "false";
+            var tpsCommand = "";
+            var serverTypeStr = (serverType ?? "").ToLowerInvariant();
+            switch (serverTypeStr)
             {
-                ["profile"] = "",
-                ["unconventional"] = "false",
-                ["lan_broadcast"] = "false"
-            },
-            ["onreboot"] = new()
-            {
-                ["start"] = "false"
+                case "forge":
+                    tpsEnabled = "true";
+                    tpsCommand = "/forge tps";
+                    break;
+                case "neoforge":
+                    tpsEnabled = "true";
+                    tpsCommand = "/neoforge tps";
+                    break;
+                case "paper":
+                case "spigot":
+                case "craftbukkit":
+                case "purpur":
+                    tpsEnabled = "true";
+                    tpsCommand = "/tps";
+                    break;
+                // fabric, quilt, vanilla, and anything else: default false
             }
-        };
 
-        await File.WriteAllTextAsync(configPath, IniParser.WriteWithSections(defaultConfig), cancellationToken);
+            // Write default server.config
+            var defaultConfig = new Dictionary<string, Dictionary<string, string>>
+            {
+                ["java"] = new()
+                {
+                    ["java_binary"] = "",
+                    ["java_xmx"] = "4096",
+                    ["java_xms"] = "4096"
+                },
+                ["minecraft"] = new()
+                {
+                    ["profile"] = "",
+                    ["unconventional"] = "false",
+                    ["lan_broadcast"] = "false"
+                },
+                ["onreboot"] = new()
+                {
+                    ["start"] = "false"
+                },
+                ["monitoring"] = new()
+                {
+                    ["tps_enabled"] = tpsEnabled,
+                    ["tps_command"] = tpsCommand
+                }
+            };
+
+            await File.WriteAllTextAsync(configPath, IniParser.WriteWithSections(defaultConfig), cancellationToken);
+        }
 
         OwnershipHelper.TrySetOwnership(serverPath, _options.RunAsUid, _options.RunAsGid, _logger, recursive: true);
         OwnershipHelper.TrySetOwnership(backupPath, _options.RunAsUid, _options.RunAsGid, _logger, recursive: true);
         OwnershipHelper.TrySetOwnership(archivePath, _options.RunAsUid, _options.RunAsGid, _logger, recursive: true);
 
         _logger.LogInformation("Created server {ServerName} at {ServerPath}", request.Name, serverPath);
-        _ = _telemetryService.ReportLifecycleEventAsync("server_created", null, CancellationToken.None);
+        try
+        {
+            await _telemetryService.ReportLifecycleEventAsync("server_created", null, cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to report server_created telemetry event");
+        }
+        _telemetryReportTrigger.RequestImmediateReport();
 
         return await GetServerAsync(request.Name, cancellationToken);
     }
@@ -230,6 +442,16 @@ public class ServerService : IServerService
         OwnershipHelper.TrySetOwnership(archivePath, _options.RunAsUid, _options.RunAsGid, _logger, recursive: true);
 
         _logger.LogInformation("Cloned server {SourceServer} to {TargetServer}", sourceName, newName);
+        try
+        {
+            await _telemetryService.ReportLifecycleEventAsync("server_created", new { clone = true }, cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to report server_created telemetry event for clone");
+        }
+        _telemetryReportTrigger.RequestImmediateReport();
+
         return await GetServerAsync(newName, cancellationToken);
     }
 
@@ -257,7 +479,15 @@ public class ServerService : IServerService
             Directory.Delete(archivePath, recursive: true);
 
         _logger.LogInformation("Deleted server {ServerName}", name);
-        _ = _telemetryService.ReportLifecycleEventAsync("server_deleted", null, CancellationToken.None);
+        try
+        {
+            await _telemetryService.ReportLifecycleEventAsync("server_deleted", null, cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to report server_deleted telemetry event");
+        }
+        _telemetryReportTrigger.RequestImmediateReport();
     }
 
     public async Task<List<ServerDetailDto>> ListServersAsync(CancellationToken cancellationToken)
@@ -331,110 +561,169 @@ public class ServerService : IServerService
 
         ClearStopRequested(name);
 
-        // Read server config to build start arguments
-        var config = await GetServerConfigAsync(name, cancellationToken);
-        var javaBinary = string.IsNullOrEmpty(config.Java.JavaBinary) ? "java" : config.Java.JavaBinary;
-        var jarFile = config.Java.JarFile;
+        var serverType = DetectServerType(name);
+        var uid = _options.RunAsUid;
+        var gid = _options.RunAsGid;
 
-        _logger.LogInformation(
-            "Server config for {ServerName}: javaBinary={JavaBinary} jarFile={JarFile} xmx={Xmx} xms={Xms}",
-            name,
-            javaBinary,
-            jarFile ?? "<null>",
-            config.Java.JavaXmx,
-            config.Java.JavaXms);
-
-        if (string.IsNullOrEmpty(jarFile))
-        {
-            throw new InvalidOperationException($"Server '{name}' has no JAR file configured");
-        }
-
-        await EnsureEulaAcceptedAsync(serverPath, cancellationToken);
         await EnsureExecutableAvailableAsync("screen", "-v", "GNU screen", cancellationToken);
-        await EnsureExecutableAvailableAsync(javaBinary, "-version", "Java runtime", cancellationToken);
-
-        // Check if using modern Forge @argfile syntax (e.g., "@user_jvm_args.txt @libraries/.../unix_args.txt")
-        var isArgFileSyntax = jarFile.TrimStart().StartsWith("@");
-
-        if (isArgFileSyntax)
-        {
-            // Validate that each referenced arg file exists
-            var argFiles = jarFile.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-            foreach (var argFile in argFiles)
-            {
-                var filePath = Path.Combine(serverPath, argFile.TrimStart('@'));
-                if (!File.Exists(filePath))
-                {
-                    throw new InvalidOperationException($"Forge argument file not found: {filePath}");
-                }
-            }
-            _logger.LogInformation("Using Forge @argfile syntax for {ServerName}: {ArgFiles}", name, jarFile);
-        }
-        else
-        {
-            var resolvedJarPath = ResolveJarPath(serverPath, jarFile);
-            _logger.LogInformation("Resolved JAR path for {ServerName}: {JarPath}", name, resolvedJarPath);
-            if (!File.Exists(resolvedJarPath))
-            {
-                throw new InvalidOperationException($"Configured JAR file not found: {resolvedJarPath}");
-            }
-        }
 
         var logDir = Path.Combine(serverPath, "logs");
         Directory.CreateDirectory(logDir);
-
-        // Change ownership of logs directory to minecraft user so it can write logs
-        var uid = _options.RunAsUid;
-        var gid = _options.RunAsGid;
         await OwnershipHelper.ChangeOwnershipAsync(logDir, uid, gid, _logger, cancellationToken);
-
         var startupLogPath = Path.Combine(logDir, "startup.log");
 
-        // Build Java command arguments
-        var javaArgs = new List<string>
-        {
-            javaBinary,
-            "-server",
-            $"-Dmineos.server={name}"
-        };
+        string shellCommand;
+        var startTime = DateTimeOffset.UtcNow;
+        var startupStamp = $"[{startTime:O}] Launching {name}";
+        var startupLogArg = EscapeBashArgument(startupLogPath);
+        var escapedServerPath = EscapeBashArgument(serverPath);
 
-        if (config.Java.JavaXmx > 0)
-            javaArgs.Add($"-Xmx{config.Java.JavaXmx}M");
-        if (config.Java.JavaXms > 0)
-            javaArgs.Add($"-Xms{config.Java.JavaXms}M");
-
-        if (!string.IsNullOrEmpty(config.Java.JavaTweaks))
+        if (serverType == "bedrock")
         {
-            javaArgs.AddRange(config.Java.JavaTweaks.Split(' ', StringSplitOptions.RemoveEmptyEntries));
-        }
+            var bedrockBinary = Path.Combine(serverPath, "bedrock_server");
+            if (!File.Exists(bedrockBinary))
+            {
+                throw new InvalidOperationException($"Bedrock server binary not found at {bedrockBinary}. Download a Bedrock server profile first.");
+            }
 
-        // Modern Forge uses @argfile syntax instead of -jar
-        if (isArgFileSyntax)
-        {
-            // Add each @argfile reference
-            javaArgs.AddRange(jarFile.Split(' ', StringSplitOptions.RemoveEmptyEntries));
+            // Ensure binary is executable
+            try
+            {
+                var chmodPsi = new ProcessStartInfo("chmod", $"+x {EscapeBashArgument(bedrockBinary)}")
+                {
+                    UseShellExecute = false,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true
+                };
+                using var chmodProcess = Process.Start(chmodPsi);
+                if (chmodProcess != null)
+                    await chmodProcess.WaitForExitAsync(cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to chmod bedrock_server for {ServerName}", name);
+            }
+
+            _logger.LogInformation("Starting Bedrock server {ServerName} with binary {Binary}", name, bedrockBinary);
+
+            // Bedrock needs LD_LIBRARY_PATH set to its own directory
+            var ldPath = $"LD_LIBRARY_PATH={escapedServerPath}";
+            var envVar = $"MINEOS_SERVER={EscapeBashArgument(name)}";
+            shellCommand = $"cd {escapedServerPath} && echo {EscapeBashArgument(startupStamp)} >> {startupLogArg}; export {ldPath}; export {envVar}; exec ./bedrock_server >> {startupLogArg} 2>&1";
         }
         else
         {
-            javaArgs.Add("-jar");
-            javaArgs.Add(ResolveJarPath(serverPath, jarFile));
-        }
+            // Read server config to build start arguments
+            var config = await GetServerConfigAsync(name, cancellationToken);
+            var javaBinary = config.Java.JavaBinary;
+            if (string.IsNullOrEmpty(javaBinary) || javaBinary == "java")
+            {
+                // Auto-detect Java version from the server's Minecraft version
+                string? mcVersion = null;
+                try
+                {
+                    var props = await GetServerPropertiesAsync(name, cancellationToken);
+                    // server.properties doesn't have MC version, but the profile might
+                }
+                catch { /* no properties file yet */ }
 
-        if (!string.IsNullOrEmpty(config.Java.JarArgs))
-        {
-            javaArgs.AddRange(config.Java.JarArgs.Split(' ', StringSplitOptions.RemoveEmptyEntries));
-        }
-        else if (!config.Minecraft.Unconventional)
-        {
-            javaArgs.Add("nogui");
-        }
+                // Try to extract MC version from profile name or jar filename
+                var profile = config.Minecraft.Profile ?? "";
+                var jar = config.Java.JarFile ?? "";
+                var versionMatch = System.Text.RegularExpressions.Regex.Match(
+                    profile + " " + jar, @"(\d+\.\d+(?:\.\d+)?)");
+                if (versionMatch.Success)
+                    mcVersion = versionMatch.Groups[1].Value;
 
-        var startTime = DateTimeOffset.UtcNow;
-        var startupStamp = $"[{startTime:O}] Launching {name}";
-        var javaCommand = string.Join(" ", javaArgs.Select(EscapeBashArgument));
-        var startupLogArg = EscapeBashArgument(startupLogPath);
-        var escapedServerPath = EscapeBashArgument(serverPath);
-        var shellCommand = $"cd {escapedServerPath} && echo {EscapeBashArgument(startupStamp)} >> {startupLogArg}; exec {javaCommand} >> {startupLogArg} 2>&1";
+                javaBinary = ResolveJavaBinary(mcVersion);
+                _logger.LogInformation("Auto-resolved Java binary for {Server} (MC {Version}): {JavaBinary}",
+                    name, mcVersion ?? "unknown", javaBinary);
+            }
+            var jarFile = config.Java.JarFile;
+
+            _logger.LogInformation(
+                "Server config for {ServerName}: javaBinary={JavaBinary} jarFile={JarFile} xmx={Xmx} xms={Xms}",
+                name,
+                javaBinary,
+                jarFile ?? "<null>",
+                config.Java.JavaXmx,
+                config.Java.JavaXms);
+
+            if (string.IsNullOrEmpty(jarFile))
+            {
+                throw new InvalidOperationException($"Server '{name}' has no JAR file configured");
+            }
+
+            await EnsureEulaAcceptedAsync(serverPath, cancellationToken);
+            await EnsureExecutableAvailableAsync(javaBinary, "-version", "Java runtime", cancellationToken);
+
+            // Check if using modern Forge @argfile syntax
+            var isArgFileSyntax = jarFile.TrimStart().StartsWith("@");
+
+            if (isArgFileSyntax)
+            {
+                var argFiles = jarFile.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+                foreach (var argFile in argFiles)
+                {
+                    var filePath = Path.Combine(serverPath, argFile.TrimStart('@'));
+                    if (!File.Exists(filePath))
+                    {
+                        throw new InvalidOperationException($"Forge argument file not found: {filePath}");
+                    }
+                }
+                _logger.LogInformation("Using Forge @argfile syntax for {ServerName}: {ArgFiles}", name, jarFile);
+            }
+            else
+            {
+                var resolvedJarPath = ResolveJarPath(serverPath, jarFile);
+                _logger.LogInformation("Resolved JAR path for {ServerName}: {JarPath}", name, resolvedJarPath);
+                if (!File.Exists(resolvedJarPath))
+                {
+                    throw new InvalidOperationException($"Configured JAR file not found: {resolvedJarPath}");
+                }
+            }
+
+            // Build Java command arguments
+            var javaArgs = new List<string>
+            {
+                javaBinary,
+                "-server",
+                $"-Dmineos.server={name}"
+            };
+
+            if (config.Java.JavaXmx > 0)
+                javaArgs.Add($"-Xmx{config.Java.JavaXmx}M");
+            if (config.Java.JavaXms > 0)
+                javaArgs.Add($"-Xms{config.Java.JavaXms}M");
+
+            if (!string.IsNullOrEmpty(config.Java.JavaTweaks))
+            {
+                javaArgs.AddRange(config.Java.JavaTweaks.Split(' ', StringSplitOptions.RemoveEmptyEntries));
+            }
+
+            if (isArgFileSyntax)
+            {
+                javaArgs.AddRange(jarFile.Split(' ', StringSplitOptions.RemoveEmptyEntries));
+            }
+            else
+            {
+                javaArgs.Add("-jar");
+                javaArgs.Add(ResolveJarPath(serverPath, jarFile));
+            }
+
+            if (!string.IsNullOrEmpty(config.Java.JarArgs))
+            {
+                javaArgs.AddRange(config.Java.JarArgs.Split(' ', StringSplitOptions.RemoveEmptyEntries));
+            }
+            else if (!config.Minecraft.Unconventional)
+            {
+                javaArgs.Add("nogui");
+            }
+
+            var javaCommand = string.Join(" ", javaArgs.Select(EscapeBashArgument));
+            _logger.LogInformation("Java command: {JavaCommand}", javaCommand);
+            shellCommand = $"cd {escapedServerPath} && echo {EscapeBashArgument(startupStamp)} >> {startupLogArg}; exec {javaCommand} >> {startupLogArg} 2>&1";
+        }
 
         var args = new List<string>
         {
@@ -451,7 +740,6 @@ public class ServerService : IServerService
             serverPath,
             string.Join(' ', args));
         _logger.LogInformation("Startup log file: {StartupLogPath}", startupLogPath);
-        _logger.LogInformation("Java command: {JavaCommand}", javaCommand);
         await _processManager.StartScreenSessionAsync(name, args.ToArray(), uid, gid, serverPath, cancellationToken);
 
         await VerifyServerStartedAsync(name, serverPath, startTime, startupLogPath, cancellationToken);
@@ -620,7 +908,18 @@ public class ServerService : IServerService
             bool.TryParse(autorestartSection.GetValueOrDefault("notify_on_restart", "true"), out var notifyRestart) && notifyRestart
         );
 
-        return new ServerConfigDto(java, minecraft, onreboot, autorestart);
+        // [monitoring] section
+        var monitoringSection = sections.GetValueOrDefault("monitoring", new Dictionary<string, string>());
+        // Default to false when section is missing — avoids log spam on existing
+        // Vanilla/Bedrock servers. Users who want TPS monitoring can enable it.
+        var tpsEnabled = monitoringSection.GetValueOrDefault("tps_enabled", "false")
+            .Equals("true", StringComparison.OrdinalIgnoreCase);
+        var tpsCommand = monitoringSection.GetValueOrDefault("tps_command", "");
+        var monitoring = new MonitoringConfigDto(
+            tpsEnabled,
+            string.IsNullOrWhiteSpace(tpsCommand) ? null : tpsCommand);
+
+        return new ServerConfigDto(java, minecraft, onreboot, autorestart, monitoring);
     }
 
     public async Task UpdateServerConfigAsync(string name, ServerConfigDto config, CancellationToken cancellationToken)
@@ -655,6 +954,11 @@ public class ServerService : IServerService
                 ["attempt_reset_minutes"] = config.AutoRestart.AttemptResetMinutes.ToString(),
                 ["notify_on_crash"] = config.AutoRestart.NotifyOnCrash.ToString().ToLower(),
                 ["notify_on_restart"] = config.AutoRestart.NotifyOnRestart.ToString().ToLower()
+            },
+            ["monitoring"] = new Dictionary<string, string>
+            {
+                ["tps_enabled"] = (config.Monitoring?.TpsEnabled ?? false).ToString().ToLower(),
+                ["tps_command"] = config.Monitoring?.TpsCommand ?? ""
             }
         };
 
@@ -1067,5 +1371,106 @@ public class ServerService : IServerService
             await using var targetStream = new FileStream(targetFile, FileMode.Create, FileAccess.Write, FileShare.None, 4096, useAsync: true);
             await sourceStream.CopyToAsync(targetStream, cancellationToken);
         }
+    }
+
+    private static readonly HashSet<string> AllowedServerTypes = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "java", "bedrock", "vanilla", "paper", "spigot", "craftbukkit", "purpur",
+        "forge", "neoforge", "fabric", "quilt", "folia"
+    };
+
+    public async Task UpdateServerTypeAsync(string name, string serverType, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(serverType) || !AllowedServerTypes.Contains(serverType))
+            throw new ArgumentException($"Invalid server type: '{serverType}'");
+
+        var serverPath = GetServerPath(name);
+        if (!Directory.Exists(serverPath))
+            throw new DirectoryNotFoundException($"Server '{name}' not found");
+
+        await File.WriteAllTextAsync(
+            Path.Combine(serverPath, ServerTypeFile), serverType.ToLowerInvariant(), cancellationToken);
+
+        _logger.LogInformation("Updated server type for {Server} to {Type}", name, serverType);
+    }
+
+    private static readonly System.Text.RegularExpressions.Regex[] JarLoaderPatterns =
+    [
+        new(@"^forge-(?<mc>[\d.]+)-", System.Text.RegularExpressions.RegexOptions.IgnoreCase),
+        new(@"^neoforge-(?<mc>[\d.]+)-", System.Text.RegularExpressions.RegexOptions.IgnoreCase),
+        new(@"^fabric-server-mc\.(?<mc>[\d.]+)-", System.Text.RegularExpressions.RegexOptions.IgnoreCase),
+        new(@"^fabric-loader-[\d.]+-(?<mc>[\d.]+)", System.Text.RegularExpressions.RegexOptions.IgnoreCase),
+        new(@"^quilt-server-(?<mc>[\d.]+)-", System.Text.RegularExpressions.RegexOptions.IgnoreCase),
+    ];
+
+    private static readonly (string dir, string loader)[] LibraryDirLoaders =
+    [
+        ("net/minecraftforge", "forge"),
+        ("net/neoforged", "neoforge"),
+        ("net/fabricmc", "fabric"),
+    ];
+
+    public async Task<ServerLoaderDto> DetectLoaderAsync(string name, CancellationToken cancellationToken)
+    {
+        var serverPath = GetServerPath(name);
+        if (!Directory.Exists(serverPath))
+            throw new DirectoryNotFoundException($"Server '{name}' not found");
+
+        var config = await GetServerConfigAsync(name, cancellationToken);
+        var jarFile = config.Java.JarFile ?? "";
+        var jarArgs = config.Java.JarArgs ?? "";
+        var javaTweaks = config.Java.JavaTweaks ?? "";
+        var profile = config.Minecraft.Profile ?? "";
+
+        // Priority 2: JAR filename regex
+        var jarName = Path.GetFileName(jarFile);
+        if (!string.IsNullOrWhiteSpace(jarName))
+        {
+            var lower = jarName.ToLowerInvariant();
+            if (lower.Contains("neoforge")) return new ServerLoaderDto("neoforge", null);
+            if (lower.Contains("forge")) return new ServerLoaderDto("forge", null);
+            if (lower.Contains("fabric")) return new ServerLoaderDto("fabric", null);
+            if (lower.Contains("quilt")) return new ServerLoaderDto("quilt", null);
+            if (lower.Contains("paper")) return new ServerLoaderDto("paper", null);
+            if (lower.Contains("spigot")) return new ServerLoaderDto("spigot", null);
+            if (lower.Contains("purpur")) return new ServerLoaderDto("purpur", null);
+            if (lower.Contains("bukkit")) return new ServerLoaderDto("bukkit", null);
+        }
+
+        // Priority 3: @argfile syntax (Forge modpacks)
+        if (jarFile.TrimStart().StartsWith("@"))
+            return new ServerLoaderDto("forge", null);
+
+        // Priority 4: jar args and java tweaks containing loader names
+        var combinedArgs = (jarArgs + " " + javaTweaks).ToLowerInvariant();
+        if (combinedArgs.Contains("neoforge")) return new ServerLoaderDto("neoforge", null);
+        if (combinedArgs.Contains("minecraftforge") || combinedArgs.Contains("net/forge"))
+            return new ServerLoaderDto("forge", null);
+        if (combinedArgs.Contains("forge") && !combinedArgs.Contains("neoforge"))
+            return new ServerLoaderDto("forge", null);
+        if (combinedArgs.Contains("fabricmc") || combinedArgs.Contains("fabric"))
+            return new ServerLoaderDto("fabric", null);
+
+        // Priority 5: Check for mod loader libraries on disk
+        var libPath = Path.Combine(serverPath, "libraries");
+        if (Directory.Exists(libPath))
+        {
+            foreach (var (dir, loader) in LibraryDirLoaders)
+            {
+                if (Directory.Exists(Path.Combine(libPath, dir.Replace('/', Path.DirectorySeparatorChar))))
+                    return new ServerLoaderDto(loader, null);
+            }
+        }
+
+        // Priority 6: Check for mods folder (suggests a mod loader even if we can't tell which)
+        if (Directory.Exists(Path.Combine(serverPath, "mods")))
+        {
+            // Check if any forge/fabric config files exist
+            if (File.Exists(Path.Combine(serverPath, "config", "forge-client.toml")) ||
+                File.Exists(Path.Combine(serverPath, "config", "forge-common.toml")))
+                return new ServerLoaderDto("forge", null);
+        }
+
+        return new ServerLoaderDto(null, null);
     }
 }

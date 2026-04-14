@@ -137,11 +137,22 @@ public sealed class ForgeService : IForgeService
 
     public IReadOnlyList<ForgeInstallStatusDto> GetActiveInstalls()
     {
+        EvictStaleInstallations();
         return Installations.Values
             .Select(state => state.ToDto())
             .Where(dto => string.Equals(dto.Status, "running", StringComparison.OrdinalIgnoreCase))
             .OrderByDescending(dto => dto.StartedAt)
             .ToList();
+    }
+
+    private static void EvictStaleInstallations()
+    {
+        var cutoff = DateTimeOffset.UtcNow.AddMinutes(-10);
+        foreach (var kvp in Installations)
+        {
+            if (kvp.Value.CompletedAt.HasValue && kvp.Value.CompletedAt.Value < cutoff)
+                Installations.TryRemove(kvp.Key, out _);
+        }
     }
 
     private async Task<List<ForgeVersionDto>> FetchVersionsAsync(CancellationToken cancellationToken)
@@ -498,6 +509,7 @@ public sealed class ForgeService : IForgeService
     {
         private readonly object _lock = new();
         private readonly System.Text.StringBuilder _output = new();
+        private int _lastReadPos = 0;
 
         public ForgeInstallState(
             string installId,
@@ -578,6 +590,12 @@ public sealed class ForgeService : IForgeService
         {
             lock (_lock)
             {
+                var fullOutput = _output.ToString();
+                var newOutput = _lastReadPos < fullOutput.Length
+                    ? fullOutput.Substring(_lastReadPos)
+                    : null;
+                _lastReadPos = fullOutput.Length;
+
                 return new ForgeInstallStatusDto(
                     InstallId,
                     MinecraftVersion,
@@ -587,7 +605,7 @@ public sealed class ForgeService : IForgeService
                     Progress,
                     CurrentStep,
                     Error,
-                    _output.ToString(),
+                    newOutput,
                     StartedAt,
                     CompletedAt);
             }

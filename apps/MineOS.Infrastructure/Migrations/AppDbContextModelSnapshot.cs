@@ -168,6 +168,49 @@ namespace MineOS.Infrastructure.Migrations
                     b.ToTable("CrashEvents");
                 });
 
+            modelBuilder.Entity("MineOS.Domain.Entities.CronJob", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Action")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<long>("CreatedAt")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("CronExpression")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("Enabled")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<long?>("LastRunAt")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Message")
+                        .HasMaxLength(256)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ServerName")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ServerName");
+
+                    b.HasIndex("ServerName", "Enabled");
+
+                    b.ToTable("CronJobs");
+                });
+
             modelBuilder.Entity("MineOS.Domain.Entities.Host", b =>
                 {
                     b.Property<int>("Id")
@@ -211,6 +254,28 @@ namespace MineOS.Infrastructure.Migrations
                         .IsUnique();
 
                     b.ToTable("Hosts");
+                });
+
+            modelBuilder.Entity("MineOS.Domain.Entities.ImportRecord", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Filename")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTimeOffset>("ImportedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ServerName")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("ImportRecords");
                 });
 
             modelBuilder.Entity("MineOS.Domain.Entities.InstalledModRecord", b =>
@@ -341,6 +406,48 @@ namespace MineOS.Infrastructure.Migrations
                     b.HasKey("JobId");
 
                     b.ToTable("Jobs", (string)null);
+                });
+
+            modelBuilder.Entity("MineOS.Domain.Entities.LinkedAccount", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("AccessToken")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<long>("CreatedAt")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<long>("ExpiresAt")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("InstallationId")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("TokenType")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("TEXT");
+
+                    b.Property<long>("UpdatedAt")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("InstallationId")
+                        .IsUnique();
+
+                    b.ToTable("LinkedAccounts");
                 });
 
             modelBuilder.Entity("MineOS.Domain.Entities.MigrationHistory", b =>

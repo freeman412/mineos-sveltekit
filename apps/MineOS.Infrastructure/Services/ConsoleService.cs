@@ -13,15 +13,18 @@ public sealed class ConsoleService : IConsoleService
     private readonly ILogger<ConsoleService> _logger;
     private readonly IProcessManager _processManager;
     private readonly HostOptions _hostOptions;
+    private readonly IFeatureUsageTracker _featureTracker;
 
     public ConsoleService(
         ILogger<ConsoleService> logger,
         IProcessManager processManager,
-        IOptions<HostOptions> hostOptions)
+        IOptions<HostOptions> hostOptions,
+        IFeatureUsageTracker featureTracker)
     {
         _logger = logger;
         _processManager = processManager;
         _hostOptions = hostOptions.Value;
+        _featureTracker = featureTracker;
     }
 
     private string GetServerPath(string serverName) =>
@@ -45,6 +48,7 @@ public sealed class ConsoleService : IConsoleService
             _hostOptions.RunAsGid,
             cancellationToken);
         _logger.LogInformation("Sent command '{Command}' to server {ServerName}", command, serverName);
+        _featureTracker.Increment("console_commands");
     }
 
     public Task ClearLogsAsync(string serverName, ConsoleLogSource source, CancellationToken cancellationToken)
@@ -288,12 +292,55 @@ public sealed class ConsoleService : IConsoleService
 
     private static string FormatLogLine(string? prefix, string line)
     {
+        var coloredLine = ColorizeLogLine(line);
+
         if (string.IsNullOrWhiteSpace(prefix))
         {
-            return line;
+            return coloredLine;
         }
 
-        return $"[{prefix}] {line}";
+        return $"[{prefix}] {coloredLine}";
+    }
+
+    private static string ColorizeLogLine(string line)
+    {
+        // Strip Minecraft's § color codes (they don't render in terminals)
+        line = StripMinecraftColorCodes(line);
+
+        // Apply ANSI colors based on log level
+        // Common Minecraft log format: [HH:MM:SS INFO]: message
+        // or: [23Mar2026 01:41:53.632] [Server thread/INFO] ...
+        var upper = line.ToUpperInvariant();
+
+        if (upper.Contains("/ERROR]") || upper.Contains(" ERROR]") || upper.Contains("/FATAL]") || upper.Contains(" FATAL]"))
+            return $"\x1b[91m{line}\x1b[0m"; // Bright red
+
+        if (upper.Contains("/WARN]") || upper.Contains(" WARN]") || upper.Contains("/WARNING]"))
+            return $"\x1b[93m{line}\x1b[0m"; // Yellow
+
+        if (upper.Contains("/DEBUG]") || upper.Contains(" DEBUG]") || upper.Contains("/TRACE]"))
+            return $"\x1b[90m{line}\x1b[0m"; // Gray/dim
+
+        return line;
+    }
+
+    private static string StripMinecraftColorCodes(string line)
+    {
+        // Remove §X color codes (Minecraft uses § followed by a color character)
+        if (!line.Contains('\u00A7'))
+            return line;
+
+        var sb = new System.Text.StringBuilder(line.Length);
+        for (var i = 0; i < line.Length; i++)
+        {
+            if (line[i] == '\u00A7' && i + 1 < line.Length)
+            {
+                i++; // Skip the color character
+                continue;
+            }
+            sb.Append(line[i]);
+        }
+        return sb.ToString();
     }
 
     private async IAsyncEnumerable<LogEntryDto> StreamCrashReportsAsync(
@@ -414,12 +461,59 @@ public sealed class ConsoleService : IConsoleService
     {
         try
         {
-            return File.ReadLines(path).Reverse().Take(maxLines).Reverse().ToList();
+            return ReadLastLines(path, maxLines);
         }
         catch
         {
             return Array.Empty<string>();
         }
+    }
+
+    private static List<string> ReadLastLines(string path, int lineCount)
+    {
+        const int bufferSize = 8192;
+        using var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+
+        if (fs.Length == 0) return new List<string>();
+
+        var lines = new List<string>();
+        var remaining = new byte[0];
+        var position = fs.Length;
+
+        while (position > 0 && lines.Count < lineCount + 1)
+        {
+            var bytesToRead = (int)Math.Min(bufferSize, position);
+            position -= bytesToRead;
+            fs.Seek(position, SeekOrigin.Begin);
+
+            var buffer = new byte[bytesToRead + remaining.Length];
+            fs.Read(buffer, 0, bytesToRead);
+            Array.Copy(remaining, 0, buffer, bytesToRead, remaining.Length);
+
+            var text = System.Text.Encoding.UTF8.GetString(buffer);
+            var parts = text.Split('\n');
+
+            remaining = System.Text.Encoding.UTF8.GetBytes(parts[0]);
+
+            for (var i = parts.Length - 1; i >= 1; i--)
+            {
+                var line = parts[i].TrimEnd('\r');
+                if (!string.IsNullOrEmpty(line))
+                    lines.Add(line);
+                if (lines.Count >= lineCount)
+                    break;
+            }
+        }
+
+        if (position == 0 && remaining.Length > 0)
+        {
+            var firstLine = System.Text.Encoding.UTF8.GetString(remaining).TrimEnd('\r');
+            if (!string.IsNullOrEmpty(firstLine) && lines.Count < lineCount)
+                lines.Add(firstLine);
+        }
+
+        lines.Reverse();
+        return lines;
     }
 
     private void TruncateLog(string path)

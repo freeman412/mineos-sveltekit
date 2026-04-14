@@ -555,7 +555,6 @@
 				Group
 				<select bind:value={buildGroup} disabled={buildStatus === 'running'}>
 					<option value="spigot">Spigot</option>
-					<option value="craftbukkit">CraftBukkit</option>
 				</select>
 			</label>
 			<label>

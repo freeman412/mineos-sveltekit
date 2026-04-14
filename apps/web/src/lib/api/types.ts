@@ -40,10 +40,18 @@ export type ArchiveEntry = {
 	filename: string;
 };
 
+export type CreateClientPackageRequest = {
+	format?: 'curseforge' | 'mrpack';
+	minecraftVersion?: string;
+	modLoader?: string;
+	modLoaderVersion?: string;
+};
+
 export type ClientPackageEntry = {
 	time: string;
 	size: number;
 	filename: string;
+	format: string | null;
 };
 
 export type ApiResult<T> = {
@@ -67,6 +75,7 @@ export type ServerDetail = {
 	javaPid: number | null;
 	screenPid: number | null;
 	config: ServerConfig | null;
+	serverType: string;
 	eulaAccepted: boolean;
 	needsRestart: boolean;
 };
@@ -76,6 +85,7 @@ export type ServerConfig = {
 	minecraft: MinecraftConfig;
 	onReboot: OnRebootConfig;
 	autoRestart: AutoRestartConfig;
+	monitoring: MonitoringConfig;
 };
 
 export type JavaConfig = {
@@ -104,6 +114,11 @@ export type AutoRestartConfig = {
 	attemptResetMinutes: number;
 	notifyOnCrash: boolean;
 	notifyOnRestart: boolean;
+};
+
+export type MonitoringConfig = {
+	tpsEnabled: boolean;
+	tpsCommand: string | null;
 };
 
 export type CrashEvent = {
@@ -148,6 +163,7 @@ export type CreateServerRequest = {
 	name: string;
 	ownerUid: number;
 	ownerGid: number;
+	serverType?: string;
 };
 
 export type CloneServerRequest = {
@@ -364,6 +380,96 @@ export type ForgeInstallStatus = {
 	installId: string;
 	minecraftVersion: string;
 	forgeVersion: string;
+	serverName: string;
+	status: string;
+	progress: number;
+	currentStep: string | null;
+	error: string | null;
+	output: string | null;
+	startedAt: string;
+	completedAt: string | null;
+};
+
+// Fabric types
+export type FabricGameVersion = {
+	version: string;
+	isStable: boolean;
+};
+
+export type FabricLoaderVersion = {
+	version: string;
+	isStable: boolean;
+};
+
+export type FabricInstallResult = {
+	installId: string;
+	status: string;
+	error: string | null;
+};
+
+export type FabricInstallStatus = {
+	installId: string;
+	minecraftVersion: string;
+	loaderVersion: string;
+	serverName: string;
+	status: string;
+	progress: number;
+	currentStep: string | null;
+	error: string | null;
+	output: string | null;
+	startedAt: string;
+	completedAt: string | null;
+};
+
+// NeoForge types
+export type NeoForgeVersion = {
+	minecraftVersion: string;
+	neoForgeVersion: string;
+	isLatest: boolean;
+	releaseDate: string | null;
+};
+
+export type NeoForgeInstallResult = {
+	installId: string;
+	status: string;
+	error: string | null;
+};
+
+export type NeoForgeInstallStatus = {
+	installId: string;
+	minecraftVersion: string;
+	neoForgeVersion: string;
+	serverName: string;
+	status: string;
+	progress: number;
+	currentStep: string | null;
+	error: string | null;
+	output: string | null;
+	startedAt: string;
+	completedAt: string | null;
+};
+
+// Quilt types
+export type QuiltGameVersion = {
+	version: string;
+	isStable: boolean;
+};
+
+export type QuiltLoaderVersion = {
+	version: string;
+	isStable: boolean;
+};
+
+export type QuiltInstallResult = {
+	installId: string;
+	status: string;
+	error: string | null;
+};
+
+export type QuiltInstallStatus = {
+	installId: string;
+	minecraftVersion: string;
+	loaderVersion: string;
 	serverName: string;
 	status: string;
 	progress: number;

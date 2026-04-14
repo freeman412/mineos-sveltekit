@@ -15,16 +15,21 @@ public static class JobEndpoints
         var jobs = api.MapGroup("/jobs");
 
         // List all active jobs
-        jobs.MapGet("/", (IBackgroundJobService jobService, IForgeService forgeService) =>
+        jobs.MapGet("/", (
+            IBackgroundJobService jobService,
+            IForgeService forgeService,
+            INeoForgeService neoForgeService,
+            IFabricService fabricService,
+            IQuiltService quiltService) =>
         {
-            var activeJobs = jobService.GetActiveJobs();
-            var activeModpacks = jobService.GetActiveModpackInstalls();
-            var activeForgeInstalls = forgeService.GetActiveInstalls();
             return Results.Ok(new
             {
-                jobs = activeJobs,
-                modpackInstalls = activeModpacks,
-                forgeInstalls = activeForgeInstalls
+                jobs = jobService.GetActiveJobs(),
+                modpackInstalls = jobService.GetActiveModpackInstalls(),
+                forgeInstalls = forgeService.GetActiveInstalls(),
+                neoForgeInstalls = neoForgeService.GetActiveInstalls(),
+                fabricInstalls = fabricService.GetActiveInstalls(),
+                quiltInstalls = quiltService.GetActiveInstalls()
             });
         });
 
@@ -33,6 +38,9 @@ public static class JobEndpoints
             HttpContext context,
             IBackgroundJobService jobService,
             IForgeService forgeService,
+            INeoForgeService neoForgeService,
+            IFabricService fabricService,
+            IQuiltService quiltService,
             CancellationToken cancellationToken) =>
         {
             try
@@ -51,7 +59,10 @@ public static class JobEndpoints
                     {
                         jobs = jobService.GetActiveJobs(),
                         modpackInstalls = jobService.GetActiveModpackInstalls(),
-                        forgeInstalls = forgeService.GetActiveInstalls()
+                        forgeInstalls = forgeService.GetActiveInstalls(),
+                        neoForgeInstalls = neoForgeService.GetActiveInstalls(),
+                        fabricInstalls = fabricService.GetActiveInstalls(),
+                        quiltInstalls = quiltService.GetActiveInstalls()
                     };
 
                     var payload = JsonSerializer.Serialize(snapshot, JsonOptions);

@@ -5,6 +5,10 @@ namespace MineOS.Api.Endpoints;
 
 public static class ForgeEndpoints
 {
+    private static readonly System.Text.Json.JsonSerializerOptions CamelCaseJsonOptions = new()
+    {
+        PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase
+    };
     public static IEndpointRouteBuilder MapForgeEndpoints(this IEndpointRouteBuilder api)
     {
         var forge = api.MapGroup("/forge")
@@ -76,6 +80,37 @@ public static class ForgeEndpoints
             return Results.Ok(new { data = status });
         }).WithName("GetForgeInstallStatus")
           .WithSummary("Get Forge installation status");
+
+        forge.MapGet("/install/{installId}/stream", async (
+            HttpContext context,
+            string installId,
+            IForgeService forgeService) =>
+        {
+            context.Response.Headers.ContentType = "text/event-stream";
+            context.Response.Headers.CacheControl = "no-cache";
+            context.Response.Headers.Connection = "keep-alive";
+
+            var ct = context.RequestAborted;
+            while (!ct.IsCancellationRequested)
+            {
+                var status = await forgeService.GetInstallStatusAsync(installId, ct);
+                if (status == null)
+                {
+                    await context.Response.WriteAsync($"data: {{\"status\":\"completed\",\"progress\":100}}\n\n", ct);
+                    break;
+                }
+
+                var json = System.Text.Json.JsonSerializer.Serialize(status, CamelCaseJsonOptions);
+                await context.Response.WriteAsync($"data: {json}\n\n", ct);
+                await context.Response.Body.FlushAsync(ct);
+
+                if (status.Status is "completed" or "failed")
+                    break;
+
+                await Task.Delay(1000, ct);
+            }
+        }).WithName("StreamForgeInstallStatus")
+          .WithSummary("Stream Forge installation progress via SSE");
 
         return api;
     }

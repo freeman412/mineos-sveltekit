@@ -42,19 +42,16 @@ func NewUpgradeCommand(currentVersion string) *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "upgrade",
-		Short: "Upgrade the mineos CLI to the latest version",
-		Long: `Upgrade the mineos CLI binary to the latest version from GitHub releases.
+		Short: "Upgrade ONLY the CLI binary (use 'mineos update' to update everything)",
+		Long: `Upgrade ONLY the mineos CLI binary from GitHub releases.
 
-This command downloads and replaces the current CLI binary. It does NOT
-update the MineOS Docker containers - use 'mineos stack update' for that.
-
-By default, only stable releases are considered. Use --prerelease to include
-beta/pre-release versions, or set MINEOS_CLI_PRERELEASE_UPDATES=true in .env.
+This does NOT update MineOS Docker containers (API/web).
+To update everything at once, use: mineos update
 
 Examples:
-  mineos upgrade               # Upgrade to latest stable version
-  mineos upgrade --check       # Check for updates without installing
-  mineos upgrade --prerelease  # Include pre-release versions
+  mineos upgrade               # Upgrade CLI to latest stable
+  mineos upgrade --check       # Check for CLI updates without installing
+  mineos upgrade --prerelease  # Include beta/pre-release CLI versions
   mineos upgrade --force       # Force upgrade even if already on latest`,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return runUpgrade(cmd, currentVersion, force, check, prerelease)
@@ -72,6 +69,15 @@ var errNoReleases = errors.New("no releases found")
 
 func runUpgrade(cmd *cobra.Command, currentVersion string, force, checkOnly, includePrerelease bool) error {
 	out := cmd.OutOrStdout()
+
+	// Respect MINEOS_CLI_PRERELEASE_UPDATES from .env if --prerelease wasn't explicitly passed
+	if !includePrerelease {
+		if envMap, err := loadEnvValues(".env"); err == nil {
+			if val, ok := envMap["MINEOS_CLI_PRERELEASE_UPDATES"]; ok && parseEnvBool(val) {
+				includePrerelease = true
+			}
+		}
+	}
 
 	fmt.Fprintln(out, "Checking for updates...")
 
@@ -463,7 +469,7 @@ func CheckForUpdates(currentVersion string) string {
 		if release.Prerelease {
 			releaseType = "pre-release"
 		}
-		return fmt.Sprintf("A new %s version of mineos CLI is available: %s (current: %s). Run 'mineos upgrade' to update.", releaseType, release.TagName, currentVersion)
+		return fmt.Sprintf("A new %s version is available: %s (current: %s). Run 'mineos update' to update everything.", releaseType, release.TagName, currentVersion)
 	}
 
 	return ""

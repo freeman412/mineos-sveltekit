@@ -17,10 +17,14 @@ public static class ApiEndpoints
         api.MapJobEndpoints();
         api.MapCurseForgeEndpoints();
         api.MapForgeEndpoints();
+        api.MapFabricEndpoints();
+        api.MapNeoForgeEndpoints();
+        api.MapQuiltEndpoints();
         api.MapAdminEndpoints();
         api.MapNotificationEndpoints();
         api.MapSettingsEndpoints();
         api.MapMetaEndpoints();
+        api.MapAccountEndpoints();
 
         // Global watchdog endpoints (not per-server)
         if (app is WebApplication webApp)
