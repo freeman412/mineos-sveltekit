@@ -8,6 +8,8 @@ using MineOS.Application.Options;
 using MineOS.Domain.Entities;
 using MineOS.Infrastructure.Utilities;
 using ServerStatusStrings = MineOS.Infrastructure.Constants.ServerStatus;
+using Tomlyn;
+using Tomlyn.Model;
 
 namespace MineOS.Infrastructure.Services;
 
@@ -903,6 +905,193 @@ public class ServerService : IServerService
         }
 
         _logger.LogInformation("Updated server.properties for {ServerName}", name);
+    }
+
+    private string GetVelocityTomlPath(string name) =>
+        Path.Combine(GetServerPath(name), "velocity.toml");
+
+    public async Task<VelocityConfigDto> GetVelocityConfigAsync(string name, CancellationToken cancellationToken)
+    {
+        var serverPath = GetServerPath(name);
+        if (!Directory.Exists(serverPath))
+        {
+            throw new DirectoryNotFoundException($"Server '{name}' not found");
+        }
+
+        var tomlPath = GetVelocityTomlPath(name);
+        if (!File.Exists(tomlPath))
+        {
+            return VelocityConfigDefaults(exists: false);
+        }
+
+        var content = await File.ReadAllTextAsync(tomlPath, cancellationToken);
+        var model = Toml.ToModel(content);
+
+        var defaults = VelocityConfigDefaults(exists: true);
+        return defaults with
+        {
+            Bind = TomlGetString(model, "bind", defaults.Bind),
+            Motd = TomlGetString(model, "motd", defaults.Motd),
+            ShowMaxPlayers = TomlGetInt(model, "show-max-players", defaults.ShowMaxPlayers),
+            OnlineMode = TomlGetBool(model, "online-mode", defaults.OnlineMode),
+            ForceKeyAuthentication = TomlGetBool(model, "force-key-authentication", defaults.ForceKeyAuthentication),
+            PreventClientProxyConnections = TomlGetBool(model, "prevent-client-proxy-connections", defaults.PreventClientProxyConnections),
+            PlayerInfoForwardingMode = TomlGetString(model, "player-info-forwarding-mode", defaults.PlayerInfoForwardingMode),
+            ForwardingSecretFile = TomlGetString(model, "forwarding-secret-file", defaults.ForwardingSecretFile),
+            AnnounceForge = TomlGetBool(model, "announce-forge", defaults.AnnounceForge),
+            KickExistingPlayers = TomlGetBool(model, "kick-existing-players", defaults.KickExistingPlayers),
+            PingPassthrough = TomlGetString(model, "ping-passthrough", defaults.PingPassthrough),
+            EnablePlayerAddressLogging = TomlGetBool(model, "enable-player-address-logging", defaults.EnablePlayerAddressLogging),
+            Servers = ReadServersTable(model),
+            Try = ReadTryList(model)
+        };
+    }
+
+    public async Task UpdateVelocityConfigAsync(string name, VelocityConfigDto config, CancellationToken cancellationToken)
+    {
+        var serverPath = GetServerPath(name);
+        if (!Directory.Exists(serverPath))
+        {
+            throw new DirectoryNotFoundException($"Server '{name}' not found");
+        }
+
+        if (DetectServerType(name) != "proxy")
+        {
+            throw new InvalidOperationException($"Server '{name}' is not a proxy server");
+        }
+
+        var tomlPath = GetVelocityTomlPath(name);
+
+        // Round-trip: load existing model (or start fresh), apply our known fields,
+        // preserve any unknown sections like [advanced] and [query].
+        TomlTable model;
+        if (File.Exists(tomlPath))
+        {
+            var content = await File.ReadAllTextAsync(tomlPath, cancellationToken);
+            model = Toml.ToModel(content);
+        }
+        else
+        {
+            model = new TomlTable();
+            model["config-version"] = "1.0";
+        }
+
+        model["bind"] = config.Bind;
+        model["motd"] = config.Motd;
+        model["show-max-players"] = (long)config.ShowMaxPlayers;
+        model["online-mode"] = config.OnlineMode;
+        model["force-key-authentication"] = config.ForceKeyAuthentication;
+        model["prevent-client-proxy-connections"] = config.PreventClientProxyConnections;
+        model["player-info-forwarding-mode"] = config.PlayerInfoForwardingMode;
+        model["forwarding-secret-file"] = config.ForwardingSecretFile;
+        model["announce-forge"] = config.AnnounceForge;
+        model["kick-existing-players"] = config.KickExistingPlayers;
+        model["ping-passthrough"] = config.PingPassthrough;
+        model["enable-player-address-logging"] = config.EnablePlayerAddressLogging;
+
+        var serversTable = new TomlTable();
+        foreach (var (key, value) in config.Servers)
+        {
+            serversTable[key] = value;
+        }
+        var tryArray = new TomlArray();
+        foreach (var entry in config.Try)
+        {
+            tryArray.Add(entry);
+        }
+        serversTable["try"] = tryArray;
+        model["servers"] = serversTable;
+
+        // Velocity falls back to its bundled default config for any TOML table
+        // that is entirely missing — including a [forced-hosts] block that
+        // references example servers that don't exist (factions.example.com,
+        // minigames.example.com), which fails startup. Ensure the table is
+        // present and empty unless the user has put something there already.
+        if (!model.ContainsKey("forced-hosts"))
+        {
+            model["forced-hosts"] = new TomlTable();
+        }
+
+        var output = Toml.FromModel(model);
+        await File.WriteAllTextAsync(tomlPath, output, cancellationToken);
+        await OwnershipHelper.ChangeOwnershipAsync(tomlPath, _options.RunAsUid, _options.RunAsGid, _logger, cancellationToken);
+
+        await MarkRestartRequiredAsync(name);
+        _logger.LogInformation("Updated velocity.toml for {ServerName}", name);
+    }
+
+    private static VelocityConfigDto VelocityConfigDefaults(bool exists)
+    {
+        return new VelocityConfigDto(
+            Exists: exists,
+            Bind: "0.0.0.0:25577",
+            Motd: "<#09add3>A Velocity Server",
+            ShowMaxPlayers: 500,
+            OnlineMode: true,
+            ForceKeyAuthentication: true,
+            PreventClientProxyConnections: false,
+            PlayerInfoForwardingMode: "none",
+            ForwardingSecretFile: "forwarding.secret",
+            AnnounceForge: false,
+            KickExistingPlayers: false,
+            PingPassthrough: "DISABLED",
+            EnablePlayerAddressLogging: true,
+            Servers: new Dictionary<string, string>(),
+            Try: new List<string>());
+    }
+
+    private static string TomlGetString(TomlTable model, string key, string fallback)
+    {
+        return model.TryGetValue(key, out var value) && value is string s ? s : fallback;
+    }
+
+    private static int TomlGetInt(TomlTable model, string key, int fallback)
+    {
+        if (!model.TryGetValue(key, out var value))
+            return fallback;
+        return value switch
+        {
+            long l => (int)l,
+            int i => i,
+            _ => fallback
+        };
+    }
+
+    private static bool TomlGetBool(TomlTable model, string key, bool fallback)
+    {
+        return model.TryGetValue(key, out var value) && value is bool b ? b : fallback;
+    }
+
+    private static Dictionary<string, string> ReadServersTable(TomlTable model)
+    {
+        var result = new Dictionary<string, string>();
+        if (!model.TryGetValue("servers", out var serversObj) || serversObj is not TomlTable servers)
+            return result;
+
+        foreach (var (key, value) in servers)
+        {
+            // Skip the "try" entry — it's a list, not a backend mapping.
+            if (key == "try" || value is TomlArray)
+                continue;
+            if (value is string s)
+                result[key] = s;
+        }
+        return result;
+    }
+
+    private static List<string> ReadTryList(TomlTable model)
+    {
+        var result = new List<string>();
+        if (!model.TryGetValue("servers", out var serversObj) || serversObj is not TomlTable servers)
+            return result;
+        if (!servers.TryGetValue("try", out var tryObj) || tryObj is not TomlArray tryArr)
+            return result;
+        foreach (var item in tryArr)
+        {
+            if (item is string s)
+                result.Add(s);
+        }
+        return result;
     }
 
     public async Task<ServerConfigDto> GetServerConfigAsync(string name, CancellationToken cancellationToken)

@@ -49,12 +49,15 @@
 		const s = server?.name;
 		return [
 			{ href: `/servers/${s}`, label: 'Dashboard', exact: true },
-			{
-				href: `/servers/${s}/config`,
-				label: 'Properties',
-				disabled: isProxy,
-				tooltip: 'Proxies do not use server.properties — edit velocity.toml in the Files tab'
-			},
+			isProxy
+				? {
+						href: `/servers/${s}/proxy-config`,
+						label: 'Velocity'
+					}
+				: {
+						href: `/servers/${s}/config`,
+						label: 'Properties'
+					},
 			{
 				href: `/servers/${s}/advanced`,
 				label: 'Config',

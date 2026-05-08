@@ -23,6 +23,8 @@ public interface IServerService
     Task UpdateServerPropertiesAsync(string name, Dictionary<string, string> properties, CancellationToken cancellationToken);
     Task<ServerConfigDto> GetServerConfigAsync(string name, CancellationToken cancellationToken);
     Task UpdateServerConfigAsync(string name, ServerConfigDto config, CancellationToken cancellationToken);
+    Task<VelocityConfigDto> GetVelocityConfigAsync(string name, CancellationToken cancellationToken);
+    Task UpdateVelocityConfigAsync(string name, VelocityConfigDto config, CancellationToken cancellationToken);
 
     Task AcceptEulaAsync(string name, CancellationToken cancellationToken);
     Task RunFtbInstallerAsync(string name, CancellationToken cancellationToken);
