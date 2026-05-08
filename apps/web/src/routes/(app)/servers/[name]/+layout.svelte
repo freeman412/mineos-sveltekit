@@ -37,6 +37,19 @@
 				serverHint.includes('folia'))
 	);
 
+	// For proxies, the SLP ping returns a protocol-range string ("Velocity 1.7.2-1.18.1")
+	// that's confusing in the page header. Derive the actual proxy build (e.g. "Velocity 3.1.1")
+	// from the jar filename so the chip says what's running.
+	const proxyVersionFromJar = $derived.by(() => {
+		if (!isProxy) return null;
+		const raw = server?.config?.java?.jarFile ?? '';
+		const m = raw.match(/^(velocity|bungeecord|waterfall)-(\d+\.\d+(?:\.\d+)?)/i);
+		if (!m) return null;
+		const name = m[1].charAt(0).toUpperCase() + m[1].slice(1).toLowerCase();
+		return `${name} ${m[2]}`;
+	});
+	const displayVersion = $derived(proxyVersionFromJar ?? playerInfo.version);
+
 	type Tab = {
 		href: string;
 		label: string;
@@ -95,12 +108,10 @@
 			{
 				href: `/servers/${s}/plugins`,
 				label: 'Plugins',
-				disabled: isBedrock || isProxy || !isPluginServer,
+				disabled: isBedrock || (!isProxy && !isPluginServer),
 				tooltip: isBedrock
 					? 'Bedrock servers do not support Java plugins'
-					: isProxy
-						? 'Proxy plugins use a separate ecosystem — drop jars into the plugins/ folder via Files'
-						: 'Plugins require a plugin server (Paper, Spigot, Purpur, or Bukkit)'
+					: 'Plugins require a plugin server (Paper, Spigot, Purpur, or Bukkit) or a proxy (Velocity)'
 			},
 			{ href: `/servers/${s}/cron`, label: 'Cron Jobs' }
 		];
@@ -197,10 +208,10 @@
 					<span class="chip-sep">/</span>
 					<span class="chip-value muted">{playerInfo.max ?? '--'}</span>
 				</div>
-				{#if playerInfo.version}
+				{#if displayVersion}
 					<div class="meta-chip">
 						<span class="chip-label">Version</span>
-						<span class="chip-value">{playerInfo.version}</span>
+						<span class="chip-value">{displayVersion}</span>
 					</div>
 				{/if}
 				{#if server?.javaPid}

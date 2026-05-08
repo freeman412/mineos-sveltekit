@@ -207,7 +207,10 @@
 					<span class="label">Forwarding secret file</span>
 					<input type="text" bind:value={config.forwardingSecretFile} />
 					<span class="help"
-						>Filename in the server directory holding the modern/bungeeguard secret.</span
+						>Filename in the server directory holding the modern/bungeeguard secret. Only
+						used when forwarding mode is <code>modern</code> or <code>bungeeguard</code>.
+						Older Velocity 3.x versions write the secret inline into <code>velocity.toml</code>
+						(as <code>forwarding-secret</code>) instead of creating this file.</span
 					>
 				</label>
 				<label class="field">

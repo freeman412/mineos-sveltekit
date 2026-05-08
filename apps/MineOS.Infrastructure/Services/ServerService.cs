@@ -924,6 +924,73 @@ public class ServerService : IServerService
     private string GetVelocityTomlPath(string name) =>
         Path.Combine(GetServerPath(name), "velocity.toml");
 
+    public async Task<(string Host, int Port)?> GetServerListenEndpointAsync(string name, CancellationToken cancellationToken)
+    {
+        var serverPath = GetServerPath(name);
+        if (!Directory.Exists(serverPath))
+        {
+            return null;
+        }
+
+        if (DetectServerType(name) == "proxy")
+        {
+            var tomlPath = GetVelocityTomlPath(name);
+            if (!File.Exists(tomlPath))
+            {
+                return null;
+            }
+            try
+            {
+                var content = await File.ReadAllTextAsync(tomlPath, cancellationToken);
+                var model = Toml.ToModel(content);
+                if (!model.TryGetValue("bind", out var bindObj) || bindObj is not string bind)
+                {
+                    return null;
+                }
+                // Velocity bind format is "<host>:<port>" e.g. "0.0.0.0:25577".
+                // Velocity also supports IPv6 like "[::]:25577" but we treat that
+                // by splitting on the LAST colon.
+                var lastColon = bind.LastIndexOf(':');
+                if (lastColon <= 0 || lastColon == bind.Length - 1)
+                {
+                    return null;
+                }
+                if (!int.TryParse(bind[(lastColon + 1)..], out var port) || port < 1 || port > 65535)
+                {
+                    return null;
+                }
+                var host = bind[..lastColon].Trim('[', ']');
+                if (string.IsNullOrWhiteSpace(host) || host == "0.0.0.0" || host == "::")
+                {
+                    host = "127.0.0.1";
+                }
+                return (host, port);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to parse velocity.toml for {ServerName}", name);
+                return null;
+            }
+        }
+
+        // Java + bedrock: read server.properties
+        var properties = await GetServerPropertiesAsync(name, cancellationToken);
+        if (!properties.TryGetValue("server-port", out var portStr) ||
+            !int.TryParse(portStr, out var jPort) ||
+            jPort < 1 || jPort > 65535)
+        {
+            return null;
+        }
+        var jHost = "127.0.0.1";
+        if (properties.TryGetValue("server-ip", out var ip) &&
+            !string.IsNullOrWhiteSpace(ip) &&
+            !ip.Equals("0.0.0.0", StringComparison.OrdinalIgnoreCase))
+        {
+            jHost = ip;
+        }
+        return (jHost, jPort);
+    }
+
     public async Task<VelocityConfigDto> GetVelocityConfigAsync(string name, CancellationToken cancellationToken)
     {
         var serverPath = GetServerPath(name);
@@ -1703,10 +1770,32 @@ public class ServerService : IServerService
         if (!Directory.Exists(serverPath))
             throw new DirectoryNotFoundException($"Server '{name}' not found");
 
+        var normalized = serverType.ToLowerInvariant();
         await File.WriteAllTextAsync(
-            Path.Combine(serverPath, ServerTypeFile), serverType.ToLowerInvariant(), cancellationToken);
+            Path.Combine(serverPath, ServerTypeFile), normalized, cancellationToken);
 
-        _logger.LogInformation("Updated server type for {Server} to {Type}", name, serverType);
+        // When converting an existing server to a proxy, bootstrap velocity.toml
+        // the same way CreateServerAsync does: pre-populated with sibling Java
+        // backends and an empty [forced-hosts] table. Mirrors the wizard so a
+        // type-changed proxy is functional from the first launch.
+        if (normalized == "proxy")
+        {
+            var tomlPath = GetVelocityTomlPath(name);
+            if (!File.Exists(tomlPath))
+            {
+                var backends = await DiscoverJavaBackendsAsync(name, cancellationToken);
+                var initialConfig = VelocityConfigDefaults(exists: true) with
+                {
+                    Servers = backends,
+                    Try = backends.Count > 0
+                        ? new List<string> { backends.Keys.First() }
+                        : new List<string>()
+                };
+                await WriteVelocityTomlAsync(tomlPath, initialConfig, cancellationToken);
+            }
+        }
+
+        _logger.LogInformation("Updated server type for {Server} to {Type}", name, normalized);
     }
 
     private static readonly System.Text.RegularExpressions.Regex[] JarLoaderPatterns =

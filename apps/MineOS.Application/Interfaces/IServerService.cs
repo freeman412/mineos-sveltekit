@@ -26,6 +26,13 @@ public interface IServerService
     Task<VelocityConfigDto> GetVelocityConfigAsync(string name, CancellationToken cancellationToken);
     Task UpdateVelocityConfigAsync(string name, VelocityConfigDto config, CancellationToken cancellationToken);
 
+    /// <summary>
+    /// Returns the (host, port) the server listens on, branching on server type
+    /// (server.properties for java/bedrock, velocity.toml for proxy).
+    /// Returns null if neither config exists or the value is malformed.
+    /// </summary>
+    Task<(string Host, int Port)?> GetServerListenEndpointAsync(string name, CancellationToken cancellationToken);
+
     Task AcceptEulaAsync(string name, CancellationToken cancellationToken);
     Task RunFtbInstallerAsync(string name, CancellationToken cancellationToken);
 
