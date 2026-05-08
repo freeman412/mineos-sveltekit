@@ -4,10 +4,11 @@
 
 	export type PluginImpl = 'paper' | 'spigot';
 	export type ModLoader = 'forge' | 'neoforge' | 'fabric' | 'quilt';
-	export type Implementation = PluginImpl | ModLoader;
+	export type ProxyImpl = 'velocity';
+	export type Implementation = PluginImpl | ModLoader | ProxyImpl;
 
 	interface Props {
-		category: 'plugins' | 'mods';
+		category: 'plugins' | 'mods' | 'proxy';
 		onselect: (impl: Implementation) => void;
 		onback: () => void;
 	}
@@ -35,6 +36,19 @@
 			iconImage: '/images/loaders/spigot.png',
 			color: '#fbbf24'
 		},
+	];
+
+	const proxyOptions = [
+		{
+			id: 'velocity' as const,
+			name: 'Velocity',
+			description:
+				'Modern, high-performance Minecraft proxy from PaperMC. Java 21+ required.',
+			icon: '🌐',
+			iconImage: '',
+			color: '#06b6d4',
+			badge: 'Recommended'
+		}
 	];
 
 	const modOptions = [
@@ -74,9 +88,15 @@
 		}
 	];
 
-	const options = $derived(category === 'plugins' ? pluginOptions : modOptions);
+	const options = $derived(
+		category === 'plugins' ? pluginOptions
+		: category === 'mods' ? modOptions
+		: proxyOptions
+	);
 	const heading = $derived(
-		category === 'plugins' ? 'Choose a plugin server' : 'Choose a modloader'
+		category === 'plugins' ? 'Choose a plugin server'
+		: category === 'mods' ? 'Choose a modloader'
+		: 'Choose a proxy'
 	);
 </script>
 

@@ -15,6 +15,7 @@
 	});
 
 	const isBedrock = $derived(server?.serverType === 'bedrock');
+	const isProxy = $derived(server?.serverType === 'proxy');
 	const profile = $derived(server?.config?.minecraft?.profile?.toLowerCase() ?? '');
 	const jarFile = $derived(server?.config?.java?.jarFile?.toLowerCase() ?? '');
 	const javaTweaks = $derived(server?.config?.java?.javaTweaks?.toLowerCase() ?? '');
@@ -48,7 +49,12 @@
 		const s = server?.name;
 		return [
 			{ href: `/servers/${s}`, label: 'Dashboard', exact: true },
-			{ href: `/servers/${s}/config`, label: 'Properties' },
+			{
+				href: `/servers/${s}/config`,
+				label: 'Properties',
+				disabled: isProxy,
+				tooltip: 'Proxies do not use server.properties — edit velocity.toml in the Files tab'
+			},
 			{
 				href: `/servers/${s}/advanced`,
 				label: 'Config',
@@ -59,28 +65,39 @@
 			{ href: `/servers/${s}/archives`, label: 'Archives' },
 			{ href: `/servers/${s}/files`, label: 'Files' },
 			{ href: `/servers/${s}/performance`, label: 'Performance' },
-			{ href: `/servers/${s}/worlds`, label: 'Worlds' },
+			{
+				href: `/servers/${s}/worlds`,
+				label: 'Worlds',
+				disabled: isProxy,
+				tooltip: 'Proxies do not host worlds'
+			},
 			{
 				href: `/servers/${s}/players`,
 				label: 'Players',
-				disabled: isBedrock,
-				tooltip: 'Player management is not available for Bedrock servers'
+				disabled: isBedrock || isProxy,
+				tooltip: isBedrock
+					? 'Player management is not available for Bedrock servers'
+					: 'Player management is not available for proxies'
 			},
 			{
 				href: `/servers/${s}/mods`,
 				label: 'Mods',
-				disabled: isBedrock || !isModded,
+				disabled: isBedrock || isProxy || !isModded,
 				tooltip: isBedrock
 					? 'Bedrock servers do not support Java mods'
-					: 'Mods require a modded server (Forge, Fabric, NeoForge, or Quilt)'
+					: isProxy
+						? 'Proxies do not load mods'
+						: 'Mods require a modded server (Forge, Fabric, NeoForge, or Quilt)'
 			},
 			{
 				href: `/servers/${s}/plugins`,
 				label: 'Plugins',
-				disabled: isBedrock || !isPluginServer,
+				disabled: isBedrock || isProxy || !isPluginServer,
 				tooltip: isBedrock
 					? 'Bedrock servers do not support Java plugins'
-					: 'Plugins require a plugin server (Paper, Spigot, Purpur, or Bukkit)'
+					: isProxy
+						? 'Proxy plugins use a separate ecosystem — drop jars into the plugins/ folder via Files'
+						: 'Plugins require a plugin server (Paper, Spigot, Purpur, or Bukkit)'
 			},
 			{ href: `/servers/${s}/cron`, label: 'Cron Jobs' }
 		];

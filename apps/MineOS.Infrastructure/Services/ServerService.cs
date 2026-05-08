@@ -147,7 +147,8 @@ public class ServerService : IServerService
         var config = await GetServerConfigAsync(name, cancellationToken);
 
         var status = processInfo?.JavaPid != null ? "running" : "stopped";
-        var eulaAccepted = serverType == "bedrock" || await IsEulaAcceptedAsync(serverPath, cancellationToken);
+        var eulaAccepted = serverType == "bedrock" || serverType == "proxy"
+            || await IsEulaAcceptedAsync(serverPath, cancellationToken);
         var needsRestart = File.Exists(GetRestartFlagPath(name));
 
         // Get owner info from directory
@@ -290,6 +291,43 @@ public class ServerService : IServerService
             };
 
             await File.WriteAllTextAsync(configPath, IniParser.WriteWithSections(bedrockConfig), cancellationToken);
+        }
+        else if (serverType == "proxy")
+        {
+            // Velocity (and future BungeeCord/Waterfall) proxies: no server.properties,
+            // no EULA, no world. Velocity creates velocity.toml on first launch.
+            // Velocity's actual default bind port is 25577 (set in velocity.toml).
+            var defaultPort = GetNextAvailablePort(usedPorts, 25577);
+
+            var proxyConfig = new Dictionary<string, Dictionary<string, string>>
+            {
+                ["java"] = new()
+                {
+                    ["java_binary"] = "",
+                    ["java_xmx"] = "1024",
+                    ["java_xms"] = "512"
+                },
+                ["minecraft"] = new()
+                {
+                    ["profile"] = "",
+                    // Velocity rejects "nogui"; treat as unconventional so the
+                    // launcher does not append it.
+                    ["unconventional"] = "true",
+                    ["lan_broadcast"] = "false",
+                    ["proxy_port"] = defaultPort.ToString()
+                },
+                ["onreboot"] = new()
+                {
+                    ["start"] = "false"
+                },
+                ["monitoring"] = new()
+                {
+                    ["tps_enabled"] = "false",
+                    ["tps_command"] = ""
+                }
+            };
+
+            await File.WriteAllTextAsync(configPath, IniParser.WriteWithSections(proxyConfig), cancellationToken);
         }
         else
         {
@@ -613,31 +651,44 @@ public class ServerService : IServerService
         }
         else
         {
+            var isProxy = serverType == "proxy";
+
             // Read server config to build start arguments
             var config = await GetServerConfigAsync(name, cancellationToken);
             var javaBinary = config.Java.JavaBinary;
             if (string.IsNullOrEmpty(javaBinary) || javaBinary == "java")
             {
-                // Auto-detect Java version from the server's Minecraft version
-                string? mcVersion = null;
-                try
+                if (isProxy)
                 {
-                    var props = await GetServerPropertiesAsync(name, cancellationToken);
-                    // server.properties doesn't have MC version, but the profile might
+                    // Velocity requires Java 21+. The auto-detector keys off MC version,
+                    // but proxy jars have no MC version — pin to Java 21.
+                    javaBinary = ResolveJavaBinary("1.21");
+                    _logger.LogInformation("Resolved Java 21 binary for proxy {Server}: {JavaBinary}",
+                        name, javaBinary);
                 }
-                catch { /* no properties file yet */ }
+                else
+                {
+                    // Auto-detect Java version from the server's Minecraft version
+                    string? mcVersion = null;
+                    try
+                    {
+                        var props = await GetServerPropertiesAsync(name, cancellationToken);
+                        // server.properties doesn't have MC version, but the profile might
+                    }
+                    catch { /* no properties file yet */ }
 
-                // Try to extract MC version from profile name or jar filename
-                var profile = config.Minecraft.Profile ?? "";
-                var jar = config.Java.JarFile ?? "";
-                var versionMatch = System.Text.RegularExpressions.Regex.Match(
-                    profile + " " + jar, @"(\d+\.\d+(?:\.\d+)?)");
-                if (versionMatch.Success)
-                    mcVersion = versionMatch.Groups[1].Value;
+                    // Try to extract MC version from profile name or jar filename
+                    var profile = config.Minecraft.Profile ?? "";
+                    var jar = config.Java.JarFile ?? "";
+                    var versionMatch = System.Text.RegularExpressions.Regex.Match(
+                        profile + " " + jar, @"(\d+\.\d+(?:\.\d+)?)");
+                    if (versionMatch.Success)
+                        mcVersion = versionMatch.Groups[1].Value;
 
-                javaBinary = ResolveJavaBinary(mcVersion);
-                _logger.LogInformation("Auto-resolved Java binary for {Server} (MC {Version}): {JavaBinary}",
-                    name, mcVersion ?? "unknown", javaBinary);
+                    javaBinary = ResolveJavaBinary(mcVersion);
+                    _logger.LogInformation("Auto-resolved Java binary for {Server} (MC {Version}): {JavaBinary}",
+                        name, mcVersion ?? "unknown", javaBinary);
+                }
             }
             var jarFile = config.Java.JarFile;
 
@@ -654,7 +705,10 @@ public class ServerService : IServerService
                 throw new InvalidOperationException($"Server '{name}' has no JAR file configured");
             }
 
-            await EnsureEulaAcceptedAsync(serverPath, cancellationToken);
+            if (!isProxy)
+            {
+                await EnsureEulaAcceptedAsync(serverPath, cancellationToken);
+            }
             await EnsureExecutableAvailableAsync(javaBinary, "-version", "Java runtime", cancellationToken);
 
             // Check if using modern Forge @argfile syntax
@@ -760,8 +814,9 @@ public class ServerService : IServerService
         var uid = _options.RunAsUid;
         var gid = _options.RunAsGid;
 
-        // Send stop command
-        await _processManager.SendCommandAsync(name, "stop", uid, gid, cancellationToken);
+        // Send stop command — Velocity uses "end", backend MC servers use "stop"
+        var stopCommand = DetectServerType(name) == "proxy" ? "end" : "stop";
+        await _processManager.SendCommandAsync(name, stopCommand, uid, gid, cancellationToken);
 
         // Wait for process to stop
         var timeout = TimeSpan.FromSeconds(timeoutSeconds > 0 ? timeoutSeconds : 300);
@@ -1375,8 +1430,8 @@ public class ServerService : IServerService
 
     private static readonly HashSet<string> AllowedServerTypes = new(StringComparer.OrdinalIgnoreCase)
     {
-        "java", "bedrock", "vanilla", "paper", "spigot", "craftbukkit", "purpur",
-        "forge", "neoforge", "fabric", "quilt", "folia"
+        "java", "bedrock", "proxy", "vanilla", "paper", "spigot", "craftbukkit", "purpur",
+        "forge", "neoforge", "fabric", "quilt", "folia", "velocity"
     };
 
     public async Task UpdateServerTypeAsync(string name, string serverType, CancellationToken cancellationToken)
