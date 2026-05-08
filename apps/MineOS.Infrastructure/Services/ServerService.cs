@@ -315,8 +315,7 @@ public class ServerService : IServerService
                     // Velocity rejects "nogui"; treat as unconventional so the
                     // launcher does not append it.
                     ["unconventional"] = "true",
-                    ["lan_broadcast"] = "false",
-                    ["proxy_port"] = defaultPort.ToString()
+                    ["lan_broadcast"] = "false"
                 },
                 ["onreboot"] = new()
                 {
