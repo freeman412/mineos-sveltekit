@@ -57,6 +57,7 @@
 			implementation = 'template';
 			step = 'version';
 		} else {
+			// 'plugins', 'mods', 'proxy' all need an implementation selection
 			step = 'implementation';
 		}
 	}
@@ -85,7 +86,7 @@
 
 	function goBackFromVersion() {
 		versionConfirm = null;
-		if (category === 'plugins' || category === 'mods') {
+		if (category === 'plugins' || category === 'mods' || category === 'proxy') {
 			step = 'implementation';
 			implementation = null;
 			selectedImpl = null;
@@ -125,7 +126,10 @@
 		// Create the server first
 		simpleStepText = 'Creating server...';
 		simpleProgress = 5;
-		const serverType = implementation === 'bedrock' ? 'bedrock' : 'java';
+		const serverType =
+			implementation === 'bedrock' ? 'bedrock'
+			: implementation === 'velocity' ? 'proxy'
+			: 'java';
 		const createResult = await api.createServer(fetch, {
 			name,
 			ownerUid: 1000,
@@ -381,7 +385,7 @@
 
 		{#if step === 'category'}
 			<CategorySelect onselect={selectCategory} />
-		{:else if step === 'implementation' && (category === 'plugins' || category === 'mods')}
+		{:else if step === 'implementation' && (category === 'plugins' || category === 'mods' || category === 'proxy')}
 			<ImplementationSelect
 				{category}
 				onselect={(id) => selectedImpl = id}

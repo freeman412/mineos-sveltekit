@@ -8,6 +8,8 @@ using MineOS.Application.Options;
 using MineOS.Domain.Entities;
 using MineOS.Infrastructure.Utilities;
 using ServerStatusStrings = MineOS.Infrastructure.Constants.ServerStatus;
+using Tomlyn;
+using Tomlyn.Model;
 
 namespace MineOS.Infrastructure.Services;
 
@@ -147,7 +149,8 @@ public class ServerService : IServerService
         var config = await GetServerConfigAsync(name, cancellationToken);
 
         var status = processInfo?.JavaPid != null ? "running" : "stopped";
-        var eulaAccepted = serverType == "bedrock" || await IsEulaAcceptedAsync(serverPath, cancellationToken);
+        var eulaAccepted = serverType == "bedrock" || serverType == "proxy"
+            || await IsEulaAcceptedAsync(serverPath, cancellationToken);
         var needsRestart = File.Exists(GetRestartFlagPath(name));
 
         // Get owner info from directory
@@ -290,6 +293,57 @@ public class ServerService : IServerService
             };
 
             await File.WriteAllTextAsync(configPath, IniParser.WriteWithSections(bedrockConfig), cancellationToken);
+        }
+        else if (serverType == "proxy")
+        {
+            // Velocity (and future BungeeCord/Waterfall) proxies: no server.properties,
+            // no EULA, no world. Velocity creates velocity.toml on first launch.
+            // Velocity's actual default bind port is 25577 (set in velocity.toml).
+            var defaultPort = GetNextAvailablePort(usedPorts, 25577);
+
+            var proxyConfig = new Dictionary<string, Dictionary<string, string>>
+            {
+                ["java"] = new()
+                {
+                    ["java_binary"] = "",
+                    ["java_xmx"] = "1024",
+                    ["java_xms"] = "512"
+                },
+                ["minecraft"] = new()
+                {
+                    ["profile"] = "",
+                    // Velocity rejects "nogui"; treat as unconventional so the
+                    // launcher does not append it.
+                    ["unconventional"] = "true",
+                    ["lan_broadcast"] = "false"
+                },
+                ["onreboot"] = new()
+                {
+                    ["start"] = "false"
+                },
+                ["monitoring"] = new()
+                {
+                    ["tps_enabled"] = "false",
+                    ["tps_command"] = ""
+                }
+            };
+
+            await File.WriteAllTextAsync(configPath, IniParser.WriteWithSections(proxyConfig), cancellationToken);
+
+            // Pre-populate velocity.toml with sibling Java backends so the proxy
+            // does something out of the box. The user can edit /reorder them via
+            // the Velocity tab.
+            var backends = await DiscoverJavaBackendsAsync(request.Name, cancellationToken);
+            var initialConfig = VelocityConfigDefaults(exists: true) with
+            {
+                Bind = $"0.0.0.0:{defaultPort}",
+                Servers = backends,
+                Try = backends.Count > 0
+                    ? new List<string> { backends.Keys.First() }
+                    : new List<string>()
+            };
+            var tomlPath = Path.Combine(serverPath, "velocity.toml");
+            await WriteVelocityTomlAsync(tomlPath, initialConfig, cancellationToken);
         }
         else
         {
@@ -613,31 +667,44 @@ public class ServerService : IServerService
         }
         else
         {
+            var isProxy = serverType == "proxy";
+
             // Read server config to build start arguments
             var config = await GetServerConfigAsync(name, cancellationToken);
             var javaBinary = config.Java.JavaBinary;
             if (string.IsNullOrEmpty(javaBinary) || javaBinary == "java")
             {
-                // Auto-detect Java version from the server's Minecraft version
-                string? mcVersion = null;
-                try
+                if (isProxy)
                 {
-                    var props = await GetServerPropertiesAsync(name, cancellationToken);
-                    // server.properties doesn't have MC version, but the profile might
+                    // Velocity requires Java 21+. The auto-detector keys off MC version,
+                    // but proxy jars have no MC version — pin to Java 21.
+                    javaBinary = ResolveJavaBinary("1.21");
+                    _logger.LogInformation("Resolved Java 21 binary for proxy {Server}: {JavaBinary}",
+                        name, javaBinary);
                 }
-                catch { /* no properties file yet */ }
+                else
+                {
+                    // Auto-detect Java version from the server's Minecraft version
+                    string? mcVersion = null;
+                    try
+                    {
+                        var props = await GetServerPropertiesAsync(name, cancellationToken);
+                        // server.properties doesn't have MC version, but the profile might
+                    }
+                    catch { /* no properties file yet */ }
 
-                // Try to extract MC version from profile name or jar filename
-                var profile = config.Minecraft.Profile ?? "";
-                var jar = config.Java.JarFile ?? "";
-                var versionMatch = System.Text.RegularExpressions.Regex.Match(
-                    profile + " " + jar, @"(\d+\.\d+(?:\.\d+)?)");
-                if (versionMatch.Success)
-                    mcVersion = versionMatch.Groups[1].Value;
+                    // Try to extract MC version from profile name or jar filename
+                    var profile = config.Minecraft.Profile ?? "";
+                    var jar = config.Java.JarFile ?? "";
+                    var versionMatch = System.Text.RegularExpressions.Regex.Match(
+                        profile + " " + jar, @"(\d+\.\d+(?:\.\d+)?)");
+                    if (versionMatch.Success)
+                        mcVersion = versionMatch.Groups[1].Value;
 
-                javaBinary = ResolveJavaBinary(mcVersion);
-                _logger.LogInformation("Auto-resolved Java binary for {Server} (MC {Version}): {JavaBinary}",
-                    name, mcVersion ?? "unknown", javaBinary);
+                    javaBinary = ResolveJavaBinary(mcVersion);
+                    _logger.LogInformation("Auto-resolved Java binary for {Server} (MC {Version}): {JavaBinary}",
+                        name, mcVersion ?? "unknown", javaBinary);
+                }
             }
             var jarFile = config.Java.JarFile;
 
@@ -654,7 +721,10 @@ public class ServerService : IServerService
                 throw new InvalidOperationException($"Server '{name}' has no JAR file configured");
             }
 
-            await EnsureEulaAcceptedAsync(serverPath, cancellationToken);
+            if (!isProxy)
+            {
+                await EnsureEulaAcceptedAsync(serverPath, cancellationToken);
+            }
             await EnsureExecutableAvailableAsync(javaBinary, "-version", "Java runtime", cancellationToken);
 
             // Check if using modern Forge @argfile syntax
@@ -760,8 +830,9 @@ public class ServerService : IServerService
         var uid = _options.RunAsUid;
         var gid = _options.RunAsGid;
 
-        // Send stop command
-        await _processManager.SendCommandAsync(name, "stop", uid, gid, cancellationToken);
+        // Send stop command — Velocity uses "end", backend MC servers use "stop"
+        var stopCommand = DetectServerType(name) == "proxy" ? "end" : "stop";
+        await _processManager.SendCommandAsync(name, stopCommand, uid, gid, cancellationToken);
 
         // Wait for process to stop
         var timeout = TimeSpan.FromSeconds(timeoutSeconds > 0 ? timeoutSeconds : 300);
@@ -848,6 +919,345 @@ public class ServerService : IServerService
         }
 
         _logger.LogInformation("Updated server.properties for {ServerName}", name);
+    }
+
+    private string GetVelocityTomlPath(string name) =>
+        Path.Combine(GetServerPath(name), "velocity.toml");
+
+    public async Task<(string Host, int Port)?> GetServerListenEndpointAsync(string name, CancellationToken cancellationToken)
+    {
+        var serverPath = GetServerPath(name);
+        if (!Directory.Exists(serverPath))
+        {
+            return null;
+        }
+
+        if (DetectServerType(name) == "proxy")
+        {
+            var tomlPath = GetVelocityTomlPath(name);
+            if (!File.Exists(tomlPath))
+            {
+                return null;
+            }
+            try
+            {
+                var content = await File.ReadAllTextAsync(tomlPath, cancellationToken);
+                var model = Toml.ToModel(content);
+                if (!model.TryGetValue("bind", out var bindObj) || bindObj is not string bind)
+                {
+                    return null;
+                }
+                // Velocity bind format is "<host>:<port>" e.g. "0.0.0.0:25577".
+                // Velocity also supports IPv6 like "[::]:25577" but we treat that
+                // by splitting on the LAST colon.
+                var lastColon = bind.LastIndexOf(':');
+                if (lastColon <= 0 || lastColon == bind.Length - 1)
+                {
+                    return null;
+                }
+                if (!int.TryParse(bind[(lastColon + 1)..], out var port) || port < 1 || port > 65535)
+                {
+                    return null;
+                }
+                var host = bind[..lastColon].Trim('[', ']');
+                if (string.IsNullOrWhiteSpace(host) || host == "0.0.0.0" || host == "::")
+                {
+                    host = "127.0.0.1";
+                }
+                return (host, port);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to parse velocity.toml for {ServerName}", name);
+                return null;
+            }
+        }
+
+        // Java + bedrock: read server.properties
+        var properties = await GetServerPropertiesAsync(name, cancellationToken);
+        if (!properties.TryGetValue("server-port", out var portStr) ||
+            !int.TryParse(portStr, out var jPort) ||
+            jPort < 1 || jPort > 65535)
+        {
+            return null;
+        }
+        var jHost = "127.0.0.1";
+        if (properties.TryGetValue("server-ip", out var ip) &&
+            !string.IsNullOrWhiteSpace(ip) &&
+            !ip.Equals("0.0.0.0", StringComparison.OrdinalIgnoreCase))
+        {
+            jHost = ip;
+        }
+        return (jHost, jPort);
+    }
+
+    public async Task<VelocityConfigDto> GetVelocityConfigAsync(string name, CancellationToken cancellationToken)
+    {
+        var serverPath = GetServerPath(name);
+        if (!Directory.Exists(serverPath))
+        {
+            throw new DirectoryNotFoundException($"Server '{name}' not found");
+        }
+
+        var tomlPath = GetVelocityTomlPath(name);
+        if (!File.Exists(tomlPath))
+        {
+            return VelocityConfigDefaults(exists: false);
+        }
+
+        var content = await File.ReadAllTextAsync(tomlPath, cancellationToken);
+        var model = Toml.ToModel(content);
+
+        var defaults = VelocityConfigDefaults(exists: true);
+        return defaults with
+        {
+            Bind = TomlGetString(model, "bind", defaults.Bind),
+            Motd = TomlGetString(model, "motd", defaults.Motd),
+            ShowMaxPlayers = TomlGetInt(model, "show-max-players", defaults.ShowMaxPlayers),
+            OnlineMode = TomlGetBool(model, "online-mode", defaults.OnlineMode),
+            ForceKeyAuthentication = TomlGetBool(model, "force-key-authentication", defaults.ForceKeyAuthentication),
+            PreventClientProxyConnections = TomlGetBool(model, "prevent-client-proxy-connections", defaults.PreventClientProxyConnections),
+            PlayerInfoForwardingMode = TomlGetString(model, "player-info-forwarding-mode", defaults.PlayerInfoForwardingMode),
+            ForwardingSecretFile = TomlGetString(model, "forwarding-secret-file", defaults.ForwardingSecretFile),
+            AnnounceForge = TomlGetBool(model, "announce-forge", defaults.AnnounceForge),
+            KickExistingPlayers = TomlGetBool(model, "kick-existing-players", defaults.KickExistingPlayers),
+            PingPassthrough = TomlGetString(model, "ping-passthrough", defaults.PingPassthrough),
+            EnablePlayerAddressLogging = TomlGetBool(model, "enable-player-address-logging", defaults.EnablePlayerAddressLogging),
+            Servers = ReadServersTable(model),
+            Try = ReadTryList(model),
+            ForcedHosts = ReadForcedHostsTable(model)
+        };
+    }
+
+    public async Task UpdateVelocityConfigAsync(string name, VelocityConfigDto config, CancellationToken cancellationToken)
+    {
+        var serverPath = GetServerPath(name);
+        if (!Directory.Exists(serverPath))
+        {
+            throw new DirectoryNotFoundException($"Server '{name}' not found");
+        }
+
+        if (DetectServerType(name) != "proxy")
+        {
+            throw new InvalidOperationException($"Server '{name}' is not a proxy server");
+        }
+
+        var tomlPath = GetVelocityTomlPath(name);
+        await WriteVelocityTomlAsync(tomlPath, config, cancellationToken);
+        await MarkRestartRequiredAsync(name);
+        _logger.LogInformation("Updated velocity.toml for {ServerName}", name);
+    }
+
+    private async Task WriteVelocityTomlAsync(string tomlPath, VelocityConfigDto config, CancellationToken cancellationToken)
+    {
+        // Round-trip: load existing model (or start fresh), apply our known fields,
+        // preserve any unknown sections like [advanced] and [query].
+        TomlTable model;
+        if (File.Exists(tomlPath))
+        {
+            var content = await File.ReadAllTextAsync(tomlPath, cancellationToken);
+            model = Toml.ToModel(content);
+        }
+        else
+        {
+            model = new TomlTable();
+            model["config-version"] = "1.0";
+        }
+
+        model["bind"] = config.Bind;
+        model["motd"] = config.Motd;
+        model["show-max-players"] = (long)config.ShowMaxPlayers;
+        model["online-mode"] = config.OnlineMode;
+        model["force-key-authentication"] = config.ForceKeyAuthentication;
+        model["prevent-client-proxy-connections"] = config.PreventClientProxyConnections;
+        model["player-info-forwarding-mode"] = config.PlayerInfoForwardingMode;
+        model["forwarding-secret-file"] = config.ForwardingSecretFile;
+        model["announce-forge"] = config.AnnounceForge;
+        model["kick-existing-players"] = config.KickExistingPlayers;
+        model["ping-passthrough"] = config.PingPassthrough;
+        model["enable-player-address-logging"] = config.EnablePlayerAddressLogging;
+
+        var serversTable = new TomlTable();
+        foreach (var (key, value) in config.Servers)
+        {
+            serversTable[key] = value;
+        }
+        var tryArray = new TomlArray();
+        foreach (var entry in config.Try)
+        {
+            tryArray.Add(entry);
+        }
+        serversTable["try"] = tryArray;
+        model["servers"] = serversTable;
+
+        // Always emit [forced-hosts] (even when empty). Velocity falls back to
+        // its bundled default config when the table is missing entirely —
+        // that default references factions.example.com / minigames.example.com
+        // and fails startup.
+        var forcedHostsTable = new TomlTable();
+        foreach (var (hostname, serverList) in config.ForcedHosts)
+        {
+            var arr = new TomlArray();
+            foreach (var s in serverList)
+            {
+                arr.Add(s);
+            }
+            forcedHostsTable[hostname] = arr;
+        }
+        model["forced-hosts"] = forcedHostsTable;
+
+        var output = Toml.FromModel(model);
+        await File.WriteAllTextAsync(tomlPath, output, cancellationToken);
+        await OwnershipHelper.ChangeOwnershipAsync(tomlPath, _options.RunAsUid, _options.RunAsGid, _logger, cancellationToken);
+    }
+
+    private static VelocityConfigDto VelocityConfigDefaults(bool exists)
+    {
+        return new VelocityConfigDto(
+            Exists: exists,
+            Bind: "0.0.0.0:25577",
+            Motd: "<#09add3>A Velocity Server",
+            ShowMaxPlayers: 500,
+            OnlineMode: true,
+            ForceKeyAuthentication: true,
+            PreventClientProxyConnections: false,
+            PlayerInfoForwardingMode: "none",
+            ForwardingSecretFile: "forwarding.secret",
+            AnnounceForge: false,
+            KickExistingPlayers: false,
+            PingPassthrough: "DISABLED",
+            EnablePlayerAddressLogging: true,
+            Servers: new Dictionary<string, string>(),
+            Try: new List<string>(),
+            ForcedHosts: new Dictionary<string, List<string>>());
+    }
+
+    private static string TomlGetString(TomlTable model, string key, string fallback)
+    {
+        return model.TryGetValue(key, out var value) && value is string s ? s : fallback;
+    }
+
+    private static int TomlGetInt(TomlTable model, string key, int fallback)
+    {
+        if (!model.TryGetValue(key, out var value))
+            return fallback;
+        return value switch
+        {
+            long l => (int)l,
+            int i => i,
+            _ => fallback
+        };
+    }
+
+    private static bool TomlGetBool(TomlTable model, string key, bool fallback)
+    {
+        return model.TryGetValue(key, out var value) && value is bool b ? b : fallback;
+    }
+
+    private static Dictionary<string, string> ReadServersTable(TomlTable model)
+    {
+        var result = new Dictionary<string, string>();
+        if (!model.TryGetValue("servers", out var serversObj) || serversObj is not TomlTable servers)
+            return result;
+
+        foreach (var (key, value) in servers)
+        {
+            // Skip the "try" entry — it's a list, not a backend mapping.
+            if (key == "try" || value is TomlArray)
+                continue;
+            if (value is string s)
+                result[key] = s;
+        }
+        return result;
+    }
+
+    private async Task<Dictionary<string, string>> DiscoverJavaBackendsAsync(
+        string excludeName, CancellationToken cancellationToken)
+    {
+        var result = new Dictionary<string, string>();
+        var serversPath = Path.Combine(_options.BaseDirectory, _options.ServersPathSegment);
+        if (!Directory.Exists(serversPath))
+        {
+            return result;
+        }
+
+        foreach (var dir in Directory.EnumerateDirectories(serversPath).OrderBy(d => Path.GetFileName(d), StringComparer.OrdinalIgnoreCase))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var serverName = Path.GetFileName(dir);
+            if (string.IsNullOrWhiteSpace(serverName) ||
+                serverName.Equals(excludeName, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            // Skip non-Java backends. Bedrock (UDP, different protocol) and proxies
+            // (a proxy fronting another proxy is not a sensible default).
+            var typeFile = Path.Combine(dir, ServerTypeFile);
+            if (File.Exists(typeFile))
+            {
+                var marker = (await File.ReadAllTextAsync(typeFile, cancellationToken)).Trim();
+                if (marker.Equals("bedrock", StringComparison.OrdinalIgnoreCase) ||
+                    marker.Equals("proxy", StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+            }
+
+            var propertiesPath = Path.Combine(dir, "server.properties");
+            if (!File.Exists(propertiesPath))
+            {
+                continue;
+            }
+
+            var content = await File.ReadAllTextAsync(propertiesPath, cancellationToken);
+            var props = IniParser.ParseSimple(content);
+            if (!props.TryGetValue("server-port", out var portValue) ||
+                !int.TryParse(portValue, out var port) ||
+                port < 1 || port > 65535)
+            {
+                continue;
+            }
+
+            result[serverName] = $"127.0.0.1:{port}";
+        }
+
+        return result;
+    }
+
+    private static List<string> ReadTryList(TomlTable model)
+    {
+        var result = new List<string>();
+        if (!model.TryGetValue("servers", out var serversObj) || serversObj is not TomlTable servers)
+            return result;
+        if (!servers.TryGetValue("try", out var tryObj) || tryObj is not TomlArray tryArr)
+            return result;
+        foreach (var item in tryArr)
+        {
+            if (item is string s)
+                result.Add(s);
+        }
+        return result;
+    }
+
+    private static Dictionary<string, List<string>> ReadForcedHostsTable(TomlTable model)
+    {
+        var result = new Dictionary<string, List<string>>();
+        if (!model.TryGetValue("forced-hosts", out var fhObj) || fhObj is not TomlTable forcedHosts)
+            return result;
+        foreach (var (hostname, value) in forcedHosts)
+        {
+            if (value is not TomlArray arr)
+                continue;
+            var list = new List<string>();
+            foreach (var item in arr)
+            {
+                if (item is string s)
+                    list.Add(s);
+            }
+            result[hostname] = list;
+        }
+        return result;
     }
 
     public async Task<ServerConfigDto> GetServerConfigAsync(string name, CancellationToken cancellationToken)
@@ -1375,8 +1785,8 @@ public class ServerService : IServerService
 
     private static readonly HashSet<string> AllowedServerTypes = new(StringComparer.OrdinalIgnoreCase)
     {
-        "java", "bedrock", "vanilla", "paper", "spigot", "craftbukkit", "purpur",
-        "forge", "neoforge", "fabric", "quilt", "folia"
+        "java", "bedrock", "proxy", "vanilla", "paper", "spigot", "craftbukkit", "purpur",
+        "forge", "neoforge", "fabric", "quilt", "folia", "velocity"
     };
 
     public async Task UpdateServerTypeAsync(string name, string serverType, CancellationToken cancellationToken)
@@ -1388,10 +1798,32 @@ public class ServerService : IServerService
         if (!Directory.Exists(serverPath))
             throw new DirectoryNotFoundException($"Server '{name}' not found");
 
+        var normalized = serverType.ToLowerInvariant();
         await File.WriteAllTextAsync(
-            Path.Combine(serverPath, ServerTypeFile), serverType.ToLowerInvariant(), cancellationToken);
+            Path.Combine(serverPath, ServerTypeFile), normalized, cancellationToken);
 
-        _logger.LogInformation("Updated server type for {Server} to {Type}", name, serverType);
+        // When converting an existing server to a proxy, bootstrap velocity.toml
+        // the same way CreateServerAsync does: pre-populated with sibling Java
+        // backends and an empty [forced-hosts] table. Mirrors the wizard so a
+        // type-changed proxy is functional from the first launch.
+        if (normalized == "proxy")
+        {
+            var tomlPath = GetVelocityTomlPath(name);
+            if (!File.Exists(tomlPath))
+            {
+                var backends = await DiscoverJavaBackendsAsync(name, cancellationToken);
+                var initialConfig = VelocityConfigDefaults(exists: true) with
+                {
+                    Servers = backends,
+                    Try = backends.Count > 0
+                        ? new List<string> { backends.Keys.First() }
+                        : new List<string>()
+                };
+                await WriteVelocityTomlAsync(tomlPath, initialConfig, cancellationToken);
+            }
+        }
+
+        _logger.LogInformation("Updated server type for {Server} to {Type}", name, normalized);
     }
 
     private static readonly System.Text.RegularExpressions.Regex[] JarLoaderPatterns =

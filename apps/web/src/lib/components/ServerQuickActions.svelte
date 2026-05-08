@@ -17,17 +17,33 @@
 	let status = $derived((server?.status ?? '').toLowerCase());
 	let isRunning = $derived(status === 'up' || status === 'running');
 
-	// Load server port from server.properties
+	// Load server port — proxies bind via velocity.toml, everyone else via server.properties.
 	onMount(async () => {
 		if (!server) return;
 		try {
-			const result = await api.getServerProperties(fetch, server.name);
-			if (result.data) {
-				const port = result.data['server-port'];
-				if (port) {
-					const parsed = parseInt(port, 10);
-					if (!isNaN(parsed)) {
-						serverPort = parsed;
+			if (server.serverType === 'proxy') {
+				const result = await api.getVelocityConfig(fetch, server.name);
+				const bind = result.data?.bind;
+				if (bind) {
+					// Velocity bind format: "<host>:<port>" or "[::]:port" for IPv6.
+					// Split on the LAST ":" so IPv6 hosts don't break parsing.
+					const lastColon = bind.lastIndexOf(':');
+					if (lastColon > 0 && lastColon < bind.length - 1) {
+						const parsed = parseInt(bind.slice(lastColon + 1), 10);
+						if (!isNaN(parsed)) {
+							serverPort = parsed;
+						}
+					}
+				}
+			} else {
+				const result = await api.getServerProperties(fetch, server.name);
+				if (result.data) {
+					const port = result.data['server-port'];
+					if (port) {
+						const parsed = parseInt(port, 10);
+						if (!isNaN(parsed)) {
+							serverPort = parsed;
+						}
 					}
 				}
 			}
@@ -49,7 +65,7 @@
 		if (!server) return;
 
 		// If starting and EULA not accepted, prompt instead of erroring
-		if (action === 'start' && !server.eulaAccepted && server.serverType !== 'bedrock') {
+		if (action === 'start' && !server.eulaAccepted && server.serverType !== 'bedrock' && server.serverType !== 'proxy') {
 			const accepted = await modal.confirm(
 				'This server requires you to accept the Minecraft EULA before starting.\n\n' +
 				'By accepting, you agree to the Minecraft End User License Agreement:\n' +
@@ -152,13 +168,15 @@
 				<button class="btn btn-success" onclick={() => handleAction('start')} disabled={actionLoading}>
 					Start
 				</button>
-				<button
-					class="btn btn-secondary"
-					onclick={handleAcceptEula}
-					disabled={actionLoading || server.eulaAccepted}
-				>
-					{server.eulaAccepted ? 'EULA accepted' : 'Accept EULA'}
-				</button>
+				{#if server.serverType !== 'bedrock' && server.serverType !== 'proxy'}
+					<button
+						class="btn btn-secondary"
+						onclick={handleAcceptEula}
+						disabled={actionLoading || server.eulaAccepted}
+					>
+						{server.eulaAccepted ? 'EULA accepted' : 'Accept EULA'}
+					</button>
+				{/if}
 			{/if}
 		</div>
 	</div>

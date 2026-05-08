@@ -19,7 +19,7 @@
 		onComplete: () => void;
 	} = $props();
 
-	type ServerType = 'vanilla' | 'paper' | 'spigot' | 'forge' | 'neoforge' | 'fabric' | 'quilt';
+	type ServerType = 'vanilla' | 'paper' | 'spigot' | 'forge' | 'neoforge' | 'fabric' | 'quilt' | 'velocity';
 
 	const serverTypes: { id: ServerType; name: string; category: string }[] = [
 		{ id: 'vanilla', name: 'Vanilla', category: 'vanilla' },
@@ -29,12 +29,15 @@
 		{ id: 'neoforge', name: 'NeoForge', category: 'mods' },
 		{ id: 'fabric', name: 'Fabric', category: 'mods' },
 		{ id: 'quilt', name: 'Quilt', category: 'mods' },
+		{ id: 'velocity', name: 'Velocity', category: 'proxy' },
 	];
 
 	// Detect current server category from jar name
 	function detectCategory(jar: string | null, type: string): string {
 		if (type === 'bedrock') return 'bedrock';
+		if (type === 'proxy') return 'proxy';
 		const j = (jar ?? '').toLowerCase();
+		if (j.includes('velocity') || j.includes('bungeecord') || j.includes('waterfall')) return 'proxy';
 		if (j.includes('forge') || j.includes('neoforge')) return 'mods';
 		if (j.includes('fabric') || j.includes('quilt')) return 'mods';
 		if (j.includes('paper') || j.includes('spigot') || j.includes('purpur') || j.includes('bukkit')) return 'plugins';
@@ -42,6 +45,15 @@
 	}
 
 	const currentCategory = detectCategory(currentJar, currentServerType);
+	// Lock the proxy silo: from a proxy, only proxy types are offered; from a
+	// backend, only backend types. (Bedrock is already locked the same way —
+	// it's not in the list at all.) Switching between Java backends and proxies
+	// in place leaves stale config files (server.properties vs velocity.toml,
+	// EULA vs forwarding.secret) and is better handled by creating a new server.
+	const visibleTypes = serverTypes.filter((t) => {
+		const isProxyOption = t.category === 'proxy';
+		return currentCategory === 'proxy' ? isProxyOption : !isProxyOption;
+	});
 
 	// State
 	let step = $state<'type' | 'version' | 'confirm' | 'installing'>('type');
@@ -65,6 +77,7 @@
 				case 'spigot': return p.group === 'spigot' || (p.group === 'vanilla' && p.type === 'release');
 					case 'forge': return p.group === 'forge';
 				case 'fabric': return p.group === 'fabric';
+				case 'velocity': return p.group === 'velocity';
 				case 'bedrock': return p.group === 'bedrock-server' || p.group === 'bedrock-server-preview';
 				default: return false;
 			}
@@ -131,6 +144,16 @@
 		}
 		if (currentServerType === 'bedrock' && type !== 'bedrock') {
 			error = 'Cannot switch a Bedrock server to Java. Create a new Java server instead.';
+			return;
+		}
+		// Proxy silo lock — defensive; the popup also filters visibleTypes.
+		const targetIsProxy = serverTypes.find((t) => t.id === type)?.category === 'proxy';
+		if (targetIsProxy && currentCategory !== 'proxy') {
+			error = 'Cannot convert a backend server to a proxy in place. Create a new Proxy server instead.';
+			return;
+		}
+		if (!targetIsProxy && currentCategory === 'proxy') {
+			error = 'Cannot convert a proxy back to a backend server in place. Create a new server of the desired type instead.';
 			return;
 		}
 		selectedType = type;
@@ -257,13 +280,17 @@
 
 	async function markInstallComplete() {
 		installCompleted = true;
-		// Update the .mineos-server-type file so detection works immediately
+		// Update the .mineos-server-type file so detection works immediately.
+		// Velocity is recorded as the generic "proxy" marker so all proxy-specific
+		// branches (skip EULA, ping via velocity.toml, send "end" not "stop", etc.)
+		// match — same as a proxy created via the wizard.
 		if (selectedType) {
+			const markerType = selectedType === 'velocity' ? 'proxy' : selectedType;
 			try {
 				await fetch(`/api/servers/${encodeURIComponent(serverName)}/server-type`, {
 					method: 'PUT',
 					headers: { 'Content-Type': 'application/json' },
-					body: JSON.stringify({ serverType: selectedType })
+					body: JSON.stringify({ serverType: markerType })
 				});
 			} catch { /* best effort */ }
 		}
@@ -291,7 +318,7 @@
 					<div class="error-box">{error}</div>
 				{/if}
 				<div class="type-list">
-					{#each serverTypes as type}
+					{#each visibleTypes as type}
 						<button
 							class="type-row"
 							class:current={detectCategory(currentJar, currentServerType) === type.category && !selectedType}
