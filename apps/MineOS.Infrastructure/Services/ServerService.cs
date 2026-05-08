@@ -1024,7 +1024,8 @@ public class ServerService : IServerService
             PingPassthrough = TomlGetString(model, "ping-passthrough", defaults.PingPassthrough),
             EnablePlayerAddressLogging = TomlGetBool(model, "enable-player-address-logging", defaults.EnablePlayerAddressLogging),
             Servers = ReadServersTable(model),
-            Try = ReadTryList(model)
+            Try = ReadTryList(model),
+            ForcedHosts = ReadForcedHostsTable(model)
         };
     }
 
@@ -1089,15 +1090,21 @@ public class ServerService : IServerService
         serversTable["try"] = tryArray;
         model["servers"] = serversTable;
 
-        // Velocity falls back to its bundled default config for any TOML table
-        // that is entirely missing — including a [forced-hosts] block that
-        // references example servers that don't exist (factions.example.com,
-        // minigames.example.com), which fails startup. Ensure the table is
-        // present and empty unless the user has put something there already.
-        if (!model.ContainsKey("forced-hosts"))
+        // Always emit [forced-hosts] (even when empty). Velocity falls back to
+        // its bundled default config when the table is missing entirely —
+        // that default references factions.example.com / minigames.example.com
+        // and fails startup.
+        var forcedHostsTable = new TomlTable();
+        foreach (var (hostname, serverList) in config.ForcedHosts)
         {
-            model["forced-hosts"] = new TomlTable();
+            var arr = new TomlArray();
+            foreach (var s in serverList)
+            {
+                arr.Add(s);
+            }
+            forcedHostsTable[hostname] = arr;
         }
+        model["forced-hosts"] = forcedHostsTable;
 
         var output = Toml.FromModel(model);
         await File.WriteAllTextAsync(tomlPath, output, cancellationToken);
@@ -1121,7 +1128,8 @@ public class ServerService : IServerService
             PingPassthrough: "DISABLED",
             EnablePlayerAddressLogging: true,
             Servers: new Dictionary<string, string>(),
-            Try: new List<string>());
+            Try: new List<string>(),
+            ForcedHosts: new Dictionary<string, List<string>>());
     }
 
     private static string TomlGetString(TomlTable model, string key, string fallback)
@@ -1228,6 +1236,26 @@ public class ServerService : IServerService
         {
             if (item is string s)
                 result.Add(s);
+        }
+        return result;
+    }
+
+    private static Dictionary<string, List<string>> ReadForcedHostsTable(TomlTable model)
+    {
+        var result = new Dictionary<string, List<string>>();
+        if (!model.TryGetValue("forced-hosts", out var fhObj) || fhObj is not TomlTable forcedHosts)
+            return result;
+        foreach (var (hostname, value) in forcedHosts)
+        {
+            if (value is not TomlArray arr)
+                continue;
+            var list = new List<string>();
+            foreach (var item in arr)
+            {
+                if (item is string s)
+                    list.Add(s);
+            }
+            result[hostname] = list;
         }
         return result;
     }

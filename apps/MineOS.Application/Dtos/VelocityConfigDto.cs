@@ -15,4 +15,5 @@ public record VelocityConfigDto(
     string PingPassthrough,
     bool EnablePlayerAddressLogging,
     Dictionary<string, string> Servers,
-    List<string> Try);
+    List<string> Try,
+    Dictionary<string, List<string>> ForcedHosts);

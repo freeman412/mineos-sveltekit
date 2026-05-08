@@ -22,7 +22,8 @@
 			pingPassthrough: 'DISABLED',
 			enablePlayerAddressLogging: true,
 			servers: {},
-			try: []
+			try: [],
+			forcedHosts: {}
 		};
 	}
 
@@ -34,6 +35,12 @@
 		Object.entries(config.servers).map(([name, address]) => ({ name, address }))
 	);
 	let tryList = $state<string[]>([...config.try]);
+	let forcedHostEntries = $state<{ hostname: string; servers: string }[]>(
+		Object.entries(config.forcedHosts).map(([hostname, servers]) => ({
+			hostname,
+			servers: servers.join(', ')
+		}))
+	);
 	let saving = $state(false);
 
 	$effect(() => {
@@ -47,8 +54,26 @@
 				address
 			}));
 			tryList = [...fresh.try];
+			forcedHostEntries = Object.entries(fresh.forcedHosts).map(([hostname, servers]) => ({
+				hostname,
+				servers: servers.join(', ')
+			}));
 		}
 	});
+
+	function buildForcedHostsObject(): Record<string, string[]> {
+		const result: Record<string, string[]> = {};
+		for (const e of forcedHostEntries) {
+			const host = e.hostname.trim();
+			if (!host) continue;
+			const servers = e.servers
+				.split(',')
+				.map((s) => s.trim())
+				.filter((s) => s.length > 0);
+			result[host] = servers;
+		}
+		return result;
+	}
 
 	const dirty = $derived.by(() => {
 		const current: VelocityConfig = {
@@ -58,7 +83,8 @@
 					.filter((e) => e.name.trim().length > 0)
 					.map((e) => [e.name.trim(), e.address.trim()])
 			),
-			try: tryList.filter((n) => n.trim().length > 0)
+			try: tryList.filter((n) => n.trim().length > 0),
+			forcedHosts: buildForcedHostsObject()
 		};
 		return JSON.stringify(current) !== JSON.stringify(initial);
 	});
@@ -71,7 +97,8 @@
 					.filter((e) => e.name.trim().length > 0)
 					.map((e) => [e.name.trim(), e.address.trim()])
 			),
-			try: tryList.filter((n) => n.trim().length > 0)
+			try: tryList.filter((n) => n.trim().length > 0),
+			forcedHosts: buildForcedHostsObject()
 		};
 	}
 
@@ -95,6 +122,14 @@
 		tryList = tryList.filter((_, i) => i !== idx);
 	}
 
+	function addForcedHost() {
+		forcedHostEntries = [...forcedHostEntries, { hostname: '', servers: '' }];
+	}
+
+	function removeForcedHost(idx: number) {
+		forcedHostEntries = forcedHostEntries.filter((_, i) => i !== idx);
+	}
+
 	function resetForm() {
 		config = JSON.parse(JSON.stringify(initial));
 		serverEntries = Object.entries(initial.servers).map(([name, address]) => ({
@@ -102,6 +137,10 @@
 			address
 		}));
 		tryList = [...initial.try];
+		forcedHostEntries = Object.entries(initial.forcedHosts).map(([hostname, servers]) => ({
+			hostname,
+			servers: servers.join(', ')
+		}));
 	}
 </script>
 
@@ -298,6 +337,43 @@
 			{/if}
 		</section>
 
+		<section class="card">
+			<div class="card-header">
+				<h2>Forced hosts</h2>
+				<button class="btn btn-secondary" type="button" onclick={addForcedHost}>+ Add</button>
+			</div>
+			<p class="card-description">
+				Route players to specific backends based on the hostname they connect with.
+				Servers is a comma-separated list of backend names from above (tried in order).
+			</p>
+			{#if forcedHostEntries.length === 0}
+				<p class="empty">No forced hosts configured.</p>
+			{:else}
+				<div class="server-rows">
+					{#each forcedHostEntries as entry, i}
+						<div class="server-row">
+							<input
+								type="text"
+								placeholder="hostname (e.g. lobby.example.com)"
+								bind:value={entry.hostname}
+							/>
+							<input
+								type="text"
+								placeholder="servers (e.g. lobby, fallback)"
+								bind:value={entry.servers}
+							/>
+							<button
+								class="btn btn-icon"
+								type="button"
+								title="Remove"
+								onclick={() => removeForcedHost(i)}>×</button
+							>
+						</div>
+					{/each}
+				</div>
+			{/if}
+		</section>
+
 		<div class="actions">
 			<button class="btn btn-primary" type="submit" disabled={!dirty || saving}>
 				{saving ? 'Saving…' : 'Save'}
@@ -309,8 +385,6 @@
 <style>
 	.page {
 		padding: 1.5rem 2rem;
-		max-width: 980px;
-		margin: 0 auto;
 		display: flex;
 		flex-direction: column;
 		gap: 1rem;

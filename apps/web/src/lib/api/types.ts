@@ -104,6 +104,7 @@ export type VelocityConfig = {
 	enablePlayerAddressLogging: boolean;
 	servers: Record<string, string>;
 	try: string[];
+	forcedHosts: Record<string, string[]>;
 };
 
 export type JavaConfig = {

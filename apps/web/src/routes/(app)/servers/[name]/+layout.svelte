@@ -65,7 +65,7 @@
 			isProxy
 				? {
 						href: `/servers/${s}/proxy-config`,
-						label: 'Velocity'
+						label: 'Properties'
 					}
 				: {
 						href: `/servers/${s}/config`,
