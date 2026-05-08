@@ -330,6 +330,21 @@ public class ServerService : IServerService
             };
 
             await File.WriteAllTextAsync(configPath, IniParser.WriteWithSections(proxyConfig), cancellationToken);
+
+            // Pre-populate velocity.toml with sibling Java backends so the proxy
+            // does something out of the box. The user can edit /reorder them via
+            // the Velocity tab.
+            var backends = await DiscoverJavaBackendsAsync(request.Name, cancellationToken);
+            var initialConfig = VelocityConfigDefaults(exists: true) with
+            {
+                Bind = $"0.0.0.0:{defaultPort}",
+                Servers = backends,
+                Try = backends.Count > 0
+                    ? new List<string> { backends.Keys.First() }
+                    : new List<string>()
+            };
+            var tomlPath = Path.Combine(serverPath, "velocity.toml");
+            await WriteVelocityTomlAsync(tomlPath, initialConfig, cancellationToken);
         }
         else
         {
@@ -961,7 +976,13 @@ public class ServerService : IServerService
         }
 
         var tomlPath = GetVelocityTomlPath(name);
+        await WriteVelocityTomlAsync(tomlPath, config, cancellationToken);
+        await MarkRestartRequiredAsync(name);
+        _logger.LogInformation("Updated velocity.toml for {ServerName}", name);
+    }
 
+    private async Task WriteVelocityTomlAsync(string tomlPath, VelocityConfigDto config, CancellationToken cancellationToken)
+    {
         // Round-trip: load existing model (or start fresh), apply our known fields,
         // preserve any unknown sections like [advanced] and [query].
         TomlTable model;
@@ -1015,9 +1036,6 @@ public class ServerService : IServerService
         var output = Toml.FromModel(model);
         await File.WriteAllTextAsync(tomlPath, output, cancellationToken);
         await OwnershipHelper.ChangeOwnershipAsync(tomlPath, _options.RunAsUid, _options.RunAsGid, _logger, cancellationToken);
-
-        await MarkRestartRequiredAsync(name);
-        _logger.LogInformation("Updated velocity.toml for {ServerName}", name);
     }
 
     private static VelocityConfigDto VelocityConfigDefaults(bool exists)
@@ -1076,6 +1094,60 @@ public class ServerService : IServerService
             if (value is string s)
                 result[key] = s;
         }
+        return result;
+    }
+
+    private async Task<Dictionary<string, string>> DiscoverJavaBackendsAsync(
+        string excludeName, CancellationToken cancellationToken)
+    {
+        var result = new Dictionary<string, string>();
+        var serversPath = Path.Combine(_options.BaseDirectory, _options.ServersPathSegment);
+        if (!Directory.Exists(serversPath))
+        {
+            return result;
+        }
+
+        foreach (var dir in Directory.EnumerateDirectories(serversPath).OrderBy(d => Path.GetFileName(d), StringComparer.OrdinalIgnoreCase))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var serverName = Path.GetFileName(dir);
+            if (string.IsNullOrWhiteSpace(serverName) ||
+                serverName.Equals(excludeName, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            // Skip non-Java backends. Bedrock (UDP, different protocol) and proxies
+            // (a proxy fronting another proxy is not a sensible default).
+            var typeFile = Path.Combine(dir, ServerTypeFile);
+            if (File.Exists(typeFile))
+            {
+                var marker = (await File.ReadAllTextAsync(typeFile, cancellationToken)).Trim();
+                if (marker.Equals("bedrock", StringComparison.OrdinalIgnoreCase) ||
+                    marker.Equals("proxy", StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+            }
+
+            var propertiesPath = Path.Combine(dir, "server.properties");
+            if (!File.Exists(propertiesPath))
+            {
+                continue;
+            }
+
+            var content = await File.ReadAllTextAsync(propertiesPath, cancellationToken);
+            var props = IniParser.ParseSimple(content);
+            if (!props.TryGetValue("server-port", out var portValue) ||
+                !int.TryParse(portValue, out var port) ||
+                port < 1 || port > 65535)
+            {
+                continue;
+            }
+
+            result[serverName] = $"127.0.0.1:{port}";
+        }
+
         return result;
     }
 
