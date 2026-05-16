@@ -32,7 +32,7 @@ The installer will:
 
 If you prefer to install manually or need offline installation:
 
-1. **Download the install bundle** from the [latest GitHub release](https://github.com/hexparrot/mineos-sveltekit/releases/latest):
+1. **Download the install bundle** from the [latest GitHub release](https://github.com/freeman412/mineos-sveltekit/releases/latest):
    - `mineos-install-bundle.tar.gz` (Linux/macOS)
    - `mineos-install-bundle.zip` (Windows)
 
