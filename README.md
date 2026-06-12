@@ -26,7 +26,9 @@ The installer will:
 - Configure environment settings
 - Start MineOS automatically
 
-**Access MineOS:** Open [http://localhost:3000](http://localhost:3000) in your browser
+**Access MineOS:** Open [http://localhost:3000](http://localhost:3000) on the machine running MineOS — or from any other device on your network using that machine's IP or hostname (e.g. `http://192.168.1.50:3000`). Any address works; no extra configuration needed.
+
+> Getting a **403 on login** or can't connect? See the [Troubleshooting guide](docs/TROUBLESHOOTING.md).
 
 ### Manual Installation
 
