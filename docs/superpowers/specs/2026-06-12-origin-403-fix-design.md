@@ -87,10 +87,22 @@ dependencies, inline CSS) containing:
 The hook also emits one structured `console.warn` line with the same values so
 the server logs finally show the problem.
 
-### 3. Docs & triage
+### 3. Docs, installer messaging & triage
 
+The most common deployment is MineOS on a *different* computer (NAS, home
+server) than the browser, yet the installer and README say "open
+http://localhost:3000" — planting the wrong expectation from the start.
+
+- `install.sh` / `install.ps1`: after starting the stack, detect the machine's
+  primary LAN IP and print real access URLs, e.g.
+  "Access MineOS from this computer: http://localhost:3000 — from other
+  devices on your network: http://192.168.1.50:3000". Same for the README
+  quick-install section: state explicitly that any IP or DNS name pointing at
+  the machine works.
 - `docs/TROUBLESHOOTING.md` — new doc, first section: "403 Forbidden / login
-  does nothing", explaining the mechanism and proxy fixes.
+  does nothing", framed around the remote-deploy scenario ("I installed MineOS
+  on another computer and can't log in from my PC"), explaining the mechanism
+  and proxy fixes.
 - README: FAQ entry linking to it.
 - `.env.template`: update `ORIGIN` comments (optional, what it still does).
 - `.github/ISSUE_TEMPLATE/bug_report.yml`: add fields for "URL in your browser
