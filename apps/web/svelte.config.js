@@ -12,8 +12,10 @@ const config = {
 		// Origin validation is handled dynamically in src/hooks.server.ts
 		// (compares Origin against the request's own Host header) so MineOS
 		// works from any IP/DNS name without configuring ORIGIN. See #100.
+		// trustedOrigins: ['*'] disables the built-in check (checkOrigin is
+		// deprecated and compiles to the same thing).
 		csrf: {
-			checkOrigin: false
+			trustedOrigins: ['*']
 		}
 	}
 };

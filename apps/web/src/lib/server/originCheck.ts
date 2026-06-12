@@ -4,7 +4,10 @@
 const FORM_CONTENT_TYPES = new Set([
 	'application/x-www-form-urlencoded',
 	'multipart/form-data',
-	'text/plain'
+	'text/plain',
+	// SvelteKit's binary form encoding (Remote Forms); the built-in check
+	// we replace treats it as form-capable, so we must too.
+	'application/x-sveltekit-formdata'
 ]);
 
 /** Content types a browser can send cross-site via plain <form> submission. */

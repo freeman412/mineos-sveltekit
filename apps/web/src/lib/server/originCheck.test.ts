@@ -2,10 +2,11 @@ import { describe, it, expect } from 'vitest';
 import { isFormContentType, isTrustedOrigin } from './originCheck';
 
 describe('isFormContentType', () => {
-	it('matches the three form-capable content types', () => {
+	it('matches the form-capable content types', () => {
 		expect(isFormContentType('application/x-www-form-urlencoded')).toBe(true);
 		expect(isFormContentType('multipart/form-data; boundary=----x')).toBe(true);
 		expect(isFormContentType('text/plain')).toBe(true);
+		expect(isFormContentType('application/x-sveltekit-formdata')).toBe(true);
 	});
 
 	it('ignores JSON and missing content types', () => {
