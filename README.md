@@ -60,7 +60,7 @@ If you prefer to install manually or need offline installation:
    docker compose up -d
    ```
 
-5. **Access MineOS:** Open [http://localhost:3000](http://localhost:3000)
+5. **Access MineOS:** Open [http://localhost:3000](http://localhost:3000) — or use this machine's IP/hostname from any other device (e.g. `http://192.168.1.50:3000`)
 
 ## Management
 
