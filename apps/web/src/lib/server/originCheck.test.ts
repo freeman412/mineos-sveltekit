@@ -96,4 +96,30 @@ describe('isTrustedOrigin', () => {
 	it('fails on garbage Origin without throwing', () => {
 		expect(isTrustedOrigin({ ...base, origin: '::::garbage', host: '192.168.1.50:3000' })).toBe(false);
 	});
+
+	it('rejects a userinfo-bearing Origin', () => {
+		expect(
+			isTrustedOrigin({ ...base, origin: 'http://user@192.168.1.50:3000', host: '192.168.1.50:3000' })
+		).toBe(false);
+	});
+
+	it('rejects a userinfo-bearing configured ORIGIN', () => {
+		expect(
+			isTrustedOrigin({
+				...base,
+				origin: 'http://trusted.example',
+				host: 'other.example',
+				configuredOrigin: 'http://user@trusted.example'
+			})
+		).toBe(false);
+	});
+
+	it('documents the explicit-default-port edge: URL parsing strips :80 from Origin', () => {
+		// WHATWG URL normalizes http://myserver:80 -> host "myserver", while a raw
+		// Host header could read "myserver:80". In practice browsers omit default
+		// ports from both Origin and Host, so the normalized forms match; this
+		// test pins the parser behavior so a regression is visible.
+		expect(isTrustedOrigin({ ...base, origin: 'http://myserver:80', host: 'myserver' })).toBe(true);
+		expect(isTrustedOrigin({ ...base, origin: 'http://myserver:80', host: 'myserver:80' })).toBe(false);
+	});
 });

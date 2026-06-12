@@ -48,7 +48,11 @@ export function isTrustedOrigin(input: OriginCheckInput): boolean {
 function hostOf(url: string | null): string | null {
 	if (!url) return null;
 	try {
-		return new URL(url).host.toLowerCase();
+		const parsed = new URL(url);
+		// Browsers never send userinfo in Origin; a userinfo-bearing value is
+		// either garbage or an attempt to confuse the parser. Reject it.
+		if (parsed.username || parsed.password) return null;
+		return parsed.host.toLowerCase();
 	} catch {
 		return null;
 	}
