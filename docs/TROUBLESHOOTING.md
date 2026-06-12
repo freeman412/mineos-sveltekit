@@ -4,7 +4,7 @@
 
 > "I installed MineOS on another computer and can't log in from my PC."
 
-**As of v1.2 this should not happen for direct access.** MineOS accepts any
+**On current versions this should not happen for direct access.** MineOS accepts any
 address that reaches the machine it runs on — `http://localhost:3000`,
 `http://192.168.1.50:3000`, `http://nas.local:3000` — with no configuration.
 Login is validated by comparing your browser's `Origin` header against the
@@ -37,9 +37,9 @@ ProxyPreserveHost On
 
 **Caddy / Traefik** — already forward `Host` by default; no action needed.
 
-### You're running a version older than v1.2
+### You're running an older version
 
-Older versions required the `ORIGIN` value in `.env` to exactly match the
+Versions released before this fix required the `ORIGIN` value in `.env` to exactly match the
 address in your browser. Either upgrade, or set `ORIGIN` in `.env` on the
 MineOS machine to the exact URL you type in the browser (e.g.
 `ORIGIN=http://192.168.1.50:3000`) and restart: `mineos stack restart`.
