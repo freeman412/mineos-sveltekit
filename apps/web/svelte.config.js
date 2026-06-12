@@ -8,7 +8,13 @@ const config = {
 	preprocess: vitePreprocess(),
 
 	kit: {
-		adapter: adapter()
+		adapter: adapter(),
+		// Origin validation is handled dynamically in src/hooks.server.ts
+		// (compares Origin against the request's own Host header) so MineOS
+		// works from any IP/DNS name without configuring ORIGIN. See #100.
+		csrf: {
+			checkOrigin: false
+		}
 	}
 };
 
