@@ -182,7 +182,10 @@ public sealed class NeoForgeService : INeoForgeService
             var grouped = allVersions.GroupBy(v => v.mcVersion);
             foreach (var group in grouped)
             {
-                var sorted = group.OrderByDescending(v => v.neoForgeVersion, StringComparer.OrdinalIgnoreCase).ToList();
+                // Sort by numeric build, not string: "21.1.99" must rank below "21.1.233".
+                var sorted = group
+                    .OrderByDescending(v => v.neoForgeVersion, Comparer<string>.Create(CompareNeoForgeBuilds))
+                    .ToList();
                 for (var i = 0; i < sorted.Count; i++)
                 {
                     versions.Add(new NeoForgeVersionDto(
@@ -199,7 +202,7 @@ public sealed class NeoForgeService : INeoForgeService
                 var mcCmp = CompareMinecraftVersions(b.MinecraftVersion, a.MinecraftVersion);
                 if (mcCmp != 0) return mcCmp;
                 if (a.IsLatest != b.IsLatest) return a.IsLatest ? -1 : 1;
-                return string.Compare(b.NeoForgeVersion, a.NeoForgeVersion, StringComparison.OrdinalIgnoreCase);
+                return CompareNeoForgeBuilds(b.NeoForgeVersion, a.NeoForgeVersion);
             });
 
             _logger.LogInformation("Fetched {Count} NeoForge versions", versions.Count);
@@ -236,6 +239,23 @@ public sealed class NeoForgeService : INeoForgeService
         {
             var aVal = i < aParts.Length ? aParts[i] : 0;
             var bVal = i < bParts.Length ? bParts[i] : 0;
+            if (aVal != bVal) return aVal.CompareTo(bVal);
+        }
+        return 0;
+    }
+
+    /// <summary>
+    /// Compares NeoForge build strings (e.g. "21.1.233" vs "21.1.99") numerically by
+    /// dot/dash-separated segment, so ordering and "latest" detection are correct.
+    /// </summary>
+    private static int CompareNeoForgeBuilds(string a, string b)
+    {
+        var aParts = a.Split('.', '-');
+        var bParts = b.Split('.', '-');
+        for (var i = 0; i < Math.Max(aParts.Length, bParts.Length); i++)
+        {
+            var aVal = i < aParts.Length && int.TryParse(aParts[i], out var x) ? x : 0;
+            var bVal = i < bParts.Length && int.TryParse(bParts[i], out var y) ? y : 0;
             if (aVal != bVal) return aVal.CompareTo(bVal);
         }
         return 0;
