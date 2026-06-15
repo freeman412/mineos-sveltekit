@@ -129,14 +129,15 @@
 	function formatJarFile(jarFile: string | null): string {
 		if (!jarFile) return 'N/A';
 
-		// Check if it's Forge argfile syntax
+		// Forge and NeoForge both use @argfile syntax pointing at a versioned
+		// args file (e.g. "@libraries/net/neoforged/neoforge/21.1.227/unix_args.txt"
+		// or "@libraries/net/minecraftforge/forge/1.21.10-60.1.0/unix_args.txt").
+		// NeoForge must be detected first since its path also contains "forge".
 		if (jarFile.trim().startsWith('@')) {
-			// Extract version from path like "@user_jvm_args.txt @libraries/net/minecraftforge/forge/1.21.10-60.1.0/unix_args.txt"
-			const match = jarFile.match(/forge\/(\d+\.\d+(?:\.\d+)?-[\d.]+)\//);
-			if (match) {
-				return `Forge ${match[1]}`;
-			}
-			return 'Forge (argfile)';
+			const isNeo = /neoforge/i.test(jarFile);
+			const label = isNeo ? 'NeoForge' : 'Forge';
+			const match = jarFile.match(isNeo ? /neoforge\/(\d[^/\\]*)\//i : /forge\/(\d[^/\\]*)\//i);
+			return match ? `${label} ${match[1]}` : `${label} (argfile)`;
 		}
 
 		return jarFile;
