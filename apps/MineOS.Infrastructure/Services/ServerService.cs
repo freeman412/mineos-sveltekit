@@ -1405,10 +1405,39 @@ public class ServerService : IServerService
 
     private static readonly (string dir, string loader)[] LibraryDirLoaders =
     [
-        ("net/minecraftforge", "forge"),
+        // NeoForge before Forge so a NeoForge install is never reported as Forge.
         ("net/neoforged", "neoforge"),
+        ("net/minecraftforge", "forge"),
         ("net/fabricmc", "fabric"),
     ];
+
+    /// <summary>
+    /// Best-effort extraction of the loader version from a configured jarfile value.
+    /// Handles both plain jars (e.g. "neoforge-21.1.227.jar") and @argfile paths
+    /// (e.g. "@libraries/net/neoforged/neoforge/21.1.227/unix_args.txt"). Returns null
+    /// when no version can be parsed — callers treat that as "unknown".
+    /// </summary>
+    private static string? ExtractLoaderVersion(string loader, string jarFile)
+    {
+        if (string.IsNullOrWhiteSpace(jarFile)) return null;
+
+        // For Forge/NeoForge the version follows the loader name as a path segment or
+        // "-version" suffix: ".../neoforge/21.1.227/..." or "neoforge-21.1.227.jar".
+        // For Fabric/Quilt the loader build follows "loader." in the jar name:
+        // "fabric-server-mc.1.21.1-loader.0.16.0.jar".
+        var pattern = loader switch
+        {
+            "neoforge" => @"neoforge[-/\\](?<v>\d[^/\\ ]*?)(?:\.jar|[/\\]|$)",
+            "forge" => @"(?<![a-z])forge[-/\\](?<v>\d[^/\\ ]*?)(?:\.jar|[/\\]|$)",
+            "fabric" or "quilt" => @"loader[.](?<v>\d[^/\\ ]*?)(?:\.jar|[/\\]|$)",
+            _ => null
+        };
+        if (pattern is null) return null;
+
+        var match = System.Text.RegularExpressions.Regex.Match(
+            jarFile, pattern, System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        return match.Success ? match.Groups["v"].Value : null;
+    }
 
     public async Task<ServerLoaderDto> DetectLoaderAsync(string name, CancellationToken cancellationToken)
     {
@@ -1422,24 +1451,31 @@ public class ServerService : IServerService
         var javaTweaks = config.Java.JavaTweaks ?? "";
         var profile = config.Minecraft.Profile ?? "";
 
-        // Priority 2: JAR filename regex
-        var jarName = Path.GetFileName(jarFile);
-        if (!string.IsNullOrWhiteSpace(jarName))
+        // Priority 2: detect from the configured jar value. We inspect the FULL value
+        // (not just the file name) because modern Forge/NeoForge use an @argfile that
+        // points at libraries/net/<vendor>/<loader>/<version>/unix_args.txt — the loader
+        // and version live in the path, not the file name (which is just "unix_args.txt").
+        var jarLower = jarFile.ToLowerInvariant();
+        if (!string.IsNullOrWhiteSpace(jarLower))
         {
-            var lower = jarName.ToLowerInvariant();
-            if (lower.Contains("neoforge")) return new ServerLoaderDto("neoforge", null);
-            if (lower.Contains("forge")) return new ServerLoaderDto("forge", null);
-            if (lower.Contains("fabric")) return new ServerLoaderDto("fabric", null);
-            if (lower.Contains("quilt")) return new ServerLoaderDto("quilt", null);
-            if (lower.Contains("paper")) return new ServerLoaderDto("paper", null);
-            if (lower.Contains("spigot")) return new ServerLoaderDto("spigot", null);
-            if (lower.Contains("purpur")) return new ServerLoaderDto("purpur", null);
-            if (lower.Contains("bukkit")) return new ServerLoaderDto("bukkit", null);
+            // NeoForge MUST be tested before Forge: "neoforge" contains the substring
+            // "forge", and NeoForge also uses the @argfile syntax — so an ordering/@-based
+            // check would otherwise mislabel NeoForge servers as Forge.
+            if (jarLower.Contains("neoforge") || jarLower.Contains("neoforged"))
+                return new ServerLoaderDto("neoforge", ExtractLoaderVersion("neoforge", jarFile));
+            if (jarLower.Contains("minecraftforge") || jarLower.Contains("forge"))
+                return new ServerLoaderDto("forge", ExtractLoaderVersion("forge", jarFile));
+            if (jarLower.Contains("fabric")) return new ServerLoaderDto("fabric", ExtractLoaderVersion("fabric", jarFile));
+            if (jarLower.Contains("quilt")) return new ServerLoaderDto("quilt", ExtractLoaderVersion("quilt", jarFile));
+            if (jarLower.Contains("paper")) return new ServerLoaderDto("paper", null);
+            if (jarLower.Contains("spigot")) return new ServerLoaderDto("spigot", null);
+            if (jarLower.Contains("purpur")) return new ServerLoaderDto("purpur", null);
+            if (jarLower.Contains("bukkit")) return new ServerLoaderDto("bukkit", null);
         }
 
-        // Priority 3: @argfile syntax (Forge modpacks)
+        // Priority 3: bare @argfile with no loader hint in the path — legacy Forge modpacks
         if (jarFile.TrimStart().StartsWith("@"))
-            return new ServerLoaderDto("forge", null);
+            return new ServerLoaderDto("forge", ExtractLoaderVersion("forge", jarFile));
 
         // Priority 4: jar args and java tweaks containing loader names
         var combinedArgs = (jarArgs + " " + javaTweaks).ToLowerInvariant();
