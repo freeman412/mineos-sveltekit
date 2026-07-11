@@ -175,6 +175,28 @@ public partial class ProcessManager : IProcessManager
         await SendScreenCommandAsync($"mc-{serverName}", command, uid, gid, cancellationToken);
     }
 
+    // Escape a console command before embedding it in screen's `stuff` payload.
+    //
+    // The command is delivered as a single `-X stuff <payload>` argument (no `eval`).
+    // screen does not re-parse that payload as a command line, so a double-quote is
+    // ordinary text and must NOT be backslash-escaped — escaping it is exactly what
+    // mangled quoted commands like /tellraw JSON. What screen *does* interpret inside
+    // the payload are backslash escapes (\nnn octal, \r, \n, ...), so:
+    //   * backslashes are doubled, so a literal '\' renders as '\' and a user-supplied
+    //     "\012" can't smuggle in a newline to submit a second console command
+    //     (Minecraft-console command injection).
+    //   * CR/LF are stripped for the same reason — the only Enter is the trailing \012
+    //     appended at the call site.
+    // Shell-level safety (the su -c layer) is handled separately by single-quoting
+    // every argv token in BuildProcessStartInfo.
+    private static string EscapeForScreenStuff(string command)
+    {
+        return command
+            .Replace("\r", string.Empty)
+            .Replace("\n", string.Empty)
+            .Replace("\\", "\\\\");
+    }
+
     public async Task SendScreenCommandAsync(
         string sessionName,
         string command,
@@ -182,6 +204,7 @@ public partial class ProcessManager : IProcessManager
         int gid,
         CancellationToken cancellationToken)
     {
+        var escapedCommand = EscapeForScreenStuff(command);
         var args = new[]
         {
             "-S",
@@ -189,8 +212,8 @@ public partial class ProcessManager : IProcessManager
             "-p",
             "0",
             "-X",
-            "eval",
-            $"stuff \"{command}\\012\""
+            "stuff",
+            $"{escapedCommand}\\012"
         };
 
         var startInfo = BuildProcessStartInfo(ScreenCommand, args, uid, gid);

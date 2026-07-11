@@ -21,6 +21,13 @@
 	// Detect server type from jar, profile, jar args, and server directory
 	function detectServerTypeFromConfig(server: any): string {
 		if (server.serverType === 'bedrock') return 'Bedrock';
+		if (server.serverType === 'proxy') {
+			const jar = (server.config?.java?.jarFile ?? '').toLowerCase();
+			if (jar.includes('velocity')) return 'Velocity';
+			if (jar.includes('bungeecord')) return 'BungeeCord';
+			if (jar.includes('waterfall')) return 'Waterfall';
+			return 'Proxy';
+		}
 		const jar = (server.config?.java?.jarFile ?? '').toLowerCase();
 		const profile = (server.config?.minecraft?.profile ?? '').toLowerCase();
 		const jarArgs = (server.config?.java?.jarArgs ?? '').toLowerCase();
@@ -208,6 +215,35 @@
 			heartbeatSource?.close();
 			resizeObserver?.disconnect();
 		};
+	});
+
+	// SvelteKit reuses this component when navigating between two servers' dashboards,
+	// so onMount fires only once. When the server actually changes, reset the dashboard
+	// state, clear the console, and reconnect both streams to the new server — otherwise
+	// the Process Status / Ping cards and the terminal keep showing the previous server.
+	let lastServerName = data.server?.name;
+	$effect(() => {
+		const name = data.server?.name;
+		if (name === lastServerName) return;
+		lastServerName = name;
+		if (!data.server) return;
+
+		heartbeat = data.heartbeat.data ?? null;
+		heartbeatError = data.heartbeat.error;
+		watchdog = data.watchdog.data ?? null;
+		watchdogError = data.watchdog.error;
+		memoryHistory = [];
+		detectServerType(data.server);
+
+		eventSource?.close();
+		heartbeatSource?.close();
+		heartbeatSource = null;
+		terminal?.clear();
+
+		connectToHeartbeat();
+		checkActiveInstalls().then((hasInstall) => {
+			if (!hasInstall) connectToLogs();
+		});
 	});
 
 	async function checkActiveInstalls(): Promise<boolean> {

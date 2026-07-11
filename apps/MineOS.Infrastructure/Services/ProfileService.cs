@@ -19,13 +19,20 @@ public sealed class ProfileService : IProfileService
     private const string BuildToolsUrl =
         "https://hub.spigotmc.org/jenkins/job/BuildTools/lastSuccessfulBuild/artifact/target/BuildTools.jar";
     private const string RestartFlagFile = ".mineos-restart-required";
-    private const string PaperProjectUrl = "https://api.papermc.io/v2/projects/paper";
+    // PaperMC's legacy api.papermc.io/v2 API was sunset in 2026; Fill v3 is the replacement.
+    private const string PaperProjectUrl = "https://fill.papermc.io/v3/projects/paper";
+    private const string VelocityProjectUrl = "https://fill.papermc.io/v3/projects/velocity";
     private const string MojangVersionManifestUrl = "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json";
     private const int PaperVersionLimit = 20;
+    private const int VelocityVersionLimit = 10;
     private static readonly TimeSpan PaperCacheTtl = TimeSpan.FromMinutes(10);
     private static readonly SemaphoreSlim PaperCacheLock = new(1, 1);
     private static DateTimeOffset? _paperLastFetch;
     private static List<ProfileDto> _paperCache = new();
+    private static readonly TimeSpan VelocityCacheTtl = TimeSpan.FromMinutes(10);
+    private static readonly SemaphoreSlim VelocityCacheLock = new(1, 1);
+    private static DateTimeOffset? _velocityLastFetch;
+    private static List<ProfileDto> _velocityCache = new();
     private static readonly TimeSpan VanillaCacheTtl = TimeSpan.FromMinutes(10);
     private static readonly SemaphoreSlim VanillaCacheLock = new(1, 1);
     private static DateTimeOffset? _vanillaLastFetch;
@@ -59,6 +66,10 @@ public sealed class ProfileService : IProfileService
         _hostOptions = hostOptions.Value;
         _httpClient = httpClient;
         _jobService = jobService;
+
+        // PaperMC's Fill API requires an identifying User-Agent.
+        _httpClient.DefaultRequestHeaders.UserAgent.TryParseAdd(
+            "mineos-sveltekit/1.1 (+https://github.com/freeman412/mineos-sveltekit)");
     }
 
     private string GetProfilesPath() =>
@@ -93,6 +104,7 @@ public sealed class ProfileService : IProfileService
         var profiles = await LoadProfilesAsync(cancellationToken);
         var vanillaProfiles = await GetVanillaProfilesAsync(cancellationToken);
         var paperProfiles = await GetPaperProfilesAsync(cancellationToken);
+        var velocityProfiles = await GetVelocityProfilesAsync(cancellationToken);
         var buildToolsProfiles = await DiscoverBuildToolsProfilesAsync(cancellationToken);
         var bedrockProfiles = await GetBedrockProfilesAsync(cancellationToken);
         var combined = new Dictionary<string, ProfileDto>(StringComparer.OrdinalIgnoreCase);
@@ -108,6 +120,11 @@ public sealed class ProfileService : IProfileService
         }
 
         foreach (var profile in paperProfiles)
+        {
+            combined[profile.Id] = profile;
+        }
+
+        foreach (var profile in velocityProfiles)
         {
             combined[profile.Id] = profile;
         }
@@ -1029,29 +1046,39 @@ public sealed class ProfileService : IProfileService
             var json = await _httpClient.GetStringAsync(PaperProjectUrl, cancellationToken);
             using var doc = JsonDocument.Parse(json);
 
+            // Fill v3 shape: "versions" is an object mapping a version group to an
+            // array of version strings, e.g. { "1.21": ["1.21.11", "1.21.11-rc3", ...] }.
             if (!doc.RootElement.TryGetProperty("versions", out var versionsElement) ||
-                versionsElement.ValueKind != JsonValueKind.Array)
+                versionsElement.ValueKind != JsonValueKind.Object)
             {
                 return Array.Empty<ProfileDto>();
             }
 
             var versions = new List<(string Raw, Version Parsed)>();
-            foreach (var element in versionsElement.EnumerateArray())
+            foreach (var group in versionsElement.EnumerateObject())
             {
-                var versionText = element.GetString();
-                if (string.IsNullOrWhiteSpace(versionText))
+                if (group.Value.ValueKind != JsonValueKind.Array)
                 {
                     continue;
                 }
 
-                if (!IsStablePaperVersion(versionText))
+                foreach (var element in group.Value.EnumerateArray())
                 {
-                    continue;
-                }
+                    var versionText = element.GetString();
+                    if (string.IsNullOrWhiteSpace(versionText))
+                    {
+                        continue;
+                    }
 
-                if (Version.TryParse(versionText, out var parsed))
-                {
-                    versions.Add((versionText, parsed));
+                    if (!IsStablePaperVersion(versionText))
+                    {
+                        continue;
+                    }
+
+                    if (Version.TryParse(versionText, out var parsed))
+                    {
+                        versions.Add((versionText, parsed));
+                    }
                 }
             }
 
@@ -1072,16 +1099,13 @@ public sealed class ProfileService : IProfileService
                         continue;
                     }
 
-                    var url =
-                        $"https://api.papermc.io/v2/projects/paper/versions/{version}/builds/{build.Build}/downloads/{build.FileName}";
-
                     results.Add(new ProfileDto(
                         $"paper-{version}",
                         "paper",
                         "release",
                         version,
                         build.Time,
-                        url,
+                        build.Url,
                         build.FileName,
                         false,
                         null));
@@ -1103,47 +1127,191 @@ public sealed class ProfileService : IProfileService
 
     private async Task<PaperBuildInfo?> GetLatestPaperBuildAsync(string version, CancellationToken cancellationToken)
     {
-        var versionUrl = $"{PaperProjectUrl}/versions/{version}";
-        var json = await _httpClient.GetStringAsync(versionUrl, cancellationToken);
-        using var doc = JsonDocument.Parse(json);
-
-        if (!doc.RootElement.TryGetProperty("builds", out var buildsElement) ||
-            buildsElement.ValueKind != JsonValueKind.Array)
-        {
-            return null;
-        }
-
-        var builds = buildsElement
-            .EnumerateArray()
-            .Select(element => element.GetInt32())
-            .ToList();
-
-        if (builds.Count == 0)
-        {
-            return null;
-        }
-
-        var latestBuild = builds[^1];
-        var buildUrl = $"{versionUrl}/builds/{latestBuild}";
+        // Fill v3 exposes the newest build directly, downloads keyed by kind
+        // ("server:default") with an absolute download URL.
+        var buildUrl = $"{PaperProjectUrl}/versions/{version}/builds/latest";
         var buildJson = await _httpClient.GetStringAsync(buildUrl, cancellationToken);
         using var buildDoc = JsonDocument.Parse(buildJson);
+
+        if (!buildDoc.RootElement.TryGetProperty("downloads", out var downloadsElement) ||
+            !downloadsElement.TryGetProperty("server:default", out var serverDownload) ||
+            !serverDownload.TryGetProperty("url", out var urlElement) ||
+            urlElement.GetString() is not string url)
+        {
+            return null;
+        }
 
         var time = buildDoc.RootElement.TryGetProperty("time", out var timeElement)
             ? timeElement.GetString() ?? DateTimeOffset.UtcNow.ToString("O")
             : DateTimeOffset.UtcNow.ToString("O");
 
-        string fileName = $"paper-{version}-{latestBuild}.jar";
-        if (buildDoc.RootElement.TryGetProperty("downloads", out var downloadsElement) &&
-            downloadsElement.TryGetProperty("application", out var appElement) &&
-            appElement.TryGetProperty("name", out var nameElement))
-        {
-            fileName = nameElement.GetString() ?? fileName;
-        }
+        var fileName = serverDownload.TryGetProperty("name", out var nameElement)
+            ? nameElement.GetString() ?? $"paper-{version}.jar"
+            : $"paper-{version}.jar";
 
-        return new PaperBuildInfo(latestBuild, time, fileName);
+        return new PaperBuildInfo(time, fileName, url);
     }
 
     private static bool IsStablePaperVersion(string version)
+    {
+        return !version.Contains('-', StringComparison.OrdinalIgnoreCase);
+    }
+
+    private async Task<IReadOnlyList<ProfileDto>> GetVelocityProfilesAsync(CancellationToken cancellationToken)
+    {
+        var now = DateTimeOffset.UtcNow;
+        if (_velocityLastFetch.HasValue &&
+            now - _velocityLastFetch.Value < VelocityCacheTtl &&
+            _velocityCache.Count > 0)
+        {
+            return _velocityCache;
+        }
+
+        await VelocityCacheLock.WaitAsync(cancellationToken);
+        try
+        {
+            if (_velocityLastFetch.HasValue &&
+                now - _velocityLastFetch.Value < VelocityCacheTtl &&
+                _velocityCache.Count > 0)
+            {
+                return _velocityCache;
+            }
+
+            var fetched = await FetchVelocityProfilesAsync(cancellationToken);
+            if (fetched.Count > 0)
+            {
+                _velocityCache = fetched.ToList();
+                _velocityLastFetch = DateTimeOffset.UtcNow;
+            }
+            else if (_velocityCache.Count == 0)
+            {
+                _velocityLastFetch = DateTimeOffset.UtcNow;
+            }
+
+            return _velocityCache;
+        }
+        finally
+        {
+            VelocityCacheLock.Release();
+        }
+    }
+
+    private async Task<IReadOnlyList<ProfileDto>> FetchVelocityProfilesAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            var json = await _httpClient.GetStringAsync(VelocityProjectUrl, cancellationToken);
+            using var doc = JsonDocument.Parse(json);
+
+            // Fill v3 shape: "versions" is an object mapping a version group to an
+            // array of version strings, e.g. { "3.0.0": ["3.4.0", "3.4.0-SNAPSHOT", ...] }.
+            if (!doc.RootElement.TryGetProperty("versions", out var versionsElement) ||
+                versionsElement.ValueKind != JsonValueKind.Object)
+            {
+                return Array.Empty<ProfileDto>();
+            }
+
+            var versions = new List<(string Raw, Version Parsed)>();
+            foreach (var group in versionsElement.EnumerateObject())
+            {
+                if (group.Value.ValueKind != JsonValueKind.Array)
+                {
+                    continue;
+                }
+
+                foreach (var element in group.Value.EnumerateArray())
+                {
+                    var versionText = element.GetString();
+                    if (string.IsNullOrWhiteSpace(versionText))
+                    {
+                        continue;
+                    }
+
+                    if (!IsStableVelocityVersion(versionText))
+                    {
+                        continue;
+                    }
+
+                    if (Version.TryParse(versionText, out var parsed))
+                    {
+                        versions.Add((versionText, parsed));
+                    }
+                }
+            }
+
+            var recentVersions = versions
+                .OrderByDescending(v => v.Parsed)
+                .Take(VelocityVersionLimit)
+                .Select(v => v.Raw)
+                .ToList();
+
+            var results = new List<ProfileDto>();
+            foreach (var version in recentVersions)
+            {
+                try
+                {
+                    var build = await GetLatestVelocityBuildAsync(version, cancellationToken);
+                    if (build == null)
+                    {
+                        continue;
+                    }
+
+                    results.Add(new ProfileDto(
+                        $"velocity-{version}",
+                        "velocity",
+                        "release",
+                        version,
+                        build.Time,
+                        build.Url,
+                        build.FileName,
+                        false,
+                        null));
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to load Velocity build for {Version}", version);
+                }
+            }
+
+            return results;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to fetch Velocity profiles");
+            return Array.Empty<ProfileDto>();
+        }
+    }
+
+    private async Task<VelocityBuildInfo?> GetLatestVelocityBuildAsync(string version, CancellationToken cancellationToken)
+    {
+        // Fill v3 exposes the newest build directly, downloads keyed by kind
+        // ("server:default") with an absolute download URL.
+        var buildUrl = $"{VelocityProjectUrl}/versions/{version}/builds/latest";
+        var buildJson = await _httpClient.GetStringAsync(buildUrl, cancellationToken);
+        using var buildDoc = JsonDocument.Parse(buildJson);
+
+        if (!buildDoc.RootElement.TryGetProperty("downloads", out var downloadsElement) ||
+            !downloadsElement.TryGetProperty("server:default", out var serverDownload) ||
+            !serverDownload.TryGetProperty("url", out var urlElement) ||
+            urlElement.GetString() is not string url)
+        {
+            return null;
+        }
+
+        var time = buildDoc.RootElement.TryGetProperty("time", out var timeElement)
+            ? timeElement.GetString() ?? DateTimeOffset.UtcNow.ToString("O")
+            : DateTimeOffset.UtcNow.ToString("O");
+
+        var fileName = serverDownload.TryGetProperty("name", out var nameElement)
+            ? nameElement.GetString() ?? $"velocity-{version}.jar"
+            : $"velocity-{version}.jar";
+
+        return new VelocityBuildInfo(time, fileName, url);
+    }
+
+    private sealed record VelocityBuildInfo(string Time, string FileName, string Url);
+
+    private static bool IsStableVelocityVersion(string version)
     {
         return !version.Contains('-', StringComparison.OrdinalIgnoreCase);
     }
@@ -1273,7 +1441,7 @@ public sealed class ProfileService : IProfileService
                 "release",
                 "1.20.4",
                 now,
-                "https://api.papermc.io/v2/projects/paper/versions/1.20.4/builds/496/downloads/paper-1.20.4-496.jar",
+                "https://fill-data.papermc.io/v1/objects/cabed3ae77cf55deba7c7d8722bc9cfd5e991201c211665f9265616d9fe5c77b/paper-1.20.4-499.jar",
                 "paper-1.20.4.jar",
                 false,
                 null
@@ -1351,7 +1519,7 @@ public sealed class ProfileService : IProfileService
     }
 
     private record MojangVersionInfo(string Id, string Url, string ReleaseTime, DateTimeOffset? ReleaseTimeParsed);
-    private record PaperBuildInfo(int Build, string Time, string FileName);
+    private record PaperBuildInfo(string Time, string FileName, string Url);
 
     private async Task MarkRestartRequiredAsync(string serverPath, CancellationToken cancellationToken)
     {

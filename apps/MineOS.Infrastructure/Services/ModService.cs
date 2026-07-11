@@ -2250,10 +2250,14 @@ public sealed class ModService : IModService
 
     private static string GetSafePath(string rootPath, string relativePath)
     {
-        var combined = Path.Combine(rootPath, relativePath.TrimStart('/', '\\'));
+        var root = Path.GetFullPath(rootPath);
+        var combined = Path.Combine(root, relativePath.TrimStart('/', '\\'));
         var normalized = Path.GetFullPath(combined);
 
-        if (!normalized.StartsWith(rootPath, StringComparison.OrdinalIgnoreCase))
+        // Compare with a trailing separator so a sibling directory whose name merely
+        // starts with rootPath cannot pass the check.
+        if (normalized != root &&
+            !normalized.StartsWith(root + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
         {
             throw new ArgumentException("Invalid override path");
         }

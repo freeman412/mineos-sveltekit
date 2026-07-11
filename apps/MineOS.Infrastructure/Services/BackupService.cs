@@ -19,19 +19,22 @@ public sealed class BackupService : IBackupService
     private readonly AppDbContext _db;
     private readonly IFeatureUsageTracker _featureTracker;
     private readonly ITelemetryService _telemetryService;
+    private readonly IProcessManager _processManager;
 
     public BackupService(
         ILogger<BackupService> logger,
         IOptions<HostOptions> hostOptions,
         AppDbContext db,
         IFeatureUsageTracker featureTracker,
-        ITelemetryService telemetryService)
+        ITelemetryService telemetryService,
+        IProcessManager processManager)
     {
         _logger = logger;
         _hostOptions = hostOptions.Value;
         _db = db;
         _featureTracker = featureTracker;
         _telemetryService = telemetryService;
+        _processManager = processManager;
     }
 
     private string GetServerPath(string serverName) =>
@@ -131,6 +134,15 @@ public sealed class BackupService : IBackupService
         if (!Directory.Exists(backupPath))
         {
             throw new DirectoryNotFoundException($"No backups found for server '{serverName}'");
+        }
+
+        // Refuse to restore over a running server: rdiff-backup reconciles the
+        // directory to the old snapshot (overwriting/deleting files) while the JVM
+        // writes region/player files, which corrupts the world. Stop it first.
+        if (await _processManager.IsServerRunningAsync(serverName, cancellationToken))
+        {
+            throw new InvalidOperationException(
+                $"Server '{serverName}' is running. Stop it before restoring a backup.");
         }
 
         // Use rdiff-backup to restore to specific increment

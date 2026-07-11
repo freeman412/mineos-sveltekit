@@ -50,7 +50,19 @@ public sealed class ServerAccessFilter : IEndpointFilter
     private static bool TryGetServerName(HttpContext context, out string serverName)
     {
         serverName = string.Empty;
-        if (!context.Request.RouteValues.TryGetValue("name", out var value) || value == null)
+        // Server-scoped routes use either {name} (the /servers group) or {serverName}
+        // (the players/worlds groups). Check both so this filter guards all of them.
+        object? value = null;
+        if (context.Request.RouteValues.TryGetValue("name", out var byName) && byName != null)
+        {
+            value = byName;
+        }
+        else if (context.Request.RouteValues.TryGetValue("serverName", out var byServerName) && byServerName != null)
+        {
+            value = byServerName;
+        }
+
+        if (value == null)
         {
             return false;
         }

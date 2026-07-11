@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
 	import { page } from '$app/stores';
 	import StatusBadge from '$lib/components/StatusBadge.svelte';
 	import ServerQuickActions from '$lib/components/ServerQuickActions.svelte';
@@ -15,6 +14,7 @@
 	});
 
 	const isBedrock = $derived(server?.serverType === 'bedrock');
+	const isProxy = $derived(server?.serverType === 'proxy');
 	const profile = $derived(server?.config?.minecraft?.profile?.toLowerCase() ?? '');
 	const jarFile = $derived(server?.config?.java?.jarFile?.toLowerCase() ?? '');
 	const javaTweaks = $derived(server?.config?.java?.javaTweaks?.toLowerCase() ?? '');
@@ -36,6 +36,19 @@
 				serverHint.includes('folia'))
 	);
 
+	// For proxies, the SLP ping returns a protocol-range string ("Velocity 1.7.2-1.18.1")
+	// that's confusing in the page header. Derive the actual proxy build (e.g. "Velocity 3.1.1")
+	// from the jar filename so the chip says what's running.
+	const proxyVersionFromJar = $derived.by(() => {
+		if (!isProxy) return null;
+		const raw = server?.config?.java?.jarFile ?? '';
+		const m = raw.match(/^(velocity|bungeecord|waterfall)-(\d+\.\d+(?:\.\d+)?)/i);
+		if (!m) return null;
+		const name = m[1].charAt(0).toUpperCase() + m[1].slice(1).toLowerCase();
+		return `${name} ${m[2]}`;
+	});
+	const displayVersion = $derived(proxyVersionFromJar ?? playerInfo.version);
+
 	type Tab = {
 		href: string;
 		label: string;
@@ -48,7 +61,15 @@
 		const s = server?.name;
 		return [
 			{ href: `/servers/${s}`, label: 'Dashboard', exact: true },
-			{ href: `/servers/${s}/config`, label: 'Properties' },
+			isProxy
+				? {
+						href: `/servers/${s}/proxy-config`,
+						label: 'Properties'
+					}
+				: {
+						href: `/servers/${s}/config`,
+						label: 'Properties'
+					},
 			{
 				href: `/servers/${s}/advanced`,
 				label: 'Config',
@@ -59,28 +80,37 @@
 			{ href: `/servers/${s}/archives`, label: 'Archives' },
 			{ href: `/servers/${s}/files`, label: 'Files' },
 			{ href: `/servers/${s}/performance`, label: 'Performance' },
-			{ href: `/servers/${s}/worlds`, label: 'Worlds' },
+			{
+				href: `/servers/${s}/worlds`,
+				label: 'Worlds',
+				disabled: isProxy,
+				tooltip: 'Proxies do not host worlds'
+			},
 			{
 				href: `/servers/${s}/players`,
 				label: 'Players',
-				disabled: isBedrock,
-				tooltip: 'Player management is not available for Bedrock servers'
+				disabled: isBedrock || isProxy,
+				tooltip: isBedrock
+					? 'Player management is not available for Bedrock servers'
+					: 'Player management is not available for proxies'
 			},
 			{
 				href: `/servers/${s}/mods`,
 				label: 'Mods',
-				disabled: isBedrock || !isModded,
+				disabled: isBedrock || isProxy || !isModded,
 				tooltip: isBedrock
 					? 'Bedrock servers do not support Java mods'
-					: 'Mods require a modded server (Forge, Fabric, NeoForge, or Quilt)'
+					: isProxy
+						? 'Proxies do not load mods'
+						: 'Mods require a modded server (Forge, Fabric, NeoForge, or Quilt)'
 			},
 			{
 				href: `/servers/${s}/plugins`,
 				label: 'Plugins',
-				disabled: isBedrock || !isPluginServer,
+				disabled: isBedrock || (!isProxy && !isPluginServer),
 				tooltip: isBedrock
 					? 'Bedrock servers do not support Java plugins'
-					: 'Plugins require a plugin server (Paper, Spigot, Purpur, or Bukkit)'
+					: 'Plugins require a plugin server (Paper, Spigot, Purpur, or Bukkit) or a proxy (Velocity)'
 			},
 			{ href: `/servers/${s}/cron`, label: 'Cron Jobs' }
 		];
@@ -103,11 +133,6 @@
 
 	const statusMeta = $derived(normalizeStatus(server?.status));
 
-	$effect(() => {
-		server = data.server;
-		playerInfo = { online: null, max: null, version: null };
-	});
-
 	let statusSource: EventSource | null = null;
 
 	function scheduleBurstRefresh() {
@@ -115,22 +140,30 @@
 		connectStatusStream();
 	}
 
-	onMount(() => {
-		let cancelled = false;
-		connectStatusStream();
+	// Re-runs whenever we navigate to a different server (data.server changes).
+	// SvelteKit reuses this component instance across /servers/[name] navigations,
+	// so we must reset state and reconnect the heartbeat stream to the new server —
+	// otherwise the still-open stream keeps pushing the previous server's live
+	// status/PID/ping into the header.
+	$effect(() => {
+		server = data.server;
+		playerInfo = { online: null, max: null, version: null };
+		// Pass the name explicitly (not via the reactive `server`) so this effect
+		// depends only on data.server — otherwise the SSE handler's writes to
+		// `server` would re-trigger it and reconnect on every heartbeat.
+		connectStatusStream(data.server?.name);
 
 		return () => {
-			cancelled = true;
 			statusSource?.close();
 			statusSource = null;
 		};
 	});
 
-	function connectStatusStream() {
-		if (!server?.name) return;
+	function connectStatusStream(name: string | undefined = server?.name) {
+		if (!name) return;
 		statusSource?.close();
 		statusSource = new EventSource(
-			`/api/servers/${encodeURIComponent(server.name)}/heartbeat/stream`
+			`/api/servers/${encodeURIComponent(name)}/heartbeat/stream`
 		);
 		statusSource.onmessage = (event) => {
 			try {
@@ -155,7 +188,7 @@
 	statusSource.onerror = () => {
 		statusSource?.close();
 		statusSource = null;
-		setTimeout(connectStatusStream, 2000);
+		setTimeout(() => connectStatusStream(name), 2000);
 	};
 }
 </script>
@@ -177,10 +210,10 @@
 					<span class="chip-sep">/</span>
 					<span class="chip-value muted">{playerInfo.max ?? '--'}</span>
 				</div>
-				{#if playerInfo.version}
+				{#if displayVersion}
 					<div class="meta-chip">
 						<span class="chip-label">Version</span>
-						<span class="chip-value">{playerInfo.version}</span>
+						<span class="chip-value">{displayVersion}</span>
 					</div>
 				{/if}
 				{#if server?.javaPid}
