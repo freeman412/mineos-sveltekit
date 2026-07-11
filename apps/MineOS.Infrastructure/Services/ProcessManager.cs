@@ -175,6 +175,25 @@ public partial class ProcessManager : IProcessManager
         await SendScreenCommandAsync($"mc-{serverName}", command, uid, gid, cancellationToken);
     }
 
+    // Escape a console command before embedding it in screen's `stuff "..."`.
+    // Security: an unescaped " lets the command close the stuff string and have
+    // the surrounding `-X eval` interpret the remainder as further screen commands
+    // (e.g. `exec` as the shared minecraft user) — screen-command injection from
+    // anyone with console access. CR/LF are stripped for the same reason (the
+    // intended Enter is the trailing \012).
+    // NOTE: this neutralizes injection but does not make quoted commands render
+    // correctly through the su -> eval -> stuff layers (e.g. /tellraw JSON still
+    // comes through mangled). Correct quoted-command handling — likely by dropping
+    // the eval wrapper and stuffing via a non-reparsed form — is a tracked follow-up.
+    private static string EscapeForScreenStuff(string command)
+    {
+        return command
+            .Replace("\r", string.Empty)
+            .Replace("\n", string.Empty)
+            .Replace("\\", "\\\\")
+            .Replace("\"", "\\\"");
+    }
+
     public async Task SendScreenCommandAsync(
         string sessionName,
         string command,
@@ -182,6 +201,7 @@ public partial class ProcessManager : IProcessManager
         int gid,
         CancellationToken cancellationToken)
     {
+        var escapedCommand = EscapeForScreenStuff(command);
         var args = new[]
         {
             "-S",
@@ -190,7 +210,7 @@ public partial class ProcessManager : IProcessManager
             "0",
             "-X",
             "eval",
-            $"stuff \"{command}\\012\""
+            $"stuff \"{escapedCommand}\\012\""
         };
 
         var startInfo = BuildProcessStartInfo(ScreenCommand, args, uid, gid);
