@@ -175,23 +175,26 @@ public partial class ProcessManager : IProcessManager
         await SendScreenCommandAsync($"mc-{serverName}", command, uid, gid, cancellationToken);
     }
 
-    // Escape a console command before embedding it in screen's `stuff "..."`.
-    // Security: an unescaped " lets the command close the stuff string and have
-    // the surrounding `-X eval` interpret the remainder as further screen commands
-    // (e.g. `exec` as the shared minecraft user) — screen-command injection from
-    // anyone with console access. CR/LF are stripped for the same reason (the
-    // intended Enter is the trailing \012).
-    // NOTE: this neutralizes injection but does not make quoted commands render
-    // correctly through the su -> eval -> stuff layers (e.g. /tellraw JSON still
-    // comes through mangled). Correct quoted-command handling — likely by dropping
-    // the eval wrapper and stuffing via a non-reparsed form — is a tracked follow-up.
+    // Escape a console command before embedding it in screen's `stuff` payload.
+    //
+    // The command is delivered as a single `-X stuff <payload>` argument (no `eval`).
+    // screen does not re-parse that payload as a command line, so a double-quote is
+    // ordinary text and must NOT be backslash-escaped — escaping it is exactly what
+    // mangled quoted commands like /tellraw JSON. What screen *does* interpret inside
+    // the payload are backslash escapes (\nnn octal, \r, \n, ...), so:
+    //   * backslashes are doubled, so a literal '\' renders as '\' and a user-supplied
+    //     "\012" can't smuggle in a newline to submit a second console command
+    //     (Minecraft-console command injection).
+    //   * CR/LF are stripped for the same reason — the only Enter is the trailing \012
+    //     appended at the call site.
+    // Shell-level safety (the su -c layer) is handled separately by single-quoting
+    // every argv token in BuildProcessStartInfo.
     private static string EscapeForScreenStuff(string command)
     {
         return command
             .Replace("\r", string.Empty)
             .Replace("\n", string.Empty)
-            .Replace("\\", "\\\\")
-            .Replace("\"", "\\\"");
+            .Replace("\\", "\\\\");
     }
 
     public async Task SendScreenCommandAsync(
@@ -209,8 +212,8 @@ public partial class ProcessManager : IProcessManager
             "-p",
             "0",
             "-X",
-            "eval",
-            $"stuff \"{escapedCommand}\\012\""
+            "stuff",
+            $"{escapedCommand}\\012"
         };
 
         var startInfo = BuildProcessStartInfo(ScreenCommand, args, uid, gid);
