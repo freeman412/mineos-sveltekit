@@ -290,6 +290,44 @@ public static class ServerEndpoints
             }
         });
 
+        // Velocity (proxy) configuration
+        servers.MapGet("/{name}/velocity-config", async (
+            string name,
+            IServerService serverService,
+            CancellationToken cancellationToken) =>
+        {
+            try
+            {
+                var config = await serverService.GetVelocityConfigAsync(name, cancellationToken);
+                return Results.Ok(config);
+            }
+            catch (DirectoryNotFoundException ex)
+            {
+                return Results.NotFound(new { error = ex.Message });
+            }
+        });
+
+        servers.MapPut("/{name}/velocity-config", async (
+            string name,
+            [FromBody] VelocityConfigDto config,
+            IServerService serverService,
+            CancellationToken cancellationToken) =>
+        {
+            try
+            {
+                await serverService.UpdateVelocityConfigAsync(name, config, cancellationToken);
+                return Results.Ok(new { message = "Velocity config updated" });
+            }
+            catch (DirectoryNotFoundException ex)
+            {
+                return Results.NotFound(new { error = ex.Message });
+            }
+            catch (InvalidOperationException ex)
+            {
+                return Results.Conflict(new { error = ex.Message });
+            }
+        });
+
         // Server config
         servers.MapGet("/{name}/server-config", async (
             string name,

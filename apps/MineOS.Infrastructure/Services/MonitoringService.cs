@@ -15,15 +15,18 @@ public sealed partial class MonitoringService : IMonitoringService
     private readonly ILogger<MonitoringService> _logger;
     private readonly IProcessManager _processManager;
     private readonly HostOptions _hostOptions;
+    private readonly IServerService _serverService;
 
     public MonitoringService(
         ILogger<MonitoringService> logger,
         IProcessManager processManager,
-        IOptions<HostOptions> hostOptions)
+        IOptions<HostOptions> hostOptions,
+        IServerService serverService)
     {
         _logger = logger;
         _processManager = processManager;
         _hostOptions = hostOptions.Value;
+        _serverService = serverService;
     }
 
     private string GetServerPath(string serverName) =>
@@ -60,22 +63,15 @@ public sealed partial class MonitoringService : IMonitoringService
     {
         try
         {
-            // Get server port from server.properties
-            var properties = await ReadPropertiesAsync(serverName, cancellationToken);
-            if (!properties.TryGetValue("server-port", out var portStr) || !int.TryParse(portStr, out var port))
+            // ServerService picks the right config (server.properties for java/bedrock,
+            // velocity.toml for proxy) so the SLP ping reaches the actual listener.
+            var endpoint = await _serverService.GetServerListenEndpointAsync(serverName, cancellationToken);
+            if (endpoint is null)
             {
-                port = 25565; // Default Minecraft port
+                return null;
             }
 
-            var host = "127.0.0.1";
-            if (properties.TryGetValue("server-ip", out var ip) &&
-                !string.IsNullOrWhiteSpace(ip) &&
-                !ip.Equals("0.0.0.0", StringComparison.OrdinalIgnoreCase))
-            {
-                host = ip;
-            }
-
-            return await MinecraftPingClient.PingAsync(host, port, cancellationToken);
+            return await MinecraftPingClient.PingAsync(endpoint.Value.Host, endpoint.Value.Port, cancellationToken);
         }
         catch (Exception ex)
         {

@@ -14,17 +14,20 @@ public sealed class HostService : IHostService
     private readonly ILogger<HostService> _logger;
     private readonly IProcessManager _processManager;
     private readonly IMonitoringService _monitoringService;
+    private readonly IServerService _serverService;
 
     public HostService(
         IOptions<HostOptions> options,
         ILogger<HostService> logger,
         IProcessManager processManager,
-        IMonitoringService monitoringService)
+        IMonitoringService monitoringService,
+        IServerService serverService)
     {
         _options = options.Value;
         _logger = logger;
         _processManager = processManager;
         _monitoringService = monitoringService;
+        _serverService = serverService;
     }
 
     public Task<HostMetricsDto> GetMetricsAsync(CancellationToken cancellationToken)
@@ -81,9 +84,9 @@ public sealed class HostService : IHostService
             var name = Path.GetFileName(dir);
             var props = TryReadProperties(Path.Combine(dir, "server.properties"));
 
-            var port = props.TryGetValue("server-port", out var portValue) && int.TryParse(portValue, out var portInt)
-                ? portInt
-                : (int?)null;
+            // server.properties for java/bedrock; velocity.toml bind for proxies.
+            var endpoint = await _serverService.GetServerListenEndpointAsync(name, cancellationToken);
+            var port = endpoint?.Port;
             var maxPlayers = props.TryGetValue("max-players", out var maxValue) && int.TryParse(maxValue, out var maxInt)
                 ? maxInt
                 : (int?)null;

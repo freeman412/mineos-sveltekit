@@ -8,6 +8,7 @@
 	import FabricVersions from '../version-pickers/FabricVersions.svelte';
 	import QuiltVersions from '../version-pickers/QuiltVersions.svelte';
 	import BedrockVersions from '../version-pickers/BedrockVersions.svelte';
+	import VelocityVersions from '../version-pickers/VelocityVersions.svelte';
 	import TemplateSelect from '../version-pickers/TemplateSelect.svelte';
 
 	interface VersionSelection {
@@ -40,6 +41,7 @@
 		fabric: 'Fabric',
 		quilt: 'Quilt',
 		bedrock: 'Bedrock',
+		velocity: 'Velocity',
 		template: 'Template'
 	};
 </script>
@@ -82,6 +84,12 @@
 		/>
 	{:else if implementation === 'bedrock'}
 		<BedrockVersions
+			{profiles}
+			onselect={(profile) => onselect({ profileId: profile.id, minecraftVersion: profile.version })}
+			onready={onready}
+		/>
+	{:else if implementation === 'velocity'}
+		<VelocityVersions
 			{profiles}
 			onselect={(profile) => onselect({ profileId: profile.id, minecraftVersion: profile.version })}
 			onready={onready}
