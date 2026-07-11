@@ -22,7 +22,7 @@ func (m TuiModel) RenderDashboardMain(width, height int) []string {
 	var health string
 	if m.ContainersStopped {
 		health = StyleSubtle.Render("stopped (containers down)")
-	} else if m.ConfigReady && m.Client != nil && m.ErrMsg == "" {
+	} else if m.Healthy {
 		health = StyleRunning.Render("connected")
 	} else if !m.ConfigReady && m.ErrMsg == "" {
 		health = StyleSubtle.Render("loading...")

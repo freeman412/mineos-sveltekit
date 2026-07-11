@@ -77,6 +77,7 @@ type TuiModel struct {
 	Compose         *ComposeRunner
 	ComposeReady    bool
 	ConfigReady     bool
+	Healthy         bool // Last real /health result (drives the header badge)
 	ComposeError    string
 	ComposeServices []string
 
@@ -252,5 +253,11 @@ type SettingsToggledMsg struct {
 	Err error
 }
 
-// HealthTickMsg is sent periodically to re-check API health when unhealthy
+// HealthTickMsg is sent periodically to drive the live refresh loop
 type HealthTickMsg struct{}
+
+// HealthCheckedMsg carries the result of a real /health probe
+type HealthCheckedMsg struct {
+	Healthy bool
+	Err     error
+}

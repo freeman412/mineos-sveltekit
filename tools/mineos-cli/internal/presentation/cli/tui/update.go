@@ -65,7 +65,8 @@ func RunTui(ctx context.Context, loadConfig *usecases.LoadConfigUseCase, version
 
 // Init initializes the TUI model
 func (m TuiModel) Init() tea.Cmd {
-	return tea.Batch(m.LoadConfigCmd(), m.LoadComposeCmd())
+	// scheduleHealthPoll arms the single, self-rescheduling refresh loop.
+	return tea.Batch(m.LoadConfigCmd(), m.LoadComposeCmd(), scheduleHealthPoll())
 }
 
 // Update handles all incoming messages
@@ -179,16 +180,26 @@ func (m TuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleStreamingFinished(msg)
 
 	case HealthTickMsg:
-		// Don't poll if containers are intentionally stopped or already healthy
+		// Single self-rescheduling refresh loop (armed once in Init). Always
+		// re-arm so the TUI keeps refreshing while healthy, not only while down.
+		cmds := []tea.Cmd{scheduleHealthPoll()}
 		if m.ContainersStopped {
-			return m, nil
+			m.Healthy = false
+			return m, tea.Batch(cmds...)
 		}
-		if m.ConfigReady && m.ErrMsg == "" {
-			return m, nil
+		if m.ConfigReady {
+			// Live refresh: real health probe + current server list.
+			cmds = append(cmds, m.HealthCheckCmd(), m.LoadServersCmd())
+		} else {
+			// API was unreachable — try to reconnect.
+			m.StatusMsg = "Reconnecting to API..."
+			cmds = append(cmds, m.LoadConfigCmd())
 		}
-		// Re-attempt config and server load
-		m.StatusMsg = "Reconnecting to API..."
-		return m, tea.Batch(m.LoadConfigCmd(), m.LoadServersCmd())
+		return m, tea.Batch(cmds...)
+
+	case HealthCheckedMsg:
+		m.Healthy = msg.Healthy
+		return m, nil
 
 	case SettingsToggledMsg:
 		if msg.Err != nil {
@@ -217,6 +228,19 @@ func scheduleHealthPoll() tea.Cmd {
 	})
 }
 
+// HealthCheckCmd probes the API's /health endpoint for the header badge.
+func (m TuiModel) HealthCheckCmd() tea.Cmd {
+	client := m.Client
+	if client == nil {
+		return func() tea.Msg { return HealthCheckedMsg{Healthy: false} }
+	}
+	ctx := m.Ctx
+	return func() tea.Msg {
+		err := client.Health(ctx)
+		return HealthCheckedMsg{Healthy: err == nil, Err: err}
+	}
+}
+
 func (m TuiModel) handleConfigLoaded(msg ConfigLoadedMsg) (tea.Model, tea.Cmd) {
 	if msg.Err != nil {
 		m.ErrMsg = msg.Err.Error()
@@ -227,9 +251,10 @@ func (m TuiModel) handleConfigLoaded(msg ConfigLoadedMsg) (tea.Model, tea.Cmd) {
 				return m.LoadConfigCmdWithRetry(msg.RetryCount + 1)()
 			})
 		}
-		// All retries exhausted — schedule periodic health poll to recover later
+		// All retries exhausted — the Init-armed refresh loop keeps retrying.
+		m.Healthy = false
 		m.StatusMsg = "API unavailable, will retry periodically..."
-		return m, scheduleHealthPoll()
+		return m, nil
 	}
 	m.Cfg = msg.Cfg
 	m.ConfigReady = true
@@ -237,7 +262,8 @@ func (m TuiModel) handleConfigLoaded(msg ConfigLoadedMsg) (tea.Model, tea.Cmd) {
 	m.StatusMsg = "" // Clear reconnecting status
 	m.RetryCount = 0
 	m.Client = api.NewClientFromConfig(msg.Cfg)
-	return m, m.LoadServersCmd()
+	// Probe health immediately so the badge doesn't wait a full interval.
+	return m, tea.Batch(m.LoadServersCmd(), m.HealthCheckCmd())
 }
 
 func (m TuiModel) handleComposeLoaded(msg ComposeLoadedMsg) (tea.Model, tea.Cmd) {
@@ -272,10 +298,8 @@ func (m TuiModel) handleServersLoaded(msg ServersLoadedMsg) (tea.Model, tea.Cmd)
 		if !isTransient {
 			m.ErrMsg = errStr
 		}
-		// Schedule health poll to retry when API comes back
-		if !m.ContainersStopped {
-			return m, scheduleHealthPoll()
-		}
+		// The Init-armed refresh loop retries; a failed list means not healthy.
+		m.Healthy = false
 		return m, nil
 	}
 	if msg.Cfg.EnvPath != "" {
