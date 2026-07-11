@@ -39,10 +39,14 @@ public class AuthEndpointTests : IClassFixture<MineOsWebApplicationFactory>
     }
 
     [Fact]
-    public async Task Protected_Endpoint_Without_Auth_Returns_401()
+    public async Task Protected_Endpoint_With_Api_Key_Returns_200()
     {
+        // The client carries the static X-Api-Key (see ctor). A valid service key
+        // is a full-access identity, so it authenticates protected endpoints even
+        // without a JWT. (Previously this was rejected — see the middleware ordering
+        // fix that establishes an admin principal for a valid key.)
         var response = await _client.GetAsync("/api/v1/account");
-        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
     }
 
     [Fact]
