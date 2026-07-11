@@ -50,9 +50,7 @@ const (
 	MaxLogLines          = 5000 // Increased buffer size
 	DefaultDockerLogTail = 200
 	LogRetryDelay        = 2 * time.Second
-	ConnectionRetryDelay = 6 * time.Second
 	MaxLogRetries        = 3
-	MaxRetryAttempts     = 3
 )
 
 // Streaming constants
@@ -63,15 +61,12 @@ const (
 
 // Timeout constants
 const (
-	DefaultStopAllTimeout   = 300
-	DefaultShutdownTimeout  = 300
-	DefaultAPIHealthTimeout = 60
-	HealthPollInterval      = 10 * time.Second // Re-check API when unhealthy
+	HealthPollInterval = 10 * time.Second // Re-check API when unhealthy
 )
 
 // UI layout constants
 const (
-	SidebarWidth    = 20
+	SidebarWidth     = 20
 	MinContentHeight = 5
 	// Minimum terminal dimensions below which the TUI renders a "resize" notice
 	// instead of a layout. Guards against negative content widths (which would
