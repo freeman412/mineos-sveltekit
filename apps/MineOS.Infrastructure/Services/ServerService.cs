@@ -1061,7 +1061,10 @@ public class ServerService : IServerService
         else
         {
             model = new TomlTable();
-            model["config-version"] = "1.0";
+            // Match current Velocity 3.x. Writing an old version (e.g. "1.0") makes
+            // Velocity run its config migration on first boot, which logs a
+            // deprecation warning and escapes the MiniMessage MOTD.
+            model["config-version"] = "2.7";
         }
 
         model["bind"] = config.Bind;
@@ -1710,17 +1713,40 @@ public class ServerService : IServerService
             }
 
             var propertiesPath = Path.Combine(dir, "server.properties");
-            if (!File.Exists(propertiesPath))
+            if (File.Exists(propertiesPath))
             {
+                var content = await File.ReadAllTextAsync(propertiesPath, cancellationToken);
+                var props = IniParser.ParseSimple(content);
+                if (props.TryGetValue("server-port", out var portValue) &&
+                    int.TryParse(portValue, out var port))
+                {
+                    usedPorts.Add(port);
+                }
                 continue;
             }
 
-            var content = await File.ReadAllTextAsync(propertiesPath, cancellationToken);
-            var props = IniParser.ParseSimple(content);
-            if (props.TryGetValue("server-port", out var portValue) &&
-                int.TryParse(portValue, out var port))
+            // Proxies have no server.properties — their port lives in velocity.toml's
+            // "bind". Count it so a second proxy doesn't default to the same port.
+            var tomlPath = Path.Combine(dir, "velocity.toml");
+            if (File.Exists(tomlPath))
             {
-                usedPorts.Add(port);
+                try
+                {
+                    var toml = Toml.ToModel(await File.ReadAllTextAsync(tomlPath, cancellationToken));
+                    if (toml.TryGetValue("bind", out var bindObj) && bindObj is string bind)
+                    {
+                        var lastColon = bind.LastIndexOf(':');
+                        if (lastColon > 0 && lastColon < bind.Length - 1 &&
+                            int.TryParse(bind[(lastColon + 1)..], out var bindPort))
+                        {
+                            usedPorts.Add(bindPort);
+                        }
+                    }
+                }
+                catch
+                {
+                    // Malformed toml — skip; worst case the port is offered again.
+                }
             }
         }
 
@@ -1808,6 +1834,17 @@ public class ServerService : IServerService
         // type-changed proxy is functional from the first launch.
         if (normalized == "proxy")
         {
+            // Velocity rejects `nogui`; flip unconventional so the launcher won't
+            // append it (wizard-created proxies already set this at creation).
+            var config = await GetServerConfigAsync(name, cancellationToken);
+            if (!config.Minecraft.Unconventional)
+            {
+                await UpdateServerConfigAsync(
+                    name,
+                    config with { Minecraft = config.Minecraft with { Unconventional = true } },
+                    cancellationToken);
+            }
+
             var tomlPath = GetVelocityTomlPath(name);
             if (!File.Exists(tomlPath))
             {
