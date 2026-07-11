@@ -19,8 +19,8 @@ public sealed class ProfileService : IProfileService
     private const string BuildToolsUrl =
         "https://hub.spigotmc.org/jenkins/job/BuildTools/lastSuccessfulBuild/artifact/target/BuildTools.jar";
     private const string RestartFlagFile = ".mineos-restart-required";
-    private const string PaperProjectUrl = "https://api.papermc.io/v2/projects/paper";
     // PaperMC's legacy api.papermc.io/v2 API was sunset in 2026; Fill v3 is the replacement.
+    private const string PaperProjectUrl = "https://fill.papermc.io/v3/projects/paper";
     private const string VelocityProjectUrl = "https://fill.papermc.io/v3/projects/velocity";
     private const string MojangVersionManifestUrl = "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json";
     private const int PaperVersionLimit = 20;
@@ -1046,29 +1046,39 @@ public sealed class ProfileService : IProfileService
             var json = await _httpClient.GetStringAsync(PaperProjectUrl, cancellationToken);
             using var doc = JsonDocument.Parse(json);
 
+            // Fill v3 shape: "versions" is an object mapping a version group to an
+            // array of version strings, e.g. { "1.21": ["1.21.11", "1.21.11-rc3", ...] }.
             if (!doc.RootElement.TryGetProperty("versions", out var versionsElement) ||
-                versionsElement.ValueKind != JsonValueKind.Array)
+                versionsElement.ValueKind != JsonValueKind.Object)
             {
                 return Array.Empty<ProfileDto>();
             }
 
             var versions = new List<(string Raw, Version Parsed)>();
-            foreach (var element in versionsElement.EnumerateArray())
+            foreach (var group in versionsElement.EnumerateObject())
             {
-                var versionText = element.GetString();
-                if (string.IsNullOrWhiteSpace(versionText))
+                if (group.Value.ValueKind != JsonValueKind.Array)
                 {
                     continue;
                 }
 
-                if (!IsStablePaperVersion(versionText))
+                foreach (var element in group.Value.EnumerateArray())
                 {
-                    continue;
-                }
+                    var versionText = element.GetString();
+                    if (string.IsNullOrWhiteSpace(versionText))
+                    {
+                        continue;
+                    }
 
-                if (Version.TryParse(versionText, out var parsed))
-                {
-                    versions.Add((versionText, parsed));
+                    if (!IsStablePaperVersion(versionText))
+                    {
+                        continue;
+                    }
+
+                    if (Version.TryParse(versionText, out var parsed))
+                    {
+                        versions.Add((versionText, parsed));
+                    }
                 }
             }
 
@@ -1089,16 +1099,13 @@ public sealed class ProfileService : IProfileService
                         continue;
                     }
 
-                    var url =
-                        $"https://api.papermc.io/v2/projects/paper/versions/{version}/builds/{build.Build}/downloads/{build.FileName}";
-
                     results.Add(new ProfileDto(
                         $"paper-{version}",
                         "paper",
                         "release",
                         version,
                         build.Time,
-                        url,
+                        build.Url,
                         build.FileName,
                         false,
                         null));
@@ -1120,44 +1127,29 @@ public sealed class ProfileService : IProfileService
 
     private async Task<PaperBuildInfo?> GetLatestPaperBuildAsync(string version, CancellationToken cancellationToken)
     {
-        var versionUrl = $"{PaperProjectUrl}/versions/{version}";
-        var json = await _httpClient.GetStringAsync(versionUrl, cancellationToken);
-        using var doc = JsonDocument.Parse(json);
-
-        if (!doc.RootElement.TryGetProperty("builds", out var buildsElement) ||
-            buildsElement.ValueKind != JsonValueKind.Array)
-        {
-            return null;
-        }
-
-        var builds = buildsElement
-            .EnumerateArray()
-            .Select(element => element.GetInt32())
-            .ToList();
-
-        if (builds.Count == 0)
-        {
-            return null;
-        }
-
-        var latestBuild = builds[^1];
-        var buildUrl = $"{versionUrl}/builds/{latestBuild}";
+        // Fill v3 exposes the newest build directly, downloads keyed by kind
+        // ("server:default") with an absolute download URL.
+        var buildUrl = $"{PaperProjectUrl}/versions/{version}/builds/latest";
         var buildJson = await _httpClient.GetStringAsync(buildUrl, cancellationToken);
         using var buildDoc = JsonDocument.Parse(buildJson);
+
+        if (!buildDoc.RootElement.TryGetProperty("downloads", out var downloadsElement) ||
+            !downloadsElement.TryGetProperty("server:default", out var serverDownload) ||
+            !serverDownload.TryGetProperty("url", out var urlElement) ||
+            urlElement.GetString() is not string url)
+        {
+            return null;
+        }
 
         var time = buildDoc.RootElement.TryGetProperty("time", out var timeElement)
             ? timeElement.GetString() ?? DateTimeOffset.UtcNow.ToString("O")
             : DateTimeOffset.UtcNow.ToString("O");
 
-        string fileName = $"paper-{version}-{latestBuild}.jar";
-        if (buildDoc.RootElement.TryGetProperty("downloads", out var downloadsElement) &&
-            downloadsElement.TryGetProperty("application", out var appElement) &&
-            appElement.TryGetProperty("name", out var nameElement))
-        {
-            fileName = nameElement.GetString() ?? fileName;
-        }
+        var fileName = serverDownload.TryGetProperty("name", out var nameElement)
+            ? nameElement.GetString() ?? $"paper-{version}.jar"
+            : $"paper-{version}.jar";
 
-        return new PaperBuildInfo(latestBuild, time, fileName);
+        return new PaperBuildInfo(time, fileName, url);
     }
 
     private static bool IsStablePaperVersion(string version)
@@ -1449,7 +1441,7 @@ public sealed class ProfileService : IProfileService
                 "release",
                 "1.20.4",
                 now,
-                "https://api.papermc.io/v2/projects/paper/versions/1.20.4/builds/496/downloads/paper-1.20.4-496.jar",
+                "https://fill-data.papermc.io/v1/objects/cabed3ae77cf55deba7c7d8722bc9cfd5e991201c211665f9265616d9fe5c77b/paper-1.20.4-499.jar",
                 "paper-1.20.4.jar",
                 false,
                 null
@@ -1527,7 +1519,7 @@ public sealed class ProfileService : IProfileService
     }
 
     private record MojangVersionInfo(string Id, string Url, string ReleaseTime, DateTimeOffset? ReleaseTimeParsed);
-    private record PaperBuildInfo(int Build, string Time, string FileName);
+    private record PaperBuildInfo(string Time, string FileName, string Url);
 
     private async Task MarkRestartRequiredAsync(string serverPath, CancellationToken cancellationToken)
     {
