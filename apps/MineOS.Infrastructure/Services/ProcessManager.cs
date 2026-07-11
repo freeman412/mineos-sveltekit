@@ -175,6 +175,18 @@ public partial class ProcessManager : IProcessManager
         await SendScreenCommandAsync($"mc-{serverName}", command, uid, gid, cancellationToken);
     }
 
+    // Escape a console command for embedding in screen's `stuff "..."` string.
+    // CR/LF are stripped so a value can't inject extra Enter-terminated commands
+    // (the intended Enter is the trailing \012 added by the caller).
+    private static string EscapeForScreenStuff(string command)
+    {
+        return command
+            .Replace("\r", string.Empty)
+            .Replace("\n", string.Empty)
+            .Replace("\\", "\\\\")
+            .Replace("\"", "\\\"");
+    }
+
     public async Task SendScreenCommandAsync(
         string sessionName,
         string command,
@@ -182,6 +194,11 @@ public partial class ProcessManager : IProcessManager
         int gid,
         CancellationToken cancellationToken)
     {
+        // screen's `stuff "..."` uses `\` as an escape char and `"` as the string
+        // terminator, so a command containing either (e.g. `/tellraw @a {"text":"hi"}`)
+        // would corrupt the eval and silently fail. Escape both; the trailing \012
+        // (Enter) is appended after escaping so it stays a literal screen escape.
+        var escapedCommand = EscapeForScreenStuff(command);
         var args = new[]
         {
             "-S",
@@ -190,7 +207,7 @@ public partial class ProcessManager : IProcessManager
             "0",
             "-X",
             "eval",
-            $"stuff \"{command}\\012\""
+            $"stuff \"{escapedCommand}\\012\""
         };
 
         var startInfo = BuildProcessStartInfo(ScreenCommand, args, uid, gid);

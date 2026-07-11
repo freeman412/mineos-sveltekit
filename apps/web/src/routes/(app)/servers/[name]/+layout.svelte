@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
 	import { page } from '$app/stores';
 	import StatusBadge from '$lib/components/StatusBadge.svelte';
 	import ServerQuickActions from '$lib/components/ServerQuickActions.svelte';
@@ -134,11 +133,6 @@
 
 	const statusMeta = $derived(normalizeStatus(server?.status));
 
-	$effect(() => {
-		server = data.server;
-		playerInfo = { online: null, max: null, version: null };
-	});
-
 	let statusSource: EventSource | null = null;
 
 	function scheduleBurstRefresh() {
@@ -146,22 +140,30 @@
 		connectStatusStream();
 	}
 
-	onMount(() => {
-		let cancelled = false;
-		connectStatusStream();
+	// Re-runs whenever we navigate to a different server (data.server changes).
+	// SvelteKit reuses this component instance across /servers/[name] navigations,
+	// so we must reset state and reconnect the heartbeat stream to the new server —
+	// otherwise the still-open stream keeps pushing the previous server's live
+	// status/PID/ping into the header.
+	$effect(() => {
+		server = data.server;
+		playerInfo = { online: null, max: null, version: null };
+		// Pass the name explicitly (not via the reactive `server`) so this effect
+		// depends only on data.server — otherwise the SSE handler's writes to
+		// `server` would re-trigger it and reconnect on every heartbeat.
+		connectStatusStream(data.server?.name);
 
 		return () => {
-			cancelled = true;
 			statusSource?.close();
 			statusSource = null;
 		};
 	});
 
-	function connectStatusStream() {
-		if (!server?.name) return;
+	function connectStatusStream(name: string | undefined = server?.name) {
+		if (!name) return;
 		statusSource?.close();
 		statusSource = new EventSource(
-			`/api/servers/${encodeURIComponent(server.name)}/heartbeat/stream`
+			`/api/servers/${encodeURIComponent(name)}/heartbeat/stream`
 		);
 		statusSource.onmessage = (event) => {
 			try {
@@ -186,7 +188,7 @@
 	statusSource.onerror = () => {
 		statusSource?.close();
 		statusSource = null;
-		setTimeout(connectStatusStream, 2000);
+		setTimeout(() => connectStatusStream(name), 2000);
 	};
 }
 </script>

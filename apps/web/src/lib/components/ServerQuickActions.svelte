@@ -3,7 +3,6 @@
 	import { browser } from '$app/environment';
 	import { env } from '$env/dynamic/public';
 	import { invalidateAll } from '$app/navigation';
-	import { onMount } from 'svelte';
 	import * as api from '$lib/api/client';
 	import { modal } from '$lib/stores/modal';
 	import CopyButton from '$lib/components/CopyButton.svelte';
@@ -18,39 +17,50 @@
 	let isRunning = $derived(status === 'up' || status === 'running');
 
 	// Load server port — proxies bind via velocity.toml, everyone else via server.properties.
-	onMount(async () => {
-		if (!server) return;
-		try {
-			if (server.serverType === 'proxy') {
-				const result = await api.getVelocityConfig(fetch, server.name);
-				const bind = result.data?.bind;
-				if (bind) {
-					// Velocity bind format: "<host>:<port>" or "[::]:port" for IPv6.
-					// Split on the LAST ":" so IPv6 hosts don't break parsing.
-					const lastColon = bind.lastIndexOf(':');
-					if (lastColon > 0 && lastColon < bind.length - 1) {
-						const parsed = parseInt(bind.slice(lastColon + 1), 10);
-						if (!isNaN(parsed)) {
-							serverPort = parsed;
+	// Keyed on server name so switching servers (this component lives in the persisted
+	// layout) reloads the port instead of showing the previous server's. The cancelled
+	// flag drops a late response from a server we've already navigated away from.
+	$effect(() => {
+		const name = server?.name;
+		const serverType = server?.serverType;
+		if (!name) return;
+		let cancelled = false;
+		(async () => {
+			try {
+				if (serverType === 'proxy') {
+					const result = await api.getVelocityConfig(fetch, name);
+					const bind = result.data?.bind;
+					if (bind) {
+						// Velocity bind format: "<host>:<port>" or "[::]:port" for IPv6.
+						// Split on the LAST ":" so IPv6 hosts don't break parsing.
+						const lastColon = bind.lastIndexOf(':');
+						if (lastColon > 0 && lastColon < bind.length - 1) {
+							const parsed = parseInt(bind.slice(lastColon + 1), 10);
+							if (!isNaN(parsed) && !cancelled) {
+								serverPort = parsed;
+							}
+						}
+					}
+				} else {
+					const result = await api.getServerProperties(fetch, name);
+					if (result.data) {
+						const port = result.data['server-port'];
+						if (port) {
+							const parsed = parseInt(port, 10);
+							if (!isNaN(parsed) && !cancelled) {
+								serverPort = parsed;
+							}
 						}
 					}
 				}
-			} else {
-				const result = await api.getServerProperties(fetch, server.name);
-				if (result.data) {
-					const port = result.data['server-port'];
-					if (port) {
-						const parsed = parseInt(port, 10);
-						if (!isNaN(parsed)) {
-							serverPort = parsed;
-						}
-					}
-				}
+			} catch (err) {
+				// Use default port if loading fails
+				console.error('Failed to load server port:', err);
 			}
-		} catch (err) {
-			// Use default port if loading fails
-			console.error('Failed to load server port:', err);
-		}
+		})();
+		return () => {
+			cancelled = true;
+		};
 	});
 
 	// Calculate the server address to display

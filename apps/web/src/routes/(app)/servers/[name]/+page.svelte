@@ -216,6 +216,35 @@
 		};
 	});
 
+	// SvelteKit reuses this component when navigating between two servers' dashboards,
+	// so onMount fires only once. When the server actually changes, reset the dashboard
+	// state, clear the console, and reconnect both streams to the new server — otherwise
+	// the Process Status / Ping cards and the terminal keep showing the previous server.
+	let lastServerName = data.server?.name;
+	$effect(() => {
+		const name = data.server?.name;
+		if (name === lastServerName) return;
+		lastServerName = name;
+		if (!data.server) return;
+
+		heartbeat = data.heartbeat.data ?? null;
+		heartbeatError = data.heartbeat.error;
+		watchdog = data.watchdog.data ?? null;
+		watchdogError = data.watchdog.error;
+		memoryHistory = [];
+		detectServerType(data.server);
+
+		eventSource?.close();
+		heartbeatSource?.close();
+		heartbeatSource = null;
+		terminal?.clear();
+
+		connectToHeartbeat();
+		checkActiveInstalls().then((hasInstall) => {
+			if (!hasInstall) connectToLogs();
+		});
+	});
+
 	async function checkActiveInstalls(): Promise<boolean> {
 		if (!data.server) return false;
 		try {
