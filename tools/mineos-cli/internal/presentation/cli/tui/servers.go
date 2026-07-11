@@ -106,6 +106,26 @@ func formatMemory(b *int64) string {
 	return fmt.Sprintf("%.0fM", mib)
 }
 
+// renderMetricsLines renders the live per-server metrics panel (streamed via SSE).
+func (m TuiModel) renderMetricsLines() []string {
+	lines := []string{StyleHeader.Render(" LIVE METRICS ")}
+	p := m.PerfSample
+	if p == nil {
+		return append(lines, StyleSubtle.Render("  waiting for data…"), "")
+	}
+	tps := "—"
+	tpsStyle := StyleRunning
+	if p.Tps != nil {
+		tps = fmt.Sprintf("%.1f", *p.Tps)
+		if *p.Tps < 18 { // low-TPS highlight (matches the server-side alert threshold)
+			tpsStyle = StyleError
+		}
+	}
+	lines = append(lines, fmt.Sprintf("  TPS: %s   CPU: %.0f%%   RAM: %d/%d MB   Players: %d",
+		tpsStyle.Render(tps), p.CpuPercent, p.RamUsedMb, p.RamTotalMb, p.PlayerCount))
+	return append(lines, "")
+}
+
 // RenderMinecraftLogs renders Minecraft server logs for the selected server
 func (m TuiModel) RenderMinecraftLogs(width, height int) []string {
 	if height <= 0 {
@@ -176,6 +196,9 @@ func (m TuiModel) RenderServerActionsMain(width, height int) []string {
 		lines = append(lines, statusLine)
 		lines = append(lines, "")
 	}
+
+	// Live metrics panel (streamed via SSE while this view is open)
+	lines = append(lines, m.renderMetricsLines()...)
 
 	// Show actions
 	lines = append(lines, StyleHeader.Render(" ACTIONS "))

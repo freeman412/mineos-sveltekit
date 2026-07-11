@@ -316,6 +316,93 @@ func (c *Client) StreamConsoleLogs(ctx context.Context, name, source string) (<-
 	return logs, errs
 }
 
+// PerfSample mirrors the API's PerformanceSampleDto (the fields the CLI shows).
+type PerfSample struct {
+	IsRunning   bool     `json:"isRunning"`
+	CpuPercent  float64  `json:"cpuPercent"`
+	RamUsedMb   int64    `json:"ramUsedMb"`
+	RamTotalMb  int64    `json:"ramTotalMb"`
+	Tps         *float64 `json:"tps"`
+	PlayerCount int      `json:"playerCount"`
+}
+
+// StreamPerformance opens the per-server performance SSE (2s cadence) and emits
+// each sample. Mirrors StreamConsoleLogs; cancel via ctx to stop.
+func (c *Client) StreamPerformance(ctx context.Context, name string) (<-chan PerfSample, <-chan error) {
+	samples := make(chan PerfSample)
+	errs := make(chan error, 1)
+
+	go func() {
+		defer close(samples)
+		defer close(errs)
+
+		if strings.TrimSpace(c.apiKey) == "" {
+			errs <- ErrApiKeyMissing
+			return
+		}
+		if strings.TrimSpace(name) == "" {
+			errs <- errors.New("server name is required")
+			return
+		}
+
+		endpoint := fmt.Sprintf("%s/servers/%s/performance/stream", c.apiBaseURL, url.PathEscape(strings.TrimSpace(name)))
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+		if err != nil {
+			errs <- err
+			return
+		}
+		req.Header.Set("X-Api-Key", c.apiKey)
+
+		streamClient := *c.httpClient
+		streamClient.Timeout = 0
+		resp, err := streamClient.Do(req)
+		if err != nil {
+			if ctx.Err() == nil {
+				errs <- err
+			}
+			return
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode == http.StatusForbidden || resp.StatusCode == http.StatusUnauthorized {
+			errs <- ErrApiKeyInvalid
+			return
+		}
+		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+			errs <- fmt.Errorf("stream performance failed: %s", readBody(resp.Body))
+			return
+		}
+
+		scanner := bufio.NewScanner(resp.Body)
+		scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+		for scanner.Scan() {
+			line := scanner.Text()
+			if !strings.HasPrefix(line, "data:") {
+				continue
+			}
+			payload := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+			if payload == "" {
+				continue
+			}
+			var s PerfSample
+			if err := json.Unmarshal([]byte(payload), &s); err != nil {
+				continue
+			}
+			select {
+			case samples <- s:
+			case <-ctx.Done():
+				return
+			}
+		}
+
+		if err := scanner.Err(); err != nil && ctx.Err() == nil {
+			errs <- err
+		}
+	}()
+
+	return samples, errs
+}
+
 func readBody(reader io.Reader) string {
 	if reader == nil {
 		return ""

@@ -1,6 +1,11 @@
 package tui
 
-import "testing"
+import (
+	"strings"
+	"testing"
+
+	"github.com/freemancraft/mineos-sveltekit/tools/mineos-cli/internal/infrastructure/api"
+)
 
 func TestFormatPlayers(t *testing.T) {
 	i := func(n int) *int { return &n }
@@ -33,6 +38,24 @@ func TestFormatMemory(t *testing.T) {
 	for _, c := range cases {
 		if got := formatMemory(c.in); got != c.want {
 			t.Errorf("formatMemory = %q, want %q", got, c.want)
+		}
+	}
+}
+
+func TestRenderMetricsLines(t *testing.T) {
+	// No sample yet → a waiting line.
+	m := TuiModel{}
+	if got := strings.Join(m.renderMetricsLines(), "\n"); !strings.Contains(got, "waiting") {
+		t.Fatalf("expected a waiting line, got %q", got)
+	}
+
+	// With a sample → TPS/players are rendered.
+	tps := 19.9
+	m.PerfSample = &api.PerfSample{IsRunning: true, CpuPercent: 12, RamUsedMb: 512, RamTotalMb: 1024, Tps: &tps, PlayerCount: 3}
+	got := strings.Join(m.renderMetricsLines(), "\n")
+	for _, want := range []string{"TPS", "19.9", "Players: 3"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("metrics panel missing %q in %q", want, got)
 		}
 	}
 }
