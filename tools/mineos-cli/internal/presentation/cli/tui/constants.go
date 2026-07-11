@@ -73,6 +73,11 @@ const (
 const (
 	SidebarWidth    = 20
 	MinContentHeight = 5
+	// Minimum terminal dimensions below which the TUI renders a "resize" notice
+	// instead of a layout. Guards against negative content widths (which would
+	// panic strings.Repeat). Tunable.
+	MinTerminalWidth  = 40
+	MinTerminalHeight = 10
 )
 
 // Default source for docker logs

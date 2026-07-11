@@ -51,8 +51,7 @@ After installation, start the terminal dashboard:
 
 ```bash
 mineos tui
-# or simply:
-mineos
+# or: mineos ui
 ```
 
 ## Commands
@@ -61,8 +60,8 @@ mineos
 
 | Command | Description |
 |---------|-------------|
-| `mineos` | Launch the TUI dashboard (default) |
-| `mineos tui` | Full-screen terminal dashboard |
+| `mineos` | Show help / command overview |
+| `mineos tui` | Full-screen terminal dashboard (alias: `mineos ui`) |
 | `mineos interactive` | REPL-style command shell |
 | `mineos install` | Interactive installer |
 | `mineos uninstall` | Remove MineOS installation |

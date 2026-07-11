@@ -85,7 +85,7 @@ func appendLineIfMissing(path string, line string) error {
 		content += "\n"
 	}
 	content += "\n" + line + "\n"
-	return os.WriteFile(path, []byte(content), 0o644)
+	return os.WriteFile(path, []byte(content), 0o600)
 }
 
 func loadEnvValues(path string) (map[string]string, error) {
@@ -106,7 +106,7 @@ func setEnvFileValue(path, key, value string) error {
 	data, err := os.ReadFile(envPath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return os.WriteFile(envPath, []byte(key+"="+value+"\n"), 0o644)
+			return os.WriteFile(envPath, []byte(key+"="+value+"\n"), 0o600)
 		}
 		return err
 	}
@@ -129,5 +129,5 @@ func setEnvFileValue(path, key, value string) error {
 	if !strings.HasSuffix(output, "\n") {
 		output += "\n"
 	}
-	return os.WriteFile(envPath, []byte(output), 0o644)
+	return os.WriteFile(envPath, []byte(output), 0o600)
 }

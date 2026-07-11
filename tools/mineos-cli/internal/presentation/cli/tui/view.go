@@ -12,6 +12,15 @@ func (m TuiModel) View() string {
 		return "Loading..."
 	}
 
+	// Below a usable size the split layout can't render — and an unclamped
+	// content width would panic strings.Repeat with a negative count. Show a
+	// resize notice instead of crashing.
+	if m.Width < MinTerminalWidth || m.Height < MinTerminalHeight {
+		return fmt.Sprintf(
+			"Terminal too small.\nResize to at least %dx%d (current %dx%d).",
+			MinTerminalWidth, MinTerminalHeight, m.Width, m.Height)
+	}
+
 	// 1. Render Header
 	header := m.RenderHeader()
 	headerHeight := lipgloss.Height(header)
@@ -22,8 +31,13 @@ func (m TuiModel) View() string {
 		contentHeight = MinContentHeight
 	}
 
+	// Clamp defensively so a renderer is never handed a negative width, even if
+	// the thresholds above change (leftWidth+separator must leave room).
 	leftWidth := SidebarWidth
-	rightWidth := m.Width - leftWidth - 1
+	if leftWidth > m.Width-1 {
+		leftWidth = max(0, m.Width-1)
+	}
+	rightWidth := max(0, m.Width-leftWidth-1)
 
 	// 3. Render Navigation and Content
 	leftLines := m.RenderNavSidebar(leftWidth, contentHeight)
