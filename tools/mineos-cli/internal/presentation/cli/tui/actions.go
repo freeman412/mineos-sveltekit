@@ -1,4 +1,4 @@
-﻿package tui
+package tui
 
 import (
 	"bufio"
@@ -10,41 +10,7 @@ import (
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/freemancraft/mineos-sveltekit/tools/mineos-cli/internal/application/usecases"
 )
-
-func (m TuiModel) ServerActionCmd(action string) tea.Cmd {
-	server := m.SelectedServer()
-	if server == "" || !m.ConfigReady {
-		return func() tea.Msg { return ActionResultMsg{Err: errors.New("select a server first")} }
-	}
-	ctx := m.Ctx
-	client := m.Client
-	return func() tea.Msg {
-		uc := usecases.NewServerActionUseCase(client)
-		err := uc.Execute(ctx, server, action)
-		return ActionResultMsg{
-			Message: fmt.Sprintf("%s: %s", action, server),
-			Err:     err,
-		}
-	}
-}
-
-func (m TuiModel) StopAllCmd(timeout int) tea.Cmd {
-	if !m.ConfigReady {
-		return func() tea.Msg { return ActionResultMsg{Err: errors.New("API client not ready")} }
-	}
-	ctx := m.Ctx
-	client := m.Client
-	return func() tea.Msg {
-		uc := usecases.NewStopAllServersUseCase(client)
-		_, err := uc.Execute(ctx, timeout)
-		return ActionResultMsg{
-			Message: fmt.Sprintf("stop-all requested (timeout %ds)", timeout),
-			Err:     err,
-		}
-	}
-}
 
 func (m TuiModel) ConsoleCommandCmd(command string) tea.Cmd {
 	server := m.SelectedServer()
@@ -59,17 +25,6 @@ func (m TuiModel) ConsoleCommandCmd(command string) tea.Cmd {
 			Message: fmt.Sprintf("sent to %s: %s", server, command),
 			Err:     err,
 		}
-	}
-}
-
-func (m TuiModel) ComposeActionCmd(args ...string) tea.Cmd {
-	if !m.ComposeReady {
-		return func() tea.Msg { return ActionResultMsg{Err: errors.New("docker compose not available")} }
-	}
-	return func() tea.Msg {
-		err := m.Compose.Run(args)
-		action := strings.Join(args, " ")
-		return ActionResultMsg{Message: "compose " + action + " requested", Err: err}
 	}
 }
 
@@ -189,90 +144,6 @@ func makeErrorChan(errMsg string) <-chan string {
 	ch <- errMsg
 	close(ch)
 	return ch
-}
-
-// StartInteractiveCmd starts an interactive command with piped I/O
-func (m TuiModel) StartInteractiveCmd(exe string, args []string, label string) tea.Cmd {
-	return func() tea.Msg {
-		cmd := exec.Command(exe, args...)
-
-		stdin, err := cmd.StdinPipe()
-		if err != nil {
-			return ExecFinishedMsg{Action: label, Err: err}
-		}
-
-		stdout, err := cmd.StdoutPipe()
-		if err != nil {
-			stdin.Close()
-			return ExecFinishedMsg{Action: label, Err: err}
-		}
-
-		stderr, err := cmd.StderrPipe()
-		if err != nil {
-			stdin.Close()
-			stdout.Close()
-			return ExecFinishedMsg{Action: label, Err: err}
-		}
-
-		if err := cmd.Start(); err != nil {
-			stdin.Close()
-			stdout.Close()
-			stderr.Close()
-			return ExecFinishedMsg{Action: label, Err: err}
-		}
-
-		// Create output channel and start readers
-		outputChan := make(chan string, 100)
-
-		// Read stdout
-		go func() {
-			buf := make([]byte, 1024)
-			for {
-				n, err := stdout.Read(buf)
-				if n > 0 {
-					lines := strings.Split(string(buf[:n]), "\n")
-					for _, line := range lines {
-						if line != "" {
-							outputChan <- line
-						}
-					}
-				}
-				if err != nil {
-					break
-				}
-			}
-		}()
-
-		// Read stderr
-		go func() {
-			buf := make([]byte, 1024)
-			for {
-				n, err := stderr.Read(buf)
-				if n > 0 {
-					lines := strings.Split(string(buf[:n]), "\n")
-					for _, line := range lines {
-						if line != "" {
-							outputChan <- line
-						}
-					}
-				}
-				if err != nil {
-					break
-				}
-			}
-		}()
-
-		// Wait for command to finish in background
-		go func() {
-			cmd.Wait()
-			close(outputChan)
-		}()
-
-		return InteractiveStartedMsg{
-			Stdin:  stdin,
-			Output: outputChan,
-		}
-	}
 }
 
 // ListenInteractiveCmd listens for output from an interactive command

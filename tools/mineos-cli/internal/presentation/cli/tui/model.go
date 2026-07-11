@@ -212,12 +212,6 @@ type ExecFinishedMsg struct {
 	Err    error
 }
 
-// ConfirmActionMsg is sent when user confirms a destructive action
-type ConfirmActionMsg struct {
-	Confirmed bool
-	Action    *MenuItem
-}
-
 // InteractiveStartedMsg is sent when an interactive command starts
 type InteractiveStartedMsg struct {
 	Stdin  io.WriteCloser

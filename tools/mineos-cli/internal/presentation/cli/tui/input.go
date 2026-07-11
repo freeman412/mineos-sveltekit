@@ -516,30 +516,6 @@ func (m TuiModel) HandleConfirmInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// NextLogSource cycles to the next log source
-func (m TuiModel) NextLogSource(current string, services []string) string {
-	if len(services) == 0 {
-		return DefaultDockerLogSource
-	}
-	sources := append([]string{DefaultDockerLogSource}, services...)
-	for i, s := range sources {
-		if s == current {
-			return sources[(i+1)%len(sources)]
-		}
-	}
-	return sources[0]
-}
-
-// NextMinecraftLogType cycles to the next minecraft log type
-func (m TuiModel) NextMinecraftLogType(current string) string {
-	for i, t := range MinecraftLogTypes {
-		if t == current {
-			return MinecraftLogTypes[(i+1)%len(MinecraftLogTypes)]
-		}
-	}
-	return "combined"
-}
-
 // pageUp scrolls up by one page in logs view
 func (m TuiModel) pageUp() (tea.Model, tea.Cmd) {
 	if m.CurrentView == ViewServiceLogs {

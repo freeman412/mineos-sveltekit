@@ -160,9 +160,6 @@ func (m TuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case ExecFinishedMsg:
 		return m.handleExecFinished(msg)
 
-	case ConfirmActionMsg:
-		return m.handleConfirmAction(msg)
-
 	case InteractiveStartedMsg:
 		return m.handleInteractiveStarted(msg)
 
@@ -349,19 +346,6 @@ func (m TuiModel) handleExecFinished(msg ExecFinishedMsg) (tea.Model, tea.Cmd) {
 	return m, tea.Batch(m.LoadConfigCmd(), m.LoadComposeCmd(), m.LoadServersCmd())
 }
 
-func (m TuiModel) handleConfirmAction(msg ConfirmActionMsg) (tea.Model, tea.Cmd) {
-	m.Mode = ModeNormal
-	m.ConfirmAction = nil
-	m.ConfirmMessage = ""
-
-	if !msg.Confirmed || msg.Action == nil {
-		m.StatusMsg = "Action cancelled"
-		return m, nil
-	}
-
-	return m, m.ExecMenuItem(*msg.Action)
-}
-
 func (m TuiModel) handleInteractiveStarted(msg InteractiveStartedMsg) (tea.Model, tea.Cmd) {
 	m.Mode = ModeInteractive
 	m.InteractiveStdin = msg.Stdin
@@ -526,12 +510,6 @@ func (m TuiModel) StartLogStreamCmd() tea.Cmd {
 			LogSource: logSource,
 		}
 	}
-}
-
-// EnsureLogStreamCmd is deprecated - use StartLogStreamCmd instead
-// Kept for backward compatibility
-func (m TuiModel) EnsureLogStreamCmd() tea.Cmd {
-	return m.StartLogStreamCmd()
 }
 
 // ListenLogsCmd creates a command to listen for log messages
