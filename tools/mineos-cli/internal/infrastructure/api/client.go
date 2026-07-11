@@ -74,7 +74,10 @@ func (c *Client) ListServers(ctx context.Context) ([]ports.Server, error) {
 		return nil, ErrApiKeyMissing
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.apiBaseURL+"/servers/list", nil)
+	// /host/servers (ServerSummaryDto) carries richer per-server fields — players,
+	// memory, needs-restart — that /servers/list does not. It has no status string,
+	// so derive one from Up for the existing status-based rendering/commands.
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.apiBaseURL+"/host/servers", nil)
 	if err != nil {
 		return nil, err
 	}
@@ -97,6 +100,16 @@ func (c *Client) ListServers(ctx context.Context) ([]ports.Server, error) {
 	var servers []ports.Server
 	if err := json.NewDecoder(resp.Body).Decode(&servers); err != nil {
 		return nil, err
+	}
+
+	for i := range servers {
+		if servers[i].Status == "" {
+			if servers[i].Up {
+				servers[i].Status = "running"
+			} else {
+				servers[i].Status = "stopped"
+			}
+		}
 	}
 
 	return servers, nil

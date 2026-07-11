@@ -45,7 +45,7 @@ func (m TuiModel) RenderServersTable(width, height int) []string {
 	lines := make([]string, 0, height)
 
 	// Table Header
-	header := fmt.Sprintf("  %-25s %-15s", "SERVER NAME", "STATUS")
+	header := fmt.Sprintf("  %-20s %-10s %-8s %-7s", "SERVER NAME", "STATUS", "PLAYERS", "MEM")
 	lines = append(lines, StyleHeader.Render(header))
 	lines = append(lines, StyleSubtle.Render(strings.Repeat("─", width)))
 
@@ -60,23 +60,50 @@ func (m TuiModel) RenderServersTable(width, height int) []string {
 
 	for i, server := range m.Servers {
 		prefix := "  "
-		name := server.Name
-		status := server.Status
-
 		nameStyle := StyleHeader // Default
 		if i == m.Selected {
 			prefix = StyleSelected.Render("▶ ")
 			nameStyle = StyleSelected
 		}
 
-		statusFormatted := FormatStatus(status)
+		// Pad plain text before styling so column widths stay honest.
+		name := nameStyle.Render(fmt.Sprintf("%-20s", server.Name))
+		status := FormatStatus(fmt.Sprintf("%-10s", server.Status))
+		players := fmt.Sprintf("%-8s", formatPlayers(server.PlayersOnline, server.PlayersMax))
+		mem := fmt.Sprintf("%-7s", formatMemory(server.MemoryBytes))
+		restart := ""
+		if server.NeedsRestart {
+			restart = " " + StyleError.Render("⟳ restart")
+		}
 
-		// Align columns
-		line := fmt.Sprintf("%s%-25s %-15s", prefix, nameStyle.Render(name), statusFormatted)
+		line := fmt.Sprintf("%s%s %s %s %s%s", prefix, name, status, players, mem, restart)
 		lines = append(lines, TrimToWidth(line, width))
 	}
 
 	return PadLines(lines, height)
+}
+
+// formatPlayers renders "online/max" (or "online", or "—" when unknown).
+func formatPlayers(online, max *int) string {
+	if online == nil {
+		return "—"
+	}
+	if max == nil {
+		return fmt.Sprintf("%d", *online)
+	}
+	return fmt.Sprintf("%d/%d", *online, *max)
+}
+
+// formatMemory renders a byte count as a compact MiB/GiB value ("—" when unknown).
+func formatMemory(b *int64) string {
+	if b == nil || *b <= 0 {
+		return "—"
+	}
+	mib := float64(*b) / (1024 * 1024)
+	if mib >= 1024 {
+		return fmt.Sprintf("%.1fG", mib/1024)
+	}
+	return fmt.Sprintf("%.0fM", mib)
 }
 
 // RenderMinecraftLogs renders Minecraft server logs for the selected server
