@@ -217,6 +217,21 @@ export async function updateServerConfig(
 	return apiPut(fetcher, `/api/servers/${name}/server-config`, config);
 }
 
+export async function getVelocityConfig(
+	fetcher: Fetcher,
+	name: string
+): Promise<ApiResult<import('./types').VelocityConfig>> {
+	return apiFetch(fetcher, `/api/servers/${name}/velocity-config`);
+}
+
+export async function updateVelocityConfig(
+	fetcher: Fetcher,
+	name: string,
+	config: import('./types').VelocityConfig
+): Promise<ApiResult<void>> {
+	return apiPut(fetcher, `/api/servers/${name}/velocity-config`, config);
+}
+
 export async function acceptEula(fetcher: Fetcher, name: string): Promise<ApiResult<void>> {
 	return apiPost(fetcher, `/api/servers/${name}/eula`);
 }

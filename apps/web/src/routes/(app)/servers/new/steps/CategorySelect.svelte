@@ -1,7 +1,7 @@
 <script lang="ts">
 	import SelectionCard from '$lib/components/SelectionCard.svelte';
 
-	export type ServerCategory = 'vanilla' | 'plugins' | 'mods' | 'bedrock' | 'template';
+	export type ServerCategory = 'vanilla' | 'plugins' | 'mods' | 'proxy' | 'bedrock' | 'template';
 
 	interface Props {
 		onselect: (category: ServerCategory) => void;
@@ -36,6 +36,15 @@
 			iconImage: '/images/mods.png',
 			color: '#a855f7',
 			features: ['New blocks', 'Dimensions', 'Total conversions']
+		},
+		{
+			id: 'proxy' as const,
+			name: 'Proxy',
+			description: 'Velocity proxy for routing players across multiple backend servers',
+			icon: '🌐',
+			iconImage: '',
+			color: '#06b6d4',
+			features: ['Multi-server', 'Network', 'No world']
 		},
 		{
 			id: 'bedrock' as const,

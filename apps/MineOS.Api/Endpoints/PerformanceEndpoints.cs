@@ -1,4 +1,5 @@
 using System.Text.Json;
+using MineOS.Api.Authorization;
 using MineOS.Application.Interfaces;
 
 namespace MineOS.Api.Endpoints;
@@ -12,7 +13,10 @@ public static class PerformanceEndpoints
 
     public static IEndpointRouteBuilder MapPerformanceEndpoints(this IEndpointRouteBuilder api)
     {
-        var performance = api.MapGroup("/servers/{name}/performance");
+        // Was completely unauthenticated. Require auth and gate per-server.
+        var performance = api.MapGroup("/servers/{name}/performance")
+            .RequireAuthorization();
+        performance.AddEndpointFilter<ServerAccessFilter>();
         static async Task StreamAsync(
             HttpContext context,
             string name,

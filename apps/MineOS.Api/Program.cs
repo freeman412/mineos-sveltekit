@@ -236,8 +236,12 @@ app.UseSwaggerUI();
 app.UseSerilogRequestLogging();
 app.Lifetime.ApplicationStopped.Register(Log.CloseAndFlush);
 app.UseAuthentication();
-app.UseAuthorization();
+// ApiKeyMiddleware must run BEFORE UseAuthorization so a valid X-Api-Key request
+// (which carries no JWT) is turned into an authenticated principal before the
+// authorization policies (.RequireAuthorization / role checks) evaluate. Otherwise
+// key-only requests are rejected by UseAuthorization before the key is ever checked.
 app.UseMiddleware<ApiKeyMiddleware>();
+app.UseAuthorization();
 
 var connectionString = builder.Configuration.GetConnectionString("Default");
 if (!string.IsNullOrWhiteSpace(connectionString))

@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Mvc;
+using MineOS.Api.Authorization;
 using MineOS.Application.Interfaces;
 
 namespace MineOS.Api.Endpoints;
@@ -10,6 +11,8 @@ public static class PlayerEndpoints
         var players = api.MapGroup("/servers/{serverName}/players")
             .WithTags("Players")
             .RequireAuthorization();
+        // Gate per-server: a user with access to one server must not manage another's players.
+        players.AddEndpointFilter<ServerAccessFilter>();
 
         players.MapGet("/", async (
             string serverName,

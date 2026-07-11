@@ -88,6 +88,25 @@ export type ServerConfig = {
 	monitoring: MonitoringConfig;
 };
 
+export type VelocityConfig = {
+	exists: boolean;
+	bind: string;
+	motd: string;
+	showMaxPlayers: number;
+	onlineMode: boolean;
+	forceKeyAuthentication: boolean;
+	preventClientProxyConnections: boolean;
+	playerInfoForwardingMode: 'none' | 'legacy' | 'bungeeguard' | 'modern';
+	forwardingSecretFile: string;
+	announceForge: boolean;
+	kickExistingPlayers: boolean;
+	pingPassthrough: 'DISABLED' | 'MODS' | 'DESCRIPTION' | 'ALL';
+	enablePlayerAddressLogging: boolean;
+	servers: Record<string, string>;
+	try: string[];
+	forcedHosts: Record<string, string[]>;
+};
+
 export type JavaConfig = {
 	javaBinary: string;
 	javaXmx: number;

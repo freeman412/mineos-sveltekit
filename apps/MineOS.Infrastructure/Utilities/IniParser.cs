@@ -36,8 +36,17 @@ public static class IniParser
     /// </summary>
     public static string WriteSimple(Dictionary<string, string> data)
     {
-        var lines = data.Select(kvp => $"{kvp.Key}={kvp.Value}");
+        var lines = data.Select(kvp => $"{kvp.Key}={SanitizeValue(kvp.Value)}");
         return string.Join("\n", lines) + "\n";
+    }
+
+    // Strip CR/LF from values so a multi-line value (e.g. a pasted MOTD) can't
+    // inject extra key=value lines that later parse as real settings.
+    private static string SanitizeValue(string value)
+    {
+        if (string.IsNullOrEmpty(value))
+            return value;
+        return value.Replace("\r", string.Empty).Replace("\n", " ");
     }
 
     /// <summary>
@@ -104,7 +113,7 @@ public static class IniParser
 
             foreach (var kvp in section.Value)
             {
-                lines.Add($"{kvp.Key}={kvp.Value}");
+                lines.Add($"{kvp.Key}={SanitizeValue(kvp.Value)}");
             }
 
             lines.Add(""); // Empty line between sections
