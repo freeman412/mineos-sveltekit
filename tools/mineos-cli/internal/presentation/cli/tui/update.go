@@ -201,6 +201,27 @@ func (m TuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.Healthy = msg.Healthy
 		return m, nil
 
+	case PerfStreamStartedMsg:
+		if m.PerfCancel != nil {
+			m.PerfCancel()
+		}
+		m.PerfServer = msg.Server
+		m.PerfChan = msg.Samples
+		m.PerfErrs = msg.Errs
+		m.PerfCancel = msg.Cancel
+		m.PerfSample = nil
+		return m, m.ListenPerfCmd()
+
+	case PerfSampleMsg:
+		s := msg.Sample
+		m.PerfSample = &s
+		return m, m.ListenPerfCmd()
+
+	case PerfErrorMsg:
+		// Stream ended/errored — clear the panel; it restarts on re-entering the view.
+		m.PerfSample = nil
+		return m, nil
+
 	case SettingsToggledMsg:
 		if msg.Err != nil {
 			m.ErrMsg = "Failed to update setting: " + msg.Err.Error()
@@ -239,6 +260,55 @@ func (m TuiModel) HealthCheckCmd() tea.Cmd {
 		err := client.Health(ctx)
 		return HealthCheckedMsg{Healthy: err == nil, Err: err}
 	}
+}
+
+// StartPerfStreamCmd opens the performance SSE for the selected server.
+func (m TuiModel) StartPerfStreamCmd() tea.Cmd {
+	server := m.SelectedServer()
+	client := m.Client
+	if client == nil || server == "" {
+		return nil
+	}
+	return func() tea.Msg {
+		ctx, cancel := context.WithCancel(context.Background())
+		samples, errs := client.StreamPerformance(ctx, server)
+		return PerfStreamStartedMsg{Server: server, Samples: samples, Errs: errs, Cancel: cancel}
+	}
+}
+
+// ListenPerfCmd waits for the next perf sample or error and re-arms itself.
+func (m TuiModel) ListenPerfCmd() tea.Cmd {
+	samples := m.PerfChan
+	errs := m.PerfErrs
+	if samples == nil && errs == nil {
+		return nil
+	}
+	return func() tea.Msg {
+		select {
+		case s, ok := <-samples:
+			if !ok {
+				return PerfErrorMsg{}
+			}
+			return PerfSampleMsg{Sample: s}
+		case e, ok := <-errs:
+			if !ok {
+				return PerfErrorMsg{}
+			}
+			return PerfErrorMsg{Err: e}
+		}
+	}
+}
+
+// stopPerfStream cancels any running perf stream and clears its state.
+func (m *TuiModel) stopPerfStream() {
+	if m.PerfCancel != nil {
+		m.PerfCancel()
+		m.PerfCancel = nil
+	}
+	m.PerfChan = nil
+	m.PerfErrs = nil
+	m.PerfSample = nil
+	m.PerfServer = ""
 }
 
 func (m TuiModel) handleConfigLoaded(msg ConfigLoadedMsg) (tea.Model, tea.Cmd) {

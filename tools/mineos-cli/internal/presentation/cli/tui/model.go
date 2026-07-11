@@ -96,6 +96,14 @@ type TuiModel struct {
 	LogsChan        <-chan string
 	LogErrsChan     <-chan error
 	LogCancel       context.CancelFunc
+
+	// Live per-server performance stream (server-actions view)
+	PerfSample *api.PerfSample
+	PerfChan   <-chan api.PerfSample
+	PerfErrs   <-chan error
+	PerfCancel context.CancelFunc
+	PerfServer string
+
 	LogScroll       int    // Scroll offset for logs view
 	LogSearchQuery  string // Search query for logs
 	LogSearchMode   bool   // Whether in search mode
@@ -261,3 +269,17 @@ type HealthCheckedMsg struct {
 	Healthy bool
 	Err     error
 }
+
+// PerfStreamStartedMsg carries the channels for a freshly opened perf stream
+type PerfStreamStartedMsg struct {
+	Server  string
+	Samples <-chan api.PerfSample
+	Errs    <-chan error
+	Cancel  context.CancelFunc
+}
+
+// PerfSampleMsg carries one live performance sample
+type PerfSampleMsg struct{ Sample api.PerfSample }
+
+// PerfErrorMsg signals the perf stream errored or ended
+type PerfErrorMsg struct{ Err error }

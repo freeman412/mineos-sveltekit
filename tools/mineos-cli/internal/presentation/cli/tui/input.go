@@ -232,7 +232,7 @@ func (m TuiModel) navSelect() (tea.Model, tea.Cmd) {
 	if m.CurrentView == ViewServers && len(m.Servers) > 0 {
 		m.ServerActions = true
 		m.ActionIndex = 0
-		return m, nil
+		return m, m.StartPerfStreamCmd()
 	}
 
 	if m.NavIndex < 0 || m.NavIndex >= len(m.NavItems) {
@@ -248,6 +248,7 @@ func (m TuiModel) navSelect() (tea.Model, tea.Cmd) {
 		// Reset server actions mode when switching views
 		m.ServerActions = false
 		m.ActionIndex = 0
+		m.stopPerfStream()
 
 		// Switch log type based on view
 		var cmd tea.Cmd
@@ -311,6 +312,7 @@ func (m TuiModel) executeServerAction() (tea.Model, tea.Cmd) {
 	if action.Action == "back" {
 		m.ServerActions = false
 		m.ActionIndex = 0
+		m.stopPerfStream()
 		return m, nil
 	}
 
@@ -354,6 +356,7 @@ func (m TuiModel) navBack() (tea.Model, tea.Cmd) {
 	if m.CurrentView == ViewServers && m.ServerActions {
 		m.ServerActions = false
 		m.ActionIndex = 0
+		m.stopPerfStream()
 		return m, nil
 	}
 
