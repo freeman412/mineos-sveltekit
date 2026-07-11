@@ -25,12 +25,15 @@ public sealed class FileService : IFileService
 
     private string GetSafePath(string serverName, string relativePath)
     {
-        var serverPath = GetServerPath(serverName);
+        var serverPath = Path.GetFullPath(GetServerPath(serverName));
         var fullPath = Path.Combine(serverPath, relativePath.TrimStart('/'));
         var normalizedPath = Path.GetFullPath(fullPath);
 
-        // Prevent directory traversal
-        if (!normalizedPath.StartsWith(serverPath, StringComparison.OrdinalIgnoreCase))
+        // Prevent directory traversal. Compare with a trailing separator so a sibling
+        // directory whose name merely starts with serverPath (e.g. "srv" vs "srv2")
+        // cannot pass the check.
+        if (normalizedPath != serverPath &&
+            !normalizedPath.StartsWith(serverPath + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
         {
             throw new ArgumentException("Invalid path - directory traversal detected");
         }

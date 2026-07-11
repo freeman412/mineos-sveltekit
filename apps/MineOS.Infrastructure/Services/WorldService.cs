@@ -88,12 +88,15 @@ public sealed class WorldService : IWorldService
 
     private string GetWorldPath(string serverName, string worldName)
     {
-        var serverPath = GetServerPath(serverName);
+        var serverPath = Path.GetFullPath(GetServerPath(serverName));
         var worldPath = Path.Combine(serverPath, worldName);
 
-        // Security check: prevent directory traversal
+        // Security check: prevent directory traversal. Compare with a trailing
+        // separator so a sibling directory whose name merely starts with serverPath
+        // (e.g. "survival" vs "survival2") cannot pass the check.
         var normalizedPath = Path.GetFullPath(worldPath);
-        if (!normalizedPath.StartsWith(serverPath, StringComparison.OrdinalIgnoreCase))
+        if (normalizedPath != serverPath &&
+            !normalizedPath.StartsWith(serverPath + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
         {
             throw new ArgumentException("Invalid world name - directory traversal detected");
         }
@@ -288,25 +291,42 @@ public sealed class WorldService : IWorldService
             // Delete the ZIP file
             File.Delete(tempZipFile);
 
-            // Delete existing world if it exists
+            // Determine what will become the new world and validate it BEFORE deleting
+            // the existing world, so a wrong/empty/garbage upload can't destroy the
+            // live world with no way to recover (mirrors UploadNewWorldAsync).
+            var extractedDirs = Directory.GetDirectories(tempDir);
+            string sourceDir;
+            var moveTempItself = false;
+            if (extractedDirs.Length == 1 && IsWorldFolder(extractedDirs[0]))
+            {
+                sourceDir = extractedDirs[0];
+            }
+            else if (IsWorldFolder(tempDir))
+            {
+                sourceDir = tempDir;
+                moveTempItself = true;
+            }
+            else
+            {
+                throw new ArgumentException(
+                    "ZIP file does not contain a valid Minecraft world (no level.dat found)");
+            }
+
+            // Delete existing world only after validation passed
             if (Directory.Exists(worldPath))
             {
                 _logger.LogInformation("Deleting existing world {WorldName}", worldName);
                 Directory.Delete(worldPath, true);
             }
 
-            // Move extracted files to world path
-            var extractedDirs = Directory.GetDirectories(tempDir);
-            if (extractedDirs.Length == 1)
+            if (moveTempItself)
             {
-                // ZIP contains a single folder - use its contents
-                Directory.Move(extractedDirs[0], worldPath);
+                Directory.Move(tempDir, worldPath);
+                tempDir = null; // Prevent cleanup
             }
             else
             {
-                // ZIP contains multiple items at root - move the entire temp dir
-                Directory.Move(tempDir, worldPath);
-                tempDir = null; // Prevent cleanup
+                Directory.Move(sourceDir, worldPath);
             }
 
             _logger.LogInformation("Successfully uploaded world {WorldName}", worldName);

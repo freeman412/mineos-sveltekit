@@ -1,3 +1,4 @@
+using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using MineOS.Application.Interfaces;
 
@@ -52,6 +53,19 @@ public sealed class ApiKeyMiddleware
             context.Response.StatusCode = StatusCodes.Status403Forbidden;
             await context.Response.WriteAsync("Invalid API key.");
             return;
+        }
+
+        // A valid service key is a full-access (admin) identity. Establish an
+        // authenticated principal so downstream authorization policies
+        // (.RequireAuthorization and role checks) see an admin — this middleware
+        // runs before UseAuthorization. Matches the prior behavior where key
+        // requests were treated as full-access, now made explicit for role gates.
+        if (context.User?.Identity?.IsAuthenticated != true)
+        {
+            var identity = new ClaimsIdentity("ApiKey");
+            identity.AddClaim(new Claim(ClaimTypes.Name, "service"));
+            identity.AddClaim(new Claim(ClaimTypes.Role, "admin"));
+            context.User = new ClaimsPrincipal(identity);
         }
 
         await _next(context);
