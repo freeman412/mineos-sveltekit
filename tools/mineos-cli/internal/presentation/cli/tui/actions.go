@@ -328,7 +328,7 @@ func writeEnvValue(path, key, value string) error {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return os.WriteFile(path, []byte(key+"="+value+"\n"), 0o644)
+			return os.WriteFile(path, []byte(key+"="+value+"\n"), 0o600)
 		}
 		return err
 	}
@@ -348,7 +348,7 @@ func writeEnvValue(path, key, value string) error {
 	if !strings.HasSuffix(output, "\n") {
 		output += "\n"
 	}
-	return os.WriteFile(path, []byte(output), 0o644)
+	return os.WriteFile(path, []byte(output), 0o600)
 }
 
 func (m TuiModel) SelectedServer() string {

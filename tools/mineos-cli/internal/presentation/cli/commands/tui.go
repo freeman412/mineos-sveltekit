@@ -13,7 +13,8 @@ func NewTuiCommand(loadConfig *usecases.LoadConfigUseCase, version string) *cobr
 		Aliases: []string{"ui"},
 		Short:   "Full-screen MineOS dashboard",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			// This command is kept for explicit access, but the default `mineos` already launches the TUI.
+			// The TUI is launched explicitly via `mineos tui` / `mineos ui`.
+			// Bare `mineos` shows help (see NewRootCommand) rather than the dashboard.
 			return tui.RunTui(cmd.Context(), loadConfig, version, cmd.InOrStdin(), cmd.OutOrStdout())
 		},
 	}

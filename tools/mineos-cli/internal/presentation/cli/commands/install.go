@@ -440,9 +440,13 @@ func runInstall(cmd *cobra.Command, opts installOptions) error {
 		installationID:   installationID,
 	})
 
-	if err := os.WriteFile(".env", []byte(envContents), 0o644); err != nil {
+	// .env holds the seed password, JWT secret, and API key — keep it owner-only.
+	if err := os.WriteFile(".env", []byte(envContents), 0o600); err != nil {
 		return err
 	}
+	// WriteFile leaves permissions untouched on a pre-existing file; force-tighten
+	// so re-running install over a 0644 .env still ends up owner-only.
+	_ = os.Chmod(".env", 0o600)
 
 	if err := createDirectories(out, opts.hostBaseDir, opts.dataDir); err != nil {
 		return err
@@ -945,7 +949,7 @@ func primaryLanIP() string {
 
 // appendToEnv appends a KEY=VALUE line to the given .env file.
 func appendToEnv(path, key, value string) {
-	f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0o644)
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0o600)
 	if err != nil {
 		return
 	}
