@@ -43,6 +43,15 @@ jobs:
             (cd "$OUT_DIR" && zip -j "mineos-cli_${GOOS}_${GOARCH}.zip" "$OUT_NAME")
           done
 
+      - name: Generate checksums
+        shell: bash
+        run: |
+          set -euo pipefail
+          # SHA-256 of the published CLI archives; `mineos upgrade` verifies its
+          # download against this before overwriting the running binary.
+          (cd dist/cli && sha256sum *.zip > checksums.txt)
+          cat dist/cli/checksums.txt
+
       - name: Build bundle
         shell: bash
         run: |
@@ -65,3 +74,4 @@ jobs:
             dist/mineos-install-bundle.tar.gz
             dist/mineos-install-bundle.zip
             dist/cli/*.zip
+            dist/cli/checksums.txt
