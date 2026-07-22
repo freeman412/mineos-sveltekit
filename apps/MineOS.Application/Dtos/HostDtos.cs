@@ -12,7 +12,9 @@ public record ServerSummaryDto(
     int? PlayersOnline,
     int? PlayersMax,
     long? MemoryBytes,
-    bool NeedsRestart);
+    bool NeedsRestart,
+    bool UpdateAvailable = false,
+    string? LatestVersion = null);
 
 public record ProfileDto(
     string Id,

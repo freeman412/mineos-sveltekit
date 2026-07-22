@@ -15,19 +15,22 @@ public sealed class HostService : IHostService
     private readonly IProcessManager _processManager;
     private readonly IMonitoringService _monitoringService;
     private readonly IServerService _serverService;
+    private readonly IUpdateCheckService _updateCheck;
 
     public HostService(
         IOptions<HostOptions> options,
         ILogger<HostService> logger,
         IProcessManager processManager,
         IMonitoringService monitoringService,
-        IServerService serverService)
+        IServerService serverService,
+        IUpdateCheckService updateCheck)
     {
         _options = options.Value;
         _logger = logger;
         _processManager = processManager;
         _monitoringService = monitoringService;
         _serverService = serverService;
+        _updateCheck = updateCheck;
     }
 
     public Task<HostMetricsDto> GetMetricsAsync(CancellationToken cancellationToken)
@@ -109,6 +112,7 @@ public sealed class HostService : IHostService
             var playersOnline = ping?.PlayersOnline;
             var playersMax = ping?.PlayersMax ?? maxPlayers;
 
+            var update = _updateCheck.GetUpdateInfo(name);
             results.Add(new ServerSummaryDto(
                 Name: name,
                 Up: up,
@@ -117,7 +121,9 @@ public sealed class HostService : IHostService
                 PlayersOnline: playersOnline,
                 PlayersMax: playersMax,
                 MemoryBytes: memoryBytes,
-                NeedsRestart: needsRestart));
+                NeedsRestart: needsRestart,
+                UpdateAvailable: update != null,
+                LatestVersion: update?.LatestVersion));
         }
 
         return results;

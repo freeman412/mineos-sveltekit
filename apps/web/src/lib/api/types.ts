@@ -20,6 +20,8 @@ export type ServerSummary = {
 	playersMax?: number | null;
 	memoryBytes?: number | null;
 	needsRestart: boolean;
+	updateAvailable?: boolean;
+	latestVersion?: string | null;
 };
 
 export type Profile = {

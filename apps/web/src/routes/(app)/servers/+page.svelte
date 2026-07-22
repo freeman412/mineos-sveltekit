@@ -569,6 +569,16 @@
 					{#if server.needsRestart}
 						<span class="badge badge-warning">Restart required</span>
 					{/if}
+					{#if server.updateAvailable}
+						<span
+							class="badge badge-update"
+							title={server.latestVersion
+								? `Latest available: ${server.latestVersion}`
+								: 'A newer server version is available'}
+						>
+							Update available
+						</span>
+					{/if}
 				</div>
 				<div class="card-metrics">
 					<div class="metric">
@@ -993,6 +1003,12 @@
 		background: rgba(255, 200, 87, 0.15);
 		color: #f4c08e;
 		border-color: rgba(255, 200, 87, 0.35);
+	}
+
+	.badge-update {
+		background: rgba(91, 158, 255, 0.15);
+		color: #a5c8ff;
+		border-color: rgba(91, 158, 255, 0.35);
 	}
 
 	.card-metrics {
