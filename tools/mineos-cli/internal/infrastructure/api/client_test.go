@@ -115,3 +115,38 @@ func TestPerformanceHistory_RequiresName(t *testing.T) {
 		t.Fatal("want error for empty server name")
 	}
 }
+
+func TestListServers_InvalidKeyMapsAuthErrors(t *testing.T) {
+	for _, status := range []int{http.StatusUnauthorized, http.StatusForbidden} {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(status)
+		}))
+		if _, err := NewClient(srv.URL, "bad").ListServers(context.Background()); err != ErrApiKeyInvalid {
+			t.Fatalf("status %d: want ErrApiKeyInvalid, got %v", status, err)
+		}
+		srv.Close()
+	}
+}
+
+func TestStreamConsoleLogs_ParsesSSEAndSkipsJunk(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(w, ": comment to ignore\n")
+		_, _ = io.WriteString(w, "data: {\"timestamp\":\"2026-07-22T00:00:00Z\",\"message\":\"hello\"}\n\n")
+		_, _ = io.WriteString(w, "data: not-json\n\n")
+		_, _ = io.WriteString(w, "data: {\"timestamp\":\"2026-07-22T00:00:01Z\",\"message\":\"world\"}\n\n")
+	}))
+	defer srv.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	logs, _ := NewClient(srv.URL, "k").StreamConsoleLogs(ctx, "lobby", "")
+
+	var got []string
+	for entry := range logs {
+		got = append(got, entry.Message)
+	}
+	if len(got) != 2 || got[0] != "hello" || got[1] != "world" {
+		t.Fatalf("SSE parse wrong: %v", got)
+	}
+}
