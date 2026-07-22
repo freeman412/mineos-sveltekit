@@ -64,6 +64,13 @@ const (
 	HealthPollInterval = 10 * time.Second // Re-check API when unhealthy
 )
 
+// Metrics sparkline constants
+const (
+	PerfHistoryMinutes    = 30  // Backfill window for the metrics panel
+	MaxPerfHistorySamples = 240 // Cap on retained samples (backfill + live)
+	SparklineWidth        = 30  // Characters per sparkline strip
+)
+
 // UI layout constants
 const (
 	SidebarWidth     = 20

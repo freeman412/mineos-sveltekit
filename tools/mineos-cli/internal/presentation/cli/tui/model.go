@@ -105,6 +105,10 @@ type TuiModel struct {
 	PerfCancel context.CancelFunc
 	PerfServer string
 
+	// Sample history backing the sparkline: history-endpoint backfill plus
+	// live samples appended as they stream in. Cleared with the stream.
+	PerfHistory []api.PerfSample
+
 	LogScroll       int    // Scroll offset for logs view
 	LogSearchQuery  string // Search query for logs
 	LogSearchMode   bool   // Whether in search mode
@@ -299,3 +303,10 @@ type PerfSampleMsg struct{ Sample api.PerfSample }
 
 // PerfErrorMsg signals the perf stream errored or ended
 type PerfErrorMsg struct{ Err error }
+
+// PerfHistoryMsg carries the history backfill for the metrics sparkline
+type PerfHistoryMsg struct {
+	Server  string
+	Samples []api.PerfSample
+	Err     error
+}

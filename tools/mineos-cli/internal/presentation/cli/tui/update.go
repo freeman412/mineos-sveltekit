@@ -230,11 +230,25 @@ func (m TuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case PerfSampleMsg:
 		s := msg.Sample
 		m.PerfSample = &s
+		m.PerfHistory = appendCapped(m.PerfHistory, s, MaxPerfHistorySamples)
 		return m, m.ListenPerfCmd()
 
 	case PerfErrorMsg:
 		// Stream ended/errored — clear the panel; it restarts on re-entering the view.
 		m.PerfSample = nil
+		return m, nil
+
+	case PerfHistoryMsg:
+		// Backfill arriving for a stale selection (or failing) is just skipped —
+		// the panel falls back to live samples only.
+		if msg.Err != nil || msg.Server != m.SelectedServer() {
+			return m, nil
+		}
+		// History (older) goes in front of any live samples already collected.
+		m.PerfHistory = append(msg.Samples, m.PerfHistory...)
+		if len(m.PerfHistory) > MaxPerfHistorySamples {
+			m.PerfHistory = m.PerfHistory[len(m.PerfHistory)-MaxPerfHistorySamples:]
+		}
 		return m, nil
 
 	case SettingsToggledMsg:
@@ -351,6 +365,33 @@ func (m *TuiModel) stopPerfStream() {
 	m.PerfErrs = nil
 	m.PerfSample = nil
 	m.PerfServer = ""
+	m.PerfHistory = nil
+}
+
+// LoadPerfHistoryCmd fetches the history backfill for the metrics sparkline.
+func (m TuiModel) LoadPerfHistoryCmd() tea.Cmd {
+	server := m.SelectedServer()
+	client := m.Client
+	if client == nil || server == "" {
+		return nil
+	}
+	ctx := m.Ctx
+	return func() tea.Msg {
+		if ctx == nil {
+			ctx = context.Background()
+		}
+		samples, err := client.PerformanceHistory(ctx, server, PerfHistoryMinutes)
+		return PerfHistoryMsg{Server: server, Samples: samples, Err: err}
+	}
+}
+
+// appendCapped appends item keeping at most cap entries (drops the oldest).
+func appendCapped(history []api.PerfSample, s api.PerfSample, capacity int) []api.PerfSample {
+	history = append(history, s)
+	if len(history) > capacity {
+		history = history[len(history)-capacity:]
+	}
+	return history
 }
 
 func (m TuiModel) handleConfigLoaded(msg ConfigLoadedMsg) (tea.Model, tea.Cmd) {

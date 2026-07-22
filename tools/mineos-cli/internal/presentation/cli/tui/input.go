@@ -232,7 +232,7 @@ func (m TuiModel) navSelect() (tea.Model, tea.Cmd) {
 	if m.CurrentView == ViewServers && len(m.Servers) > 0 {
 		m.ServerActions = true
 		m.ActionIndex = 0
-		return m, m.StartPerfStreamCmd()
+		return m, tea.Batch(m.StartPerfStreamCmd(), m.LoadPerfHistoryCmd())
 	}
 
 	if m.NavIndex < 0 || m.NavIndex >= len(m.NavItems) {

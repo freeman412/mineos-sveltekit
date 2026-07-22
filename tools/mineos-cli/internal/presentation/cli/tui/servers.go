@@ -123,7 +123,38 @@ func (m TuiModel) renderMetricsLines() []string {
 	}
 	lines = append(lines, fmt.Sprintf("  TPS: %s   CPU: %.0f%%   RAM: %d/%d MB   Players: %d",
 		tpsStyle.Render(tps), p.CpuPercent, p.RamUsedMb, p.RamTotalMb, p.PlayerCount))
+	lines = append(lines, m.renderSparklines()...)
 	return append(lines, "")
+}
+
+// renderSparklines renders TPS and CPU history strips from the sample buffer
+// (history-endpoint backfill + live samples).
+func (m TuiModel) renderSparklines() []string {
+	if len(m.PerfHistory) < 2 {
+		return nil
+	}
+	var tpsSeries, cpuSeries []float64
+	for _, s := range m.PerfHistory {
+		if s.Tps != nil {
+			tpsSeries = append(tpsSeries, *s.Tps)
+		}
+		cpuSeries = append(cpuSeries, s.CpuPercent)
+	}
+
+	var lines []string
+	if len(tpsSeries) >= 2 {
+		lo, avg, hi := SeriesStats(tpsSeries)
+		lines = append(lines, fmt.Sprintf("  TPS %s %s",
+			StyleStatus.Render(Sparkline(tpsSeries, SparklineWidth)),
+			StyleSubtle.Render(fmt.Sprintf("min %.1f  avg %.1f  max %.1f", lo, avg, hi))))
+	}
+	if len(cpuSeries) >= 2 {
+		lo, avg, hi := SeriesStats(cpuSeries)
+		lines = append(lines, fmt.Sprintf("  CPU %s %s",
+			StyleStatus.Render(Sparkline(cpuSeries, SparklineWidth)),
+			StyleSubtle.Render(fmt.Sprintf("min %.0f%%  avg %.0f%%  max %.0f%%  (last %dm)", lo, avg, hi, PerfHistoryMinutes))))
+	}
+	return lines
 }
 
 // RenderMinecraftLogs renders Minecraft server logs for the selected server

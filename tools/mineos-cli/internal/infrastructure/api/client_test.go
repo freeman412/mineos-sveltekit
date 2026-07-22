@@ -77,3 +77,41 @@ func TestStreamPerformance_ParsesSSE(t *testing.T) {
 		t.Fatalf("expected nil tps on second sample, got %v", *second.Tps)
 	}
 }
+
+func TestPerformanceHistory_DecodesAndPassesMinutes(t *testing.T) {
+	var gotMinutes string
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v1/servers/lobby/performance/history", func(w http.ResponseWriter, r *http.Request) {
+		gotMinutes = r.URL.Query().Get("minutes")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`[
+			{"serverName":"lobby","timestamp":"2026-07-22T00:00:00Z","isRunning":true,"cpuPercent":10,"ramUsedMb":500,"ramTotalMb":1024,"tps":20.0,"playerCount":1},
+			{"serverName":"lobby","timestamp":"2026-07-22T00:01:00Z","isRunning":true,"cpuPercent":20,"ramUsedMb":510,"ramTotalMb":1024,"tps":null,"playerCount":1}
+		]`))
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	samples, err := NewClient(srv.URL, "k").PerformanceHistory(context.Background(), "lobby", 30)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotMinutes != "30" {
+		t.Fatalf("minutes not passed, got %q", gotMinutes)
+	}
+	if len(samples) != 2 || samples[0].Tps == nil || *samples[0].Tps != 20.0 {
+		t.Fatalf("samples not decoded: %+v", samples)
+	}
+	if samples[0].Timestamp.IsZero() {
+		t.Fatal("timestamp not decoded")
+	}
+	if samples[1].Tps != nil {
+		t.Fatal("null tps must stay nil")
+	}
+}
+
+func TestPerformanceHistory_RequiresName(t *testing.T) {
+	if _, err := NewClient("http://example.invalid", "k").PerformanceHistory(context.Background(), " ", 30); err == nil {
+		t.Fatal("want error for empty server name")
+	}
+}
