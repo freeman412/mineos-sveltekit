@@ -3,6 +3,7 @@ using System.Linq;
 using System.Security.Claims;
 using Microsoft.AspNetCore.Mvc;
 using MineOS.Api.Authorization;
+using MineOS.Application;
 using MineOS.Application.Dtos;
 using MineOS.Application.Interfaces;
 using MineOS.Infrastructure.Services;
@@ -510,6 +511,13 @@ public static class ServerEndpoints
 
         cron.MapPost("/", async (string name, CreateCronRequest request, ICronService cronService, CancellationToken ct) =>
         {
+            if (!CronActions.IsValid(request.Action))
+            {
+                return Results.BadRequest(new
+                {
+                    error = $"Unknown cron action '{request.Action}'. Valid actions: {string.Join(", ", CronActions.All)}"
+                });
+            }
             var dto = await cronService.CreateAsync(name, request, ct);
             return Results.Created($"/api/v1/servers/{name}/cron/{dto.Hash}", dto);
         });

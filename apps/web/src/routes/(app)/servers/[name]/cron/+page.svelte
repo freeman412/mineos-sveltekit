@@ -42,7 +42,16 @@
 
 	const actions: Record<string, { label: string; description: string }> = {
 		backup: { label: 'Backup', description: 'Create an incremental server backup' },
-		restart: { label: 'Restart', description: 'Stop and restart the server' }
+		restart: { label: 'Restart', description: 'Stop and restart the server' },
+		start: { label: 'Start', description: 'Start the server if it is not running' },
+		stop: { label: 'Stop', description: 'Gracefully stop the server' }
+	};
+
+	const actionIcons: Record<string, string> = {
+		backup: '💾',
+		restart: '🔄',
+		start: '▶️',
+		stop: '⏹️'
 	};
 
 	let effectiveCron = $derived(
@@ -204,7 +213,7 @@
 							class:selected={action === key}
 							onclick={() => (action = key)}
 						>
-							<span class="action-icon">{key === 'backup' ? '💾' : '🔄'}</span>
+							<span class="action-icon">{actionIcons[key] ?? '⚙️'}</span>
 							<span class="action-label">{info.label}</span>
 						</button>
 					{/each}
@@ -275,8 +284,10 @@
 						<div class="job-info">
 							<div class="job-main">
 								<span class="job-action" class:backup={job.action === 'backup'}
-									class:restart={job.action === 'restart'}>
-									{job.action === 'backup' ? '💾' : '🔄'}
+									class:restart={job.action === 'restart'}
+									class:start={job.action === 'start'}
+									class:stop={job.action === 'stop'}>
+									{actionIcons[job.action] ?? '⚙️'}
 									{job.action}
 								</span>
 								<code class="job-cron">{job.source}</code>
@@ -585,6 +596,18 @@
 		background: rgba(91, 158, 255, 0.15);
 		color: #a5b4fc;
 		border: 1px solid rgba(91, 158, 255, 0.3);
+	}
+
+	.job-action.start {
+		background: rgba(52, 211, 153, 0.15);
+		color: #6ee7b7;
+		border: 1px solid rgba(52, 211, 153, 0.3);
+	}
+
+	.job-action.stop {
+		background: rgba(248, 113, 113, 0.15);
+		color: #fca5a5;
+		border: 1px solid rgba(248, 113, 113, 0.3);
 	}
 
 	.job-cron {
