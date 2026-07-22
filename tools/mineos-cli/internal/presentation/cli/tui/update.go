@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/freemancraft/mineos-sveltekit/tools/mineos-cli/internal/application/usecases"
@@ -21,9 +22,14 @@ func NewTuiModel(loadConfig *usecases.LoadConfigUseCase, ctx context.Context, ve
 	input.CharLimit = 2048
 	input.Width = 50
 
+	spin := spinner.New()
+	spin.Spinner = spinner.MiniDot
+	spin.Style = StyleStatus
+
 	navItems := BuildNavItems()
 
 	return TuiModel{
+		Spinner: spin,
 		LoadConfig:    loadConfig,
 		Ctx:           ctx,
 		Version:       version,
@@ -66,7 +72,14 @@ func RunTui(ctx context.Context, loadConfig *usecases.LoadConfigUseCase, version
 // Init initializes the TUI model
 func (m TuiModel) Init() tea.Cmd {
 	// scheduleHealthPoll arms the single, self-rescheduling refresh loop.
-	return tea.Batch(m.LoadConfigCmd(), m.LoadComposeCmd(), scheduleHealthPoll())
+	return tea.Batch(m.LoadConfigCmd(), m.LoadComposeCmd(), scheduleHealthPoll(), m.Spinner.Tick)
+}
+
+// spinnerActive reports whether any work-in-flight state warrants an animated
+// spinner. The spinner's tick loop stops when this goes false and is re-armed
+// by the states that flip it true.
+func (m TuiModel) spinnerActive() bool {
+	return (!m.ConfigReady && !m.ContainersStopped) || m.StreamingRunning || m.InteractiveRunning
 }
 
 // Update handles all incoming messages
@@ -187,7 +200,27 @@ func (m TuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case StreamingFinishedMsg:
 		return m.handleStreamingFinished(msg)
 
+	case spinner.TickMsg:
+		if !m.spinnerActive() {
+			return m, nil // Stop the tick loop; re-armed when work starts again
+		}
+		var cmd tea.Cmd
+		m.Spinner, cmd = m.Spinner.Update(msg)
+		return m, cmd
+
 	case HealthTickMsg:
+		// TTL sweep: a status/error line that survived one full poll interval
+		// unchanged is stale — clear it. Persistent conditions (API down, bad
+		// key) re-set their message every cycle and therefore survive.
+		if m.StatusMsg != "" && m.StatusMsg == m.StatusSeenAtTick {
+			m.StatusMsg = ""
+		}
+		if m.ErrMsg != "" && m.ErrMsg == m.ErrSeenAtTick {
+			m.ErrMsg = ""
+		}
+		m.StatusSeenAtTick = m.StatusMsg
+		m.ErrSeenAtTick = m.ErrMsg
+
 		// Single self-rescheduling refresh loop (armed once in Init). Always
 		// re-arm so the TUI keeps refreshing while healthy, not only while down.
 		cmds := []tea.Cmd{scheduleHealthPoll()}
@@ -202,9 +235,10 @@ func (m TuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				cmds = append(cmds, m.LoadHealthDataCmd())
 			}
 		} else {
-			// API was unreachable — try to reconnect.
+			// API was unreachable — try to reconnect (and keep the spinner alive).
 			m.StatusMsg = "Reconnecting to API..."
-			cmds = append(cmds, m.LoadConfigCmd())
+			m.StatusSeenAtTick = "" // Never TTL-clear the reconnect notice mid-cycle
+			cmds = append(cmds, m.LoadConfigCmd(), m.Spinner.Tick)
 		}
 		return m, tea.Batch(cmds...)
 
@@ -469,6 +503,7 @@ func (m TuiModel) handleServersLoaded(msg ServersLoadedMsg) (tea.Model, tea.Cmd)
 		m.ConfigReady = true
 	}
 	m.Servers = msg.Servers
+	m.ServersLoadedOnce = true
 	if len(m.Servers) == 0 {
 		m.Selected = 0
 		return m, nil
@@ -538,7 +573,7 @@ func (m TuiModel) handleInteractiveStarted(msg InteractiveStartedMsg) (tea.Model
 	m.InteractiveRunning = true
 	m.Input.SetValue("")
 	m.Input.Focus()
-	return m, tea.Batch(m.ListenInteractiveCmd(), textinput.Blink)
+	return m, tea.Batch(m.ListenInteractiveCmd(), textinput.Blink, m.Spinner.Tick)
 }
 
 func (m TuiModel) handleInteractiveOutput(msg InteractiveOutputMsg) (tea.Model, tea.Cmd) {
@@ -786,6 +821,7 @@ func (m TuiModel) handleStreamingStarted(msg StreamingStartedMsg) (tea.Model, te
 	m.StreamingOutput = msg.Output
 	m.StreamingRunning = true
 	m.StreamingLabel = msg.Label
+	m.StreamingEffect = msg.Effect
 
 	// Switch to output view
 	m.PreviousView = m.CurrentView
@@ -793,7 +829,7 @@ func (m TuiModel) handleStreamingStarted(msg StreamingStartedMsg) (tea.Model, te
 	m.OutputTitle = msg.Label
 	m.OutputLines = nil // Clear and let streaming populate
 
-	return m, m.ListenStreamingCmd()
+	return m, tea.Batch(m.ListenStreamingCmd(), m.Spinner.Tick)
 }
 
 // handleStreamingOutput handles a line of streaming output
@@ -811,10 +847,6 @@ func (m TuiModel) handleStreamingFinished(msg StreamingFinishedMsg) (tea.Model, 
 	m.StreamingRunning = false
 	m.StreamingOutput = nil
 
-	// Detect if containers were intentionally stopped
-	isStopAction := strings.Contains(msg.Label, "Stop") || strings.Contains(msg.Label, "Remove")
-	isStartAction := strings.Contains(msg.Label, "Start") || strings.Contains(msg.Label, "Restart")
-
 	if msg.Err != nil {
 		m.OutputLines = append(m.OutputLines, "", "Error: "+msg.Err.Error())
 		m.ErrMsg = msg.Err.Error()
@@ -823,12 +855,13 @@ func (m TuiModel) handleStreamingFinished(msg StreamingFinishedMsg) (tea.Model, 
 		m.StatusMsg = msg.Label + " complete"
 		m.ErrMsg = ""
 
-		// Track container state
-		if isStopAction {
+		// Track container state from the command's declared effect
+		switch msg.Effect {
+		case EffectStopsContainers:
 			m.ContainersStopped = true
 			m.ConfigReady = false // API is no longer available
 			m.Servers = nil
-		} else if isStartAction {
+		case EffectStartsContainers:
 			m.ContainersStopped = false
 		}
 	}
@@ -846,6 +879,7 @@ func (m TuiModel) handleStreamingFinished(msg StreamingFinishedMsg) (tea.Model, 
 func (m TuiModel) ListenStreamingCmd() tea.Cmd {
 	outputChan := m.StreamingOutput
 	label := m.StreamingLabel
+	effect := m.StreamingEffect
 
 	if outputChan == nil {
 		return nil
@@ -855,7 +889,7 @@ func (m TuiModel) ListenStreamingCmd() tea.Cmd {
 		line, ok := <-outputChan
 		if !ok {
 			// Channel closed - command finished
-			return StreamingFinishedMsg{Label: label}
+			return StreamingFinishedMsg{Label: label, Effect: effect}
 		}
 		return StreamingOutputMsg{Line: line}
 	}

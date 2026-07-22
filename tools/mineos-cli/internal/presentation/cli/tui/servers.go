@@ -54,7 +54,21 @@ func (m TuiModel) RenderServersTable(width, height int) []string {
 	}
 
 	if len(m.Servers) == 0 {
-		lines = append(lines, TrimToWidth(StyleSubtle.Render(" No servers found."), width))
+		// Distinguish loading / unreachable / genuinely empty.
+		var state string
+		switch {
+		case m.ContainersStopped:
+			state = StyleSubtle.Render(" Containers are stopped.")
+		case !m.ConfigReady:
+			state = m.Spinner.View() + StyleSubtle.Render(" Connecting to API...")
+		case m.ErrMsg != "":
+			state = StyleSubtle.Render(" Server list unavailable.")
+		case !m.ServersLoadedOnce:
+			state = m.Spinner.View() + StyleSubtle.Render(" Loading servers...")
+		default:
+			state = StyleSubtle.Render(" No servers found.")
+		}
+		lines = append(lines, TrimToWidth(" "+state, width))
 		return PadLines(lines, height)
 	}
 

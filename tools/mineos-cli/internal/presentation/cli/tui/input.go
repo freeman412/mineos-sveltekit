@@ -9,6 +9,22 @@ import (
 
 // HandleKey processes key input in normal mode
 func (m TuiModel) HandleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// While the help overlay is open, any key closes it (except quit keys).
+	if m.ShowHelp {
+		switch msg.String() {
+		case "ctrl+c", "q":
+			m.Quitting = true
+			m.StopLogs()
+			return m, tea.Quit
+		}
+		m.ShowHelp = false
+		return m, nil
+	}
+	if msg.String() == "?" {
+		m.ShowHelp = true
+		return m, nil
+	}
+
 	switch msg.Type {
 	case tea.KeyCtrlC:
 		m.Quitting = true
@@ -275,7 +291,7 @@ func (m TuiModel) navSelect() (tea.Model, tea.Cmd) {
 		}
 
 		// Handle special actions
-		if item.Action.Args[0] == "console" {
+		if item.Action.Console {
 			if m.SelectedServer() == "" {
 				m.ErrMsg = "Select a server first (go to Servers view)"
 				return m, nil

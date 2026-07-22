@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 
+	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/freemancraft/mineos-sveltekit/tools/mineos-cli/internal/application/usecases"
 	"github.com/freemancraft/mineos-sveltekit/tools/mineos-cli/internal/domain/config"
@@ -146,6 +147,21 @@ type TuiModel struct {
 	StreamingOutput  <-chan string
 	StreamingRunning bool
 	StreamingLabel   string
+	StreamingEffect  ContainerEffect
+
+	// Spinner shown while work is in flight (connecting, streaming, interactive)
+	Spinner spinner.Model
+
+	// Help overlay visibility (toggled with '?')
+	ShowHelp bool
+
+	// ServersLoadedOnce distinguishes "still loading" from "genuinely empty"
+	ServersLoadedOnce bool
+
+	// Last status/error seen by the TTL sweep: a message that survives one full
+	// poll interval unchanged is cleared (persistent conditions re-set theirs).
+	StatusSeenAtTick string
+	ErrSeenAtTick    string
 
 	// Health & alert roll-up (health view; refreshed on the health tick)
 	Watchdog         map[string]api.WatchdogServerStatus
@@ -161,13 +177,25 @@ type TuiModel struct {
 	ContainersStopped bool // True when user intentionally stopped containers
 }
 
+// ContainerEffect declares how a finished command changed container state,
+// replacing label-substring inference.
+type ContainerEffect int
+
+const (
+	EffectNone ContainerEffect = iota
+	EffectStartsContainers
+	EffectStopsContainers
+)
+
 // MenuItem represents an item in the command menu
 type MenuItem struct {
 	Label       string
 	Args        []string
-	Destructive bool // If true, requires confirmation
-	Interactive bool // If true, requires user input (use tea.ExecProcess)
-	Streaming   bool // If true, stream output in real-time (for long-running commands)
+	Destructive bool            // If true, requires confirmation
+	Interactive bool            // If true, requires user input (use tea.ExecProcess)
+	Streaming   bool            // If true, stream output in real-time (for long-running commands)
+	Console     bool            // If true, opens the console-command prompt instead of executing
+	Effect      ContainerEffect // Container-state change applied when the command succeeds
 }
 
 // Message types for Bubble Tea event handling
@@ -258,6 +286,7 @@ type InteractiveFinishedMsg struct {
 type StreamingStartedMsg struct {
 	Output <-chan string
 	Label  string
+	Effect ContainerEffect
 }
 
 // StreamingOutputMsg is sent for each line of streaming command output
@@ -267,8 +296,9 @@ type StreamingOutputMsg struct {
 
 // StreamingFinishedMsg is sent when a streaming command completes
 type StreamingFinishedMsg struct {
-	Label string
-	Err   error
+	Label  string
+	Effect ContainerEffect
+	Err    error
 }
 
 // SettingsToggledMsg is sent when a setting is toggled in the TUI
