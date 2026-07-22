@@ -54,6 +54,83 @@ public sealed class UserServiceTests
         Assert.True(updated.ServerAccesses[0].CanView);
     }
 
+    [Fact]
+    public async Task UpdateUserAsync_RenamesUser()
+    {
+        await using var db = await CreateDbContextAsync();
+        var service = CreateUserService(db, new FakeMojangApiService());
+
+        var created = await service.CreateUserAsync(
+            new CreateUserRequestDto("oldname", "password", "user", null, null),
+            CancellationToken.None);
+
+        var updated = await service.UpdateUserAsync(
+            created.Id,
+            new UpdateUserRequestDto(null, null, null, null, null, Username: "  newname  "),
+            CancellationToken.None);
+
+        Assert.Equal("newname", updated.Username);
+
+        var stored = await db.Users.SingleAsync(u => u.Id == created.Id);
+        Assert.Equal("newname", stored.Username);
+    }
+
+    [Fact]
+    public async Task UpdateUserAsync_RenameToExistingUsernameThrows()
+    {
+        await using var db = await CreateDbContextAsync();
+        var service = CreateUserService(db, new FakeMojangApiService());
+
+        await service.CreateUserAsync(
+            new CreateUserRequestDto("taken", "password", "user", null, null),
+            CancellationToken.None);
+        var victim = await service.CreateUserAsync(
+            new CreateUserRequestDto("someone", "password", "user", null, null),
+            CancellationToken.None);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => service.UpdateUserAsync(
+            victim.Id,
+            new UpdateUserRequestDto(null, null, null, null, null, Username: "TAKEN"),
+            CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task UpdateUserAsync_AllowsCaseOnlyRename()
+    {
+        await using var db = await CreateDbContextAsync();
+        var service = CreateUserService(db, new FakeMojangApiService());
+
+        var created = await service.CreateUserAsync(
+            new CreateUserRequestDto("miner", "password", "user", null, null),
+            CancellationToken.None);
+
+        var updated = await service.UpdateUserAsync(
+            created.Id,
+            new UpdateUserRequestDto(null, null, null, null, null, Username: "Miner"),
+            CancellationToken.None);
+
+        Assert.Equal("Miner", updated.Username);
+    }
+
+    [Fact]
+    public async Task UpdateUserAsync_OmittedUsernameLeavesNameUnchanged()
+    {
+        await using var db = await CreateDbContextAsync();
+        var service = CreateUserService(db, new FakeMojangApiService());
+
+        var created = await service.CreateUserAsync(
+            new CreateUserRequestDto("stable", "password", "user", null, null),
+            CancellationToken.None);
+
+        var updated = await service.UpdateUserAsync(
+            created.Id,
+            new UpdateUserRequestDto(null, "manager", null, null, null),
+            CancellationToken.None);
+
+        Assert.Equal("stable", updated.Username);
+        Assert.Equal("manager", updated.Role);
+    }
+
     private static async Task<AppDbContext> CreateDbContextAsync()
     {
         var connection = new SqliteConnection("Filename=:memory:");
