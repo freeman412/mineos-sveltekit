@@ -17,6 +17,7 @@ public sealed class WatchdogService : BackgroundService, IWatchdogService
     private readonly ILogger<WatchdogService> _logger;
     private readonly IRepository<CrashEvent> _crashEventRepo;
     private readonly IRepository<SystemNotification> _notificationRepo;
+    private readonly IDiscordWebhookService _discordWebhook;
     private readonly ConcurrentDictionary<string, ServerMonitorState> _serverStates = new();
     private readonly TimeSpan _checkInterval = TimeSpan.FromSeconds(5);
 
@@ -25,13 +26,15 @@ public sealed class WatchdogService : BackgroundService, IWatchdogService
         IOptions<HostOptions> options,
         ILogger<WatchdogService> logger,
         IRepository<CrashEvent> crashEventRepo,
-        IRepository<SystemNotification> notificationRepo)
+        IRepository<SystemNotification> notificationRepo,
+        IDiscordWebhookService discordWebhook)
     {
         _scopeFactory = scopeFactory;
         _options = options.Value;
         _logger = logger;
         _crashEventRepo = crashEventRepo;
         _notificationRepo = notificationRepo;
+        _discordWebhook = discordWebhook;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -416,6 +419,10 @@ public sealed class WatchdogService : BackgroundService, IWatchdogService
                 CreatedAt = DateTimeOffset.UtcNow,
                 IsRead = false
             }, cancellationToken);
+
+            _discordWebhook.QueueEvent(new DiscordEvent(
+                title, message, DiscordEvent.LevelFromNotificationType(type),
+                serverName, DateTimeOffset.UtcNow));
         }
         catch (Exception ex)
         {

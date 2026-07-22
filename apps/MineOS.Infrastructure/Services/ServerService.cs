@@ -22,19 +22,22 @@ public class ServerService : IServerService
     private readonly ILogger<ServerService> _logger;
     private readonly ITelemetryService _telemetryService;
     private readonly ITelemetryReportTrigger _telemetryReportTrigger;
+    private readonly IDiscordWebhookService _discordWebhook;
 
     public ServerService(
         IProcessManager processManager,
         IOptions<HostOptions> options,
         ILogger<ServerService> logger,
         ITelemetryService telemetryService,
-        ITelemetryReportTrigger telemetryReportTrigger)
+        ITelemetryReportTrigger telemetryReportTrigger,
+        IDiscordWebhookService discordWebhook)
     {
         _processManager = processManager;
         _options = options.Value;
         _logger = logger;
         _telemetryService = telemetryService;
         _telemetryReportTrigger = telemetryReportTrigger;
+        _discordWebhook = discordWebhook;
     }
 
     private string GetServerPath(string name) =>
@@ -428,6 +431,9 @@ public class ServerService : IServerService
         OwnershipHelper.TrySetOwnership(archivePath, _options.RunAsUid, _options.RunAsGid, _logger, recursive: true);
 
         _logger.LogInformation("Created server {ServerName} at {ServerPath}", request.Name, serverPath);
+        _discordWebhook.QueueEvent(new DiscordEvent(
+            "Server Created", $"{request.Name} was created.",
+            DiscordEventLevel.Success, request.Name, DateTimeOffset.UtcNow));
         try
         {
             await _telemetryService.ReportLifecycleEventAsync("server_created", null, cancellationToken);
@@ -533,6 +539,9 @@ public class ServerService : IServerService
             Directory.Delete(archivePath, recursive: true);
 
         _logger.LogInformation("Deleted server {ServerName}", name);
+        _discordWebhook.QueueEvent(new DiscordEvent(
+            "Server Deleted", $"{name} was deleted.",
+            DiscordEventLevel.Warning, name, DateTimeOffset.UtcNow));
         try
         {
             await _telemetryService.ReportLifecycleEventAsync("server_deleted", null, cancellationToken);
@@ -815,6 +824,9 @@ public class ServerService : IServerService
         await VerifyServerStartedAsync(name, serverPath, startTime, startupLogPath, cancellationToken);
         ClearRestartRequired(name);
         _logger.LogInformation("Started server {ServerName}", name);
+        _discordWebhook.QueueEvent(new DiscordEvent(
+            "Server Started", $"{name} is now running.",
+            DiscordEventLevel.Success, name, DateTimeOffset.UtcNow));
     }
 
     public async Task StopServerAsync(string name, int timeoutSeconds, CancellationToken cancellationToken)
@@ -845,6 +857,9 @@ public class ServerService : IServerService
             if (!isRunning)
             {
                 _logger.LogInformation("Server {ServerName} stopped gracefully", name);
+                _discordWebhook.QueueEvent(new DiscordEvent(
+                    "Server Stopped", $"{name} was stopped gracefully.",
+                    DiscordEventLevel.Info, name, DateTimeOffset.UtcNow));
                 return;
             }
         }

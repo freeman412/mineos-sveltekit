@@ -185,6 +185,10 @@ builder.Services.AddHostedService<ApplicationLifetimeService>();
 builder.Services.AddSingleton<WatchdogService>();
 builder.Services.AddSingleton<IWatchdogService>(sp => sp.GetRequiredService<WatchdogService>());
 builder.Services.AddHostedService(sp => sp.GetRequiredService<WatchdogService>());
+builder.Services.AddHttpClient(DiscordWebhookService.HttpClientName);
+builder.Services.AddSingleton<DiscordWebhookService>();
+builder.Services.AddSingleton<IDiscordWebhookService>(sp => sp.GetRequiredService<DiscordWebhookService>());
+builder.Services.AddHostedService(sp => sp.GetRequiredService<DiscordWebhookService>());
 builder.Services.AddHttpClient<IProfileService, ProfileService>();
 builder.Services.AddHttpClient<IModService, ModService>(client =>
 {
