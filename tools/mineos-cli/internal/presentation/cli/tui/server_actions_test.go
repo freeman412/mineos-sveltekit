@@ -18,12 +18,7 @@ func actionIndexOf(t *testing.T, action string) int {
 }
 
 func serversActionModel(action string, t *testing.T) TuiModel {
-	return TuiModel{
-		CurrentView:   ViewServers,
-		Servers:       serverList("lobby"),
-		ServerActions: true,
-		ActionIndex:   actionIndexOf(t, action),
-	}
+	return TuiModel{ServerListState: ServerListState{Servers: serverList("lobby"), ServerActions: true, ActionIndex: actionIndexOf(t, action)}, NavState: NavState{CurrentView: ViewServers}}
 }
 
 func TestServerAction_RunsInProcessWithoutOutputView(t *testing.T) {

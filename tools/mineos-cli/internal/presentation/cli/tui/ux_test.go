@@ -8,7 +8,7 @@ import (
 )
 
 func TestUpdate_StatusAndErrTTLSweep(t *testing.T) {
-	m := TuiModel{StatusMsg: "Restart complete", ErrMsg: "boom", ConfigReady: true}
+	m := TuiModel{ConnectionState: ConnectionState{ConfigReady: true}, StatusState: StatusState{StatusMsg: "Restart complete", ErrMsg: "boom"}}
 
 	// First tick: messages survive (just seen).
 	out, _ := m.Update(HealthTickMsg{})
@@ -26,7 +26,7 @@ func TestUpdate_StatusAndErrTTLSweep(t *testing.T) {
 }
 
 func TestUpdate_TTLSweepKeepsRefreshedMessages(t *testing.T) {
-	m := TuiModel{ErrMsg: "invalid API key", ConfigReady: true}
+	m := TuiModel{ConnectionState: ConnectionState{ConfigReady: true}, StatusState: StatusState{ErrMsg: "invalid API key"}}
 	out, _ := m.Update(HealthTickMsg{})
 	m = out.(TuiModel)
 
@@ -41,7 +41,7 @@ func TestUpdate_TTLSweepKeepsRefreshedMessages(t *testing.T) {
 
 func TestUpdate_StreamingFinishedUsesDeclaredEffect(t *testing.T) {
 	// A stop effect marks containers stopped regardless of label wording.
-	m := TuiModel{ConfigReady: true, Servers: serverList("lobby")}
+	m := TuiModel{ConnectionState: ConnectionState{ConfigReady: true}, ServerListState: ServerListState{Servers: serverList("lobby")}}
 	out, _ := m.Update(StreamingFinishedMsg{Label: "Anything", Effect: EffectStopsContainers})
 	got := out.(TuiModel)
 	if !got.ContainersStopped || got.ConfigReady || got.Servers != nil {
@@ -55,7 +55,7 @@ func TestUpdate_StreamingFinishedUsesDeclaredEffect(t *testing.T) {
 	}
 
 	// A failed command applies no effect.
-	m = TuiModel{ConfigReady: true}
+	m = TuiModel{ConnectionState: ConnectionState{ConfigReady: true}}
 	out, _ = m.Update(StreamingFinishedMsg{Effect: EffectStopsContainers, Err: errFake})
 	if out.(TuiModel).ContainersStopped {
 		t.Fatal("a failed command must not change container state")
@@ -107,25 +107,25 @@ func TestRenderServersTable_DistinguishesStates(t *testing.T) {
 	}
 
 	// Connected, list not loaded yet
-	m = TuiModel{ConfigReady: true}
+	m = TuiModel{ConnectionState: ConnectionState{ConfigReady: true}}
 	if !containsLine(m.RenderServersTable(width, height), "Loading servers") {
 		t.Fatal("expected loading state")
 	}
 
 	// Unreachable (error set)
-	m = TuiModel{ConfigReady: true, ErrMsg: "connection refused"}
+	m = TuiModel{ConnectionState: ConnectionState{ConfigReady: true}, StatusState: StatusState{ErrMsg: "connection refused"}}
 	if !containsLine(m.RenderServersTable(width, height), "Server list unavailable") {
 		t.Fatal("expected unavailable state")
 	}
 
 	// Containers intentionally stopped
-	m = TuiModel{ContainersStopped: true}
+	m = TuiModel{ConnectionState: ConnectionState{ContainersStopped: true}}
 	if !containsLine(m.RenderServersTable(width, height), "Containers are stopped") {
 		t.Fatal("expected stopped state")
 	}
 
 	// Genuinely empty
-	m = TuiModel{ConfigReady: true, ServersLoadedOnce: true}
+	m = TuiModel{ConnectionState: ConnectionState{ConfigReady: true}, ServerListState: ServerListState{ServersLoadedOnce: true}}
 	if !containsLine(m.RenderServersTable(width, height), "No servers found") {
 		t.Fatal("expected empty state")
 	}

@@ -26,7 +26,7 @@ func TestUpdate_HealthDataMsgPopulatesModel(t *testing.T) {
 }
 
 func TestUpdate_HealthDataMsgErrorKeepsOldData(t *testing.T) {
-	m := TuiModel{HealthDataLoaded: true, Crashes: []api.CrashEvent{{ServerName: "lobby"}}}
+	m := TuiModel{HealthState: HealthState{HealthDataLoaded: true, Crashes: []api.CrashEvent{{ServerName: "lobby"}}}}
 	out, _ := m.Update(HealthDataMsg{Err: errFake})
 	got := out.(TuiModel)
 	if got.HealthDataErr == "" {

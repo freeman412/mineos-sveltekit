@@ -29,19 +29,25 @@ func NewTuiModel(loadConfig *usecases.LoadConfigUseCase, ctx context.Context, ve
 	navItems := BuildNavItems()
 
 	return TuiModel{
-		Spinner: spin,
-		LoadConfig:    loadConfig,
-		Ctx:           ctx,
-		Version:       version,
-		LogsActive:    true,
-		LogType:       LogTypeDocker,
-		LogSource:     DefaultDockerLogSource,
-		MinecraftType: "combined",
-		Mode:          ModeNormal,
-		CurrentView:   ViewDashboard,
-		Input:         input,
-		NavItems:      navItems,
-		NavIndex:      FirstSelectableIndex(navItems),
+		Spinner:    spin,
+		LoadConfig: loadConfig,
+		Ctx:        ctx,
+		Version:    version,
+		LogState: LogState{
+			LogsActive:    true,
+			LogType:       LogTypeDocker,
+			LogSource:     DefaultDockerLogSource,
+			MinecraftType: "combined",
+		},
+		DialogState: DialogState{
+			Mode:  ModeNormal,
+			Input: input,
+		},
+		NavState: NavState{
+			CurrentView: ViewDashboard,
+			NavItems:    navItems,
+			NavIndex:    FirstSelectableIndex(navItems),
+		},
 	}
 }
 

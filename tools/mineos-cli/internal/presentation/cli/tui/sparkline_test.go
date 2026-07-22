@@ -56,10 +56,7 @@ func TestSeriesStats(t *testing.T) {
 
 func TestUpdate_PerfHistoryBackfillsAndGuardsServer(t *testing.T) {
 	tps := 19.5
-	m := TuiModel{
-		Servers:  serverList("lobby"),
-		Selected: 0,
-	}
+	m := TuiModel{ServerListState: ServerListState{Servers: serverList("lobby"), Selected: 0}}
 	// Live sample arrived first
 	out, _ := m.Update(PerfSampleMsg{Sample: api.PerfSample{CpuPercent: 50}})
 	m = out.(TuiModel)
@@ -90,7 +87,7 @@ func TestAppendCapped_DropsOldest(t *testing.T) {
 }
 
 func TestRenderSparklines_NeedsTwoSamples(t *testing.T) {
-	m := TuiModel{PerfHistory: []api.PerfSample{{CpuPercent: 10}}}
+	m := TuiModel{PerfState: PerfState{PerfHistory: []api.PerfSample{{CpuPercent: 10}}}}
 	if lines := m.renderSparklines(); lines != nil {
 		t.Fatal("one sample must not render a sparkline")
 	}
