@@ -51,6 +51,7 @@ const (
 	DefaultDockerLogTail = 200
 	LogRetryDelay        = 2 * time.Second
 	MaxLogRetries        = 3
+	MaxLogBatchLines     = 500 // Lines drained into one LogLinesMsg per render
 )
 
 // Streaming constants

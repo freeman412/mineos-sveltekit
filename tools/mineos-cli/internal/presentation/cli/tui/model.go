@@ -109,9 +109,10 @@ type TuiModel struct {
 	// live samples appended as they stream in. Cleared with the stream.
 	PerfHistory []api.PerfSample
 
-	LogScroll       int    // Scroll offset for logs view
-	LogSearchQuery  string // Search query for logs
-	LogSearchMode   bool   // Whether in search mode
+	LogScroll      int    // Scroll offset for logs view
+	LogSearchQuery string // Search query for logs
+	LogSearchMode  bool   // Whether in search mode
+	LogRetries     int    // Consecutive clean-close reconnects without data (resets on receipt)
 
 	StatusMsg string
 	ErrMsg    string
@@ -206,10 +207,14 @@ type LogStreamStartedMsg struct {
 	LogSource string
 }
 
-// LogLineMsg is sent for each log line received
-type LogLineMsg struct {
-	Line string
+// LogLinesMsg carries a batch of log lines — all lines available on the
+// channel are drained into one message so a startup burst costs one render.
+type LogLinesMsg struct {
+	Lines []string
 }
+
+// LogStreamClosedMsg signals the log channel closed cleanly (EOF, not error)
+type LogStreamClosedMsg struct{}
 
 // LogErrorMsg is sent when a log streaming error occurs
 type LogErrorMsg struct {
