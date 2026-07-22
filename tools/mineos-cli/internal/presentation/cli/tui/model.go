@@ -20,6 +20,7 @@ const (
 	ViewServiceLogs // Docker container logs
 	ViewSettings
 	ViewOutput // Shows command output
+	ViewHealth // Watchdog + alert roll-up
 )
 
 // TuiMode represents the input mode of the TUI
@@ -140,6 +141,13 @@ type TuiModel struct {
 	StreamingOutput  <-chan string
 	StreamingRunning bool
 	StreamingLabel   string
+
+	// Health & alert roll-up (health view; refreshed on the health tick)
+	Watchdog         map[string]api.WatchdogServerStatus
+	Crashes          []api.CrashEvent
+	Alerts           []api.Notification
+	HealthDataLoaded bool   // First fetch completed (distinguishes loading from empty)
+	HealthDataErr    string // Last fetch error, if any
 
 	// Retry state for error recovery
 	RetryCount int
@@ -268,6 +276,14 @@ type HealthTickMsg struct{}
 type HealthCheckedMsg struct {
 	Healthy bool
 	Err     error
+}
+
+// HealthDataMsg carries the watchdog/crash/alert roll-up for the health view
+type HealthDataMsg struct {
+	Watchdog map[string]api.WatchdogServerStatus
+	Crashes  []api.CrashEvent
+	Alerts   []api.Notification
+	Err      error
 }
 
 // PerfStreamStartedMsg carries the channels for a freshly opened perf stream
