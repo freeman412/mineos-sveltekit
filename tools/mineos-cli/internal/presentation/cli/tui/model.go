@@ -134,9 +134,13 @@ type TuiModel struct {
 	Input    textinput.Model
 	Quitting bool
 
-	// Confirmation dialog state
-	ConfirmAction  *MenuItem
-	ConfirmMessage string
+	// Confirmation dialog state. ConfirmAction is a pending subprocess command
+	// (stack ops); ConfirmServerName/Action is a pending in-process server
+	// action (kill) — exactly one is set while confirming.
+	ConfirmAction       *MenuItem
+	ConfirmMessage      string
+	ConfirmServerName   string
+	ConfirmServerAction string
 
 	// Interactive command state
 	InteractiveStdin   io.WriteCloser
@@ -251,6 +255,13 @@ type LogErrorMsg struct {
 
 // LogRetryMsg is sent to trigger log stream retry
 type LogRetryMsg struct{}
+
+// ServerActionDoneMsg reports an in-process server action (start/stop/restart/kill)
+type ServerActionDoneMsg struct {
+	Server string
+	Action string
+	Err    error
+}
 
 // ActionResultMsg is sent when an action completes
 type ActionResultMsg struct {

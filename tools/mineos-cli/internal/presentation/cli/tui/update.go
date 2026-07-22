@@ -176,6 +176,15 @@ func (m TuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case LogRetryMsg:
 		return m, m.StartLogStreamCmd()
 
+	case ServerActionDoneMsg:
+		if msg.Err != nil {
+			m.ErrMsg = msg.Action + " " + msg.Server + ": " + msg.Err.Error()
+		} else {
+			m.StatusMsg = msg.Action + " " + msg.Server + ": done"
+			m.ErrMsg = ""
+		}
+		return m, m.LoadServersCmd()
+
 	case ActionResultMsg:
 		return m.handleActionResult(msg)
 

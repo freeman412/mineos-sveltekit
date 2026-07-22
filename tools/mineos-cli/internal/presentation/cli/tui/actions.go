@@ -2,6 +2,7 @@ package tui
 
 import (
 	"bufio"
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -11,8 +12,30 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/freemancraft/mineos-sveltekit/tools/mineos-cli/internal/application/usecases"
 	"github.com/freemancraft/mineos-sveltekit/tools/mineos-cli/internal/infrastructure/env"
 )
+
+// ServerActionCmd runs a server action (start/stop/restart/kill) in-process
+// through the API client — the unified boundary for stateful calls; only
+// process orchestration (stack ops, install/reconfigure/uninstall) shells out.
+func (m TuiModel) ServerActionCmd(name, action string) tea.Cmd {
+	client := m.Client
+	ctx := m.Ctx
+	if client == nil || !m.ConfigReady {
+		return func() tea.Msg {
+			return ServerActionDoneMsg{Server: name, Action: action, Err: errors.New("API not connected")}
+		}
+	}
+	return func() tea.Msg {
+		if ctx == nil {
+			ctx = context.Background()
+		}
+		uc := usecases.NewServerActionUseCase(client)
+		err := uc.Execute(ctx, name, action)
+		return ServerActionDoneMsg{Server: name, Action: action, Err: err}
+	}
+}
 
 func (m TuiModel) ConsoleCommandCmd(command string) tea.Cmd {
 	server := m.SelectedServer()
