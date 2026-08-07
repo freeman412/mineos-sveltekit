@@ -19,7 +19,7 @@
 		onComplete: () => void;
 	} = $props();
 
-	type ServerType = 'vanilla' | 'paper' | 'spigot' | 'forge' | 'neoforge' | 'fabric' | 'quilt' | 'velocity';
+	type ServerType = 'vanilla' | 'paper' | 'spigot' | 'forge' | 'neoforge' | 'fabric' | 'quilt' | 'velocity' | 'bungeecord';
 
 	const serverTypes: { id: ServerType; name: string; category: string }[] = [
 		{ id: 'vanilla', name: 'Vanilla', category: 'vanilla' },
@@ -30,7 +30,10 @@
 		{ id: 'fabric', name: 'Fabric', category: 'mods' },
 		{ id: 'quilt', name: 'Quilt', category: 'mods' },
 		{ id: 'velocity', name: 'Velocity', category: 'proxy' },
+		{ id: 'bungeecord', name: 'BungeeCord', category: 'proxy' },
 	];
+
+	const proxyTypes = new Set<ServerType>(['velocity', 'bungeecord']);
 
 	// Detect current server category from jar name
 	function detectCategory(jar: string | null, type: string): string {
@@ -78,6 +81,7 @@
 					case 'forge': return p.group === 'forge';
 				case 'fabric': return p.group === 'fabric';
 				case 'velocity': return p.group === 'velocity';
+				case 'bungeecord': return p.group === 'bungeecord';
 				case 'bedrock': return p.group === 'bedrock-server' || p.group === 'bedrock-server-preview';
 				default: return false;
 			}
@@ -281,16 +285,19 @@
 	async function markInstallComplete() {
 		installCompleted = true;
 		// Update the .mineos-server-type file so detection works immediately.
-		// Velocity is recorded as the generic "proxy" marker so all proxy-specific
-		// branches (skip EULA, ping via velocity.toml, send "end" not "stop", etc.)
-		// match — same as a proxy created via the wizard.
+		// All proxy implementations are recorded as the generic "proxy" marker so
+		// proxy-specific branches (skip EULA, ping via velocity.toml/config.yml,
+		// send "end" not "stop") match — same as a proxy created via the wizard.
+		// proxyKind tells the backend which config to bootstrap.
 		if (selectedType) {
-			const markerType = selectedType === 'velocity' ? 'proxy' : selectedType;
+			const isProxy = proxyTypes.has(selectedType);
+			const markerType = isProxy ? 'proxy' : selectedType;
+			const proxyKind = isProxy ? selectedType : undefined;
 			try {
 				await fetch(`/api/servers/${encodeURIComponent(serverName)}/server-type`, {
 					method: 'PUT',
 					headers: { 'Content-Type': 'application/json' },
-					body: JSON.stringify({ serverType: markerType })
+					body: JSON.stringify({ serverType: markerType, proxyKind })
 				});
 			} catch { /* best effort */ }
 		}

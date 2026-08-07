@@ -232,6 +232,21 @@ export async function updateVelocityConfig(
 	return apiPut(fetcher, `/api/servers/${name}/velocity-config`, config);
 }
 
+export async function getBungeeConfig(
+	fetcher: Fetcher,
+	name: string
+): Promise<ApiResult<import('./types').BungeeConfig>> {
+	return apiFetch(fetcher, `/api/servers/${name}/bungee-config`);
+}
+
+export async function updateBungeeConfig(
+	fetcher: Fetcher,
+	name: string,
+	config: import('./types').BungeeConfig
+): Promise<ApiResult<void>> {
+	return apiPut(fetcher, `/api/servers/${name}/bungee-config`, config);
+}
+
 export async function acceptEula(fetcher: Fetcher, name: string): Promise<ApiResult<void>> {
 	return apiPost(fetcher, `/api/servers/${name}/eula`);
 }

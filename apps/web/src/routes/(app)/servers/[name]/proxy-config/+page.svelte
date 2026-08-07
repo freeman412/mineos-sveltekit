@@ -3,6 +3,7 @@
 	import { invalidateAll } from '$app/navigation';
 	import type { PageData, ActionData } from './$types';
 	import type { VelocityConfig } from '$lib/api/types';
+	import BungeeConfigEditor from './BungeeConfigEditor.svelte';
 
 	let { data, form }: { data: PageData; form: ActionData } = $props();
 
@@ -27,7 +28,9 @@
 		};
 	}
 
-	let config = $state<VelocityConfig>({ ...(data.config.data ?? emptyConfig()) });
+	// The Velocity branch only runs when proxyKind === 'velocity'; the destructured
+	// $state below is initialized from velocityConfig in that branch (null otherwise).
+	let config = $state<VelocityConfig>({ ...(data.velocityConfig?.data ?? emptyConfig()) });
 	let initial = $state<VelocityConfig>(JSON.parse(JSON.stringify(config)));
 	let lastServerName = $state(data.serverName);
 
@@ -46,7 +49,7 @@
 	$effect(() => {
 		if (data.serverName !== lastServerName) {
 			lastServerName = data.serverName;
-			const fresh = data.config.data ?? emptyConfig();
+			const fresh = data.velocityConfig?.data ?? emptyConfig();
 			config = { ...fresh };
 			initial = JSON.parse(JSON.stringify(fresh));
 			serverEntries = Object.entries(fresh.servers).map(([name, address]) => ({
@@ -145,9 +148,17 @@
 </script>
 
 <svelte:head>
-	<title>Velocity Config | {data.serverName} | MineOS</title>
+	<title>Proxy Config | {data.serverName} | MineOS</title>
 </svelte:head>
 
+{#if data.proxyKind !== 'velocity'}
+	<BungeeConfigEditor
+		serverName={data.serverName}
+		initial={data.bungeeConfig?.data ?? null}
+		formError={form && 'error' in form ? form.error : null}
+		formSuccess={form?.success ?? false}
+	/>
+{:else}
 <div class="page">
 	<header class="header">
 		<div>
@@ -189,6 +200,7 @@
 			};
 		}}
 	>
+		<input type="hidden" name="proxyKind" value="velocity" />
 		<input type="hidden" name="config" value={JSON.stringify(buildSubmitConfig())} />
 
 		<section class="card">
@@ -381,6 +393,7 @@
 		</div>
 	</form>
 </div>
+{/if}
 
 <style>
 	.page {

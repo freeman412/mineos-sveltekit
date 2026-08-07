@@ -107,6 +107,38 @@ export type VelocityConfig = {
 	forcedHosts: Record<string, string[]>;
 };
 
+export type BungeeBackend = {
+	address: string;
+	motd: string;
+	restricted: boolean;
+};
+
+export type BungeeConfig = {
+	exists: boolean;
+	onlineMode: boolean;
+	ipForward: boolean;
+	playerLimit: number;
+	timeout: number;
+	networkCompressionThreshold: number;
+	forgeSupport: boolean;
+	logCommands: boolean;
+	logPings: boolean;
+	connectionThrottle: number;
+	connectionThrottleLimit: number;
+	host: string;
+	motd: string;
+	maxPlayers: number;
+	queryEnabled: boolean;
+	queryPort: number;
+	pingPassthrough: boolean;
+	forceDefaultServer: boolean;
+	tabList: string;
+	proxyProtocol: boolean;
+	priorities: string[];
+	forcedHosts: Record<string, string>;
+	servers: Record<string, BungeeBackend>;
+};
+
 export type JavaConfig = {
 	javaBinary: string;
 	javaXmx: number;
@@ -183,6 +215,9 @@ export type CreateServerRequest = {
 	ownerUid: number;
 	ownerGid: number;
 	serverType?: string;
+	// When serverType is "proxy", proxyKind narrows the implementation
+	// so the backend bootstraps the right config file (velocity.toml vs config.yml).
+	proxyKind?: 'velocity' | 'bungeecord';
 };
 
 export type CloneServerRequest = {

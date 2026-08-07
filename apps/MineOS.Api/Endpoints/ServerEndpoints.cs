@@ -328,6 +328,44 @@ public static class ServerEndpoints
             }
         });
 
+        // BungeeCord configuration (config.yml)
+        servers.MapGet("/{name}/bungee-config", async (
+            string name,
+            IServerService serverService,
+            CancellationToken cancellationToken) =>
+        {
+            try
+            {
+                var config = await serverService.GetBungeeConfigAsync(name, cancellationToken);
+                return Results.Ok(config);
+            }
+            catch (DirectoryNotFoundException ex)
+            {
+                return Results.NotFound(new { error = ex.Message });
+            }
+        });
+
+        servers.MapPut("/{name}/bungee-config", async (
+            string name,
+            [FromBody] BungeeConfigDto config,
+            IServerService serverService,
+            CancellationToken cancellationToken) =>
+        {
+            try
+            {
+                await serverService.UpdateBungeeConfigAsync(name, config, cancellationToken);
+                return Results.Ok(new { message = "BungeeCord config updated" });
+            }
+            catch (DirectoryNotFoundException ex)
+            {
+                return Results.NotFound(new { error = ex.Message });
+            }
+            catch (InvalidOperationException ex)
+            {
+                return Results.Conflict(new { error = ex.Message });
+            }
+        });
+
         // Server config
         servers.MapGet("/{name}/server-config", async (
             string name,

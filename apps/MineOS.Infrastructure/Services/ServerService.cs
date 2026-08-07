@@ -10,6 +10,8 @@ using MineOS.Infrastructure.Utilities;
 using ServerStatusStrings = MineOS.Infrastructure.Constants.ServerStatus;
 using Tomlyn;
 using Tomlyn.Model;
+using YamlDotNet.RepresentationModel;
+using YamlDotNet.Serialization;
 
 namespace MineOS.Infrastructure.Services;
 
@@ -296,9 +298,9 @@ public class ServerService : IServerService
         }
         else if (serverType == "proxy")
         {
-            // Velocity (and future BungeeCord/Waterfall) proxies: no server.properties,
-            // no EULA, no world. Velocity creates velocity.toml on first launch.
-            // Velocity's actual default bind port is 25577 (set in velocity.toml).
+            // Proxies (Velocity / BungeeCord): no server.properties,
+            // no EULA, no world. The proxy creates its own config file on first
+            // launch (velocity.toml or config.yml). Default bind port 25577.
             var defaultPort = GetNextAvailablePort(usedPorts, 25577);
 
             var proxyConfig = new Dictionary<string, Dictionary<string, string>>
@@ -312,7 +314,7 @@ public class ServerService : IServerService
                 ["minecraft"] = new()
                 {
                     ["profile"] = "",
-                    // Velocity rejects "nogui"; treat as unconventional so the
+                    // Proxies reject "nogui"; treat as unconventional so the
                     // launcher does not append it.
                     ["unconventional"] = "true",
                     ["lan_broadcast"] = "false"
@@ -330,20 +332,50 @@ public class ServerService : IServerService
 
             await File.WriteAllTextAsync(configPath, IniParser.WriteWithSections(proxyConfig), cancellationToken);
 
-            // Pre-populate velocity.toml with sibling Java backends so the proxy
-            // does something out of the box. The user can edit /reorder them via
-            // the Velocity tab.
+            var proxyKind = NormalizeProxyKind(request.ProxyKind);
             var backends = await DiscoverJavaBackendsAsync(request.Name, cancellationToken);
-            var initialConfig = VelocityConfigDefaults(exists: true) with
+
+            if (proxyKind == "velocity")
             {
-                Bind = $"0.0.0.0:{defaultPort}",
-                Servers = backends,
-                Try = backends.Count > 0
-                    ? new List<string> { backends.Keys.First() }
-                    : new List<string>()
-            };
-            var tomlPath = Path.Combine(serverPath, "velocity.toml");
-            await WriteVelocityTomlAsync(tomlPath, initialConfig, cancellationToken);
+                // Pre-populate velocity.toml with sibling Java backends so the proxy
+                // does something out of the box. The user can edit/reorder them via
+                // the Properties tab.
+                var initialConfig = VelocityConfigDefaults(exists: true) with
+                {
+                    Bind = $"0.0.0.0:{defaultPort}",
+                    Servers = backends,
+                    Try = backends.Count > 0
+                        ? new List<string> { backends.Keys.First() }
+                        : new List<string>()
+                };
+                var tomlPath = Path.Combine(serverPath, "velocity.toml");
+                await WriteVelocityTomlAsync(tomlPath, initialConfig, cancellationToken);
+            }
+            else
+            {
+                // BungeeCord — bootstrap config.yml in its YAML schema.
+                // BungeeCord refuses to start with an empty servers: map
+                // ("IllegalArgumentException: No servers defined"), so when no
+                // sibling Java backends exist we seed the same placeholder
+                // BungeeCord itself ships in its default config.yml.
+                var bungeeBackends = backends.Count > 0
+                    ? backends.ToDictionary(
+                        kv => kv.Key,
+                        kv => new BungeeBackendDto(kv.Value, "&1Backend server", false))
+                    : new Dictionary<string, BungeeBackendDto>
+                    {
+                        ["lobby"] = new("127.0.0.1:25565", "&1Just another BungeeCord - Forced Host", false)
+                    };
+                var initialConfig = BungeeConfigDefaults(exists: true) with
+                {
+                    Host = $"0.0.0.0:{defaultPort}",
+                    QueryPort = defaultPort,
+                    Servers = bungeeBackends,
+                    Priorities = new List<string> { bungeeBackends.Keys.First() }
+                };
+                var yamlPath = Path.Combine(serverPath, "config.yml");
+                await WriteBungeeConfigAsync(yamlPath, initialConfig, cancellationToken);
+            }
         }
         else
         {
@@ -924,6 +956,59 @@ public class ServerService : IServerService
     private string GetVelocityTomlPath(string name) =>
         Path.Combine(GetServerPath(name), "velocity.toml");
 
+    private string GetBungeeConfigPath(string name) =>
+        Path.Combine(GetServerPath(name), "config.yml");
+
+    private static (string Host, int Port)? ParseHostPort(string bind)
+    {
+        // Bind format is "<host>:<port>" e.g. "0.0.0.0:25577", with IPv6 like
+        // "[::]:25577". Split on the LAST colon so IPv6 brackets don't break.
+        if (string.IsNullOrWhiteSpace(bind))
+        {
+            return null;
+        }
+        var lastColon = bind.LastIndexOf(':');
+        if (lastColon <= 0 || lastColon == bind.Length - 1)
+        {
+            return null;
+        }
+        if (!int.TryParse(bind[(lastColon + 1)..], out var port) || port < 1 || port > 65535)
+        {
+            return null;
+        }
+        var host = bind[..lastColon].Trim('[', ']');
+        if (string.IsNullOrWhiteSpace(host) || host == "0.0.0.0" || host == "::")
+        {
+            host = "127.0.0.1";
+        }
+        return (host, port);
+    }
+
+    private static string? ReadFirstListenerHost(string yamlContent)
+    {
+        var stream = new YamlStream();
+        using var reader = new StringReader(yamlContent);
+        stream.Load(reader);
+        if (stream.Documents.Count == 0 ||
+            stream.Documents[0].RootNode is not YamlMappingNode root)
+        {
+            return null;
+        }
+        if (!root.Children.TryGetValue(new YamlScalarNode("listeners"), out var listenersNode) ||
+            listenersNode is not YamlSequenceNode listeners ||
+            listeners.Children.Count == 0 ||
+            listeners.Children[0] is not YamlMappingNode first)
+        {
+            return null;
+        }
+        if (first.Children.TryGetValue(new YamlScalarNode("host"), out var hostNode) &&
+            hostNode is YamlScalarNode hostScalar)
+        {
+            return hostScalar.Value;
+        }
+        return null;
+    }
+
     public async Task<(string Host, int Port)?> GetServerListenEndpointAsync(string name, CancellationToken cancellationToken)
     {
         var serverPath = GetServerPath(name);
@@ -934,43 +1019,44 @@ public class ServerService : IServerService
 
         if (DetectServerType(name) == "proxy")
         {
+            // Try Velocity (velocity.toml) first; fall back to BungeeCord (config.yml).
             var tomlPath = GetVelocityTomlPath(name);
-            if (!File.Exists(tomlPath))
+            if (File.Exists(tomlPath))
             {
-                return null;
+                try
+                {
+                    var content = await File.ReadAllTextAsync(tomlPath, cancellationToken);
+                    var model = Toml.ToModel(content);
+                    if (model.TryGetValue("bind", out var bindObj) && bindObj is string bind)
+                    {
+                        return ParseHostPort(bind);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to parse velocity.toml for {ServerName}", name);
+                }
             }
-            try
+
+            var yamlPath = GetBungeeConfigPath(name);
+            if (File.Exists(yamlPath))
             {
-                var content = await File.ReadAllTextAsync(tomlPath, cancellationToken);
-                var model = Toml.ToModel(content);
-                if (!model.TryGetValue("bind", out var bindObj) || bindObj is not string bind)
+                try
                 {
-                    return null;
+                    var content = await File.ReadAllTextAsync(yamlPath, cancellationToken);
+                    var bind = ReadFirstListenerHost(content);
+                    if (!string.IsNullOrWhiteSpace(bind))
+                    {
+                        return ParseHostPort(bind);
+                    }
                 }
-                // Velocity bind format is "<host>:<port>" e.g. "0.0.0.0:25577".
-                // Velocity also supports IPv6 like "[::]:25577" but we treat that
-                // by splitting on the LAST colon.
-                var lastColon = bind.LastIndexOf(':');
-                if (lastColon <= 0 || lastColon == bind.Length - 1)
+                catch (Exception ex)
                 {
-                    return null;
+                    _logger.LogWarning(ex, "Failed to parse config.yml for {ServerName}", name);
                 }
-                if (!int.TryParse(bind[(lastColon + 1)..], out var port) || port < 1 || port > 65535)
-                {
-                    return null;
-                }
-                var host = bind[..lastColon].Trim('[', ']');
-                if (string.IsNullOrWhiteSpace(host) || host == "0.0.0.0" || host == "::")
-                {
-                    host = "127.0.0.1";
-                }
-                return (host, port);
             }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Failed to parse velocity.toml for {ServerName}", name);
-                return null;
-            }
+
+            return null;
         }
 
         // Java + bedrock: read server.properties
@@ -1259,6 +1345,359 @@ public class ServerService : IServerService
                     list.Add(s);
             }
             result[hostname] = list;
+        }
+        return result;
+    }
+
+    public async Task<BungeeConfigDto> GetBungeeConfigAsync(string name, CancellationToken cancellationToken)
+    {
+        var serverPath = GetServerPath(name);
+        if (!Directory.Exists(serverPath))
+        {
+            throw new DirectoryNotFoundException($"Server '{name}' not found");
+        }
+
+        var yamlPath = GetBungeeConfigPath(name);
+        if (!File.Exists(yamlPath))
+        {
+            return BungeeConfigDefaults(exists: false);
+        }
+
+        var content = await File.ReadAllTextAsync(yamlPath, cancellationToken);
+        return ParseBungeeConfig(content);
+    }
+
+    /// <summary>
+    /// Maps BungeeCord's config.yml text onto <see cref="BungeeConfigDto"/>. Keys the
+    /// file omits fall back to <see cref="BungeeConfigDefaults"/>. Malformed YAML throws
+    /// rather than silently yielding defaults — returning defaults would let the next
+    /// save overwrite a config the user still has content in.
+    /// </summary>
+    public static BungeeConfigDto ParseBungeeConfig(string yaml)
+    {
+        var stream = new YamlStream();
+        using var reader = new StringReader(yaml);
+        stream.Load(reader);
+
+        var defaults = BungeeConfigDefaults(exists: true);
+        if (stream.Documents.Count == 0 ||
+            stream.Documents[0].RootNode is not YamlMappingNode root)
+        {
+            return defaults;
+        }
+
+        var listener = GetFirstListener(root);
+
+        return defaults with
+        {
+            OnlineMode = YamlGetBool(root, "online_mode", defaults.OnlineMode),
+            IpForward = YamlGetBool(root, "ip_forward", defaults.IpForward),
+            PlayerLimit = YamlGetInt(root, "player_limit", defaults.PlayerLimit),
+            Timeout = YamlGetInt(root, "timeout", defaults.Timeout),
+            NetworkCompressionThreshold = YamlGetInt(root, "network_compression_threshold", defaults.NetworkCompressionThreshold),
+            ForgeSupport = YamlGetBool(root, "forge_support", defaults.ForgeSupport),
+            LogCommands = YamlGetBool(root, "log_commands", defaults.LogCommands),
+            LogPings = YamlGetBool(root, "log_pings", defaults.LogPings),
+            ConnectionThrottle = YamlGetInt(root, "connection_throttle", defaults.ConnectionThrottle),
+            ConnectionThrottleLimit = YamlGetInt(root, "connection_throttle_limit", defaults.ConnectionThrottleLimit),
+            Host = listener is null ? defaults.Host : YamlGetString(listener, "host", defaults.Host),
+            Motd = listener is null ? defaults.Motd : YamlGetString(listener, "motd", defaults.Motd),
+            MaxPlayers = listener is null ? defaults.MaxPlayers : YamlGetInt(listener, "max_players", defaults.MaxPlayers),
+            QueryEnabled = listener is not null && YamlGetBool(listener, "query_enabled", defaults.QueryEnabled),
+            QueryPort = listener is null ? defaults.QueryPort : YamlGetInt(listener, "query_port", defaults.QueryPort),
+            PingPassthrough = listener is not null && YamlGetBool(listener, "ping_passthrough", defaults.PingPassthrough),
+            ForceDefaultServer = listener is not null && YamlGetBool(listener, "force_default_server", defaults.ForceDefaultServer),
+            TabList = listener is null ? defaults.TabList : YamlGetString(listener, "tab_list", defaults.TabList),
+            ProxyProtocol = listener is not null && YamlGetBool(listener, "proxy_protocol", defaults.ProxyProtocol),
+            Priorities = listener is null ? new List<string>() : ReadPriorities(listener),
+            ForcedHosts = listener is null ? new Dictionary<string, string>() : ReadBungeeForcedHosts(listener),
+            Servers = ReadBungeeServers(root)
+        };
+    }
+
+    public async Task UpdateBungeeConfigAsync(string name, BungeeConfigDto config, CancellationToken cancellationToken)
+    {
+        var serverPath = GetServerPath(name);
+        if (!Directory.Exists(serverPath))
+        {
+            throw new DirectoryNotFoundException($"Server '{name}' not found");
+        }
+
+        if (DetectServerType(name) != "proxy")
+        {
+            throw new InvalidOperationException($"Server '{name}' is not a proxy server");
+        }
+
+        var yamlPath = GetBungeeConfigPath(name);
+        await WriteBungeeConfigAsync(yamlPath, config, cancellationToken);
+        await MarkRestartRequiredAsync(name);
+        _logger.LogInformation("Updated config.yml for {ServerName}", name);
+    }
+
+    private async Task WriteBungeeConfigAsync(string yamlPath, BungeeConfigDto config, CancellationToken cancellationToken)
+    {
+        var existing = File.Exists(yamlPath)
+            ? await File.ReadAllTextAsync(yamlPath, cancellationToken)
+            : null;
+
+        await File.WriteAllTextAsync(yamlPath, SerializeBungeeConfig(config, existing), cancellationToken);
+        await OwnershipHelper.ChangeOwnershipAsync(yamlPath, _options.RunAsUid, _options.RunAsGid, _logger, cancellationToken);
+    }
+
+    /// <summary>
+    /// Renders <paramref name="config"/> as config.yml text. When <paramref name="existingYaml"/>
+    /// is supplied its tree is edited in place rather than replaced, so keys the editor does not
+    /// model — groups, permissions, disabled_commands, the stats UUID, listeners beyond the
+    /// first — survive an edit cycle instead of being dropped.
+    /// </summary>
+    public static string SerializeBungeeConfig(BungeeConfigDto config, string? existingYaml)
+    {
+        YamlMappingNode root;
+        if (!string.IsNullOrWhiteSpace(existingYaml))
+        {
+            var stream = new YamlStream();
+            using var reader = new StringReader(existingYaml);
+            stream.Load(reader);
+            root = stream.Documents.Count > 0 && stream.Documents[0].RootNode is YamlMappingNode m
+                ? m
+                : new YamlMappingNode();
+        }
+        else
+        {
+            root = new YamlMappingNode();
+        }
+
+        SetScalar(root, "online_mode", config.OnlineMode);
+        SetScalar(root, "ip_forward", config.IpForward);
+        SetScalar(root, "player_limit", config.PlayerLimit);
+        SetScalar(root, "timeout", config.Timeout);
+        SetScalar(root, "network_compression_threshold", config.NetworkCompressionThreshold);
+        SetScalar(root, "forge_support", config.ForgeSupport);
+        SetScalar(root, "log_commands", config.LogCommands);
+        SetScalar(root, "log_pings", config.LogPings);
+        SetScalar(root, "connection_throttle", config.ConnectionThrottle);
+        SetScalar(root, "connection_throttle_limit", config.ConnectionThrottleLimit);
+
+        // Listener: edit the first listener if it exists, else create one.
+        // Any additional listeners after [0] are preserved untouched.
+        YamlSequenceNode listeners;
+        if (root.Children.TryGetValue(new YamlScalarNode("listeners"), out var listenersNode) &&
+            listenersNode is YamlSequenceNode existingListeners)
+        {
+            listeners = existingListeners;
+        }
+        else
+        {
+            listeners = new YamlSequenceNode();
+            root.Children[new YamlScalarNode("listeners")] = listeners;
+        }
+        YamlMappingNode firstListener;
+        if (listeners.Children.Count > 0 && listeners.Children[0] is YamlMappingNode existingFirst)
+        {
+            firstListener = existingFirst;
+        }
+        else
+        {
+            firstListener = new YamlMappingNode();
+            listeners.Children.Insert(0, firstListener);
+        }
+        SetScalar(firstListener, "host", config.Host);
+        SetScalar(firstListener, "motd", config.Motd);
+        SetScalar(firstListener, "max_players", config.MaxPlayers);
+        SetScalar(firstListener, "query_enabled", config.QueryEnabled);
+        SetScalar(firstListener, "query_port", config.QueryPort);
+        SetScalar(firstListener, "ping_passthrough", config.PingPassthrough);
+        SetScalar(firstListener, "force_default_server", config.ForceDefaultServer);
+        SetScalar(firstListener, "tab_list", config.TabList);
+        SetScalar(firstListener, "proxy_protocol", config.ProxyProtocol);
+
+        // The collections are non-nullable on the record, but this DTO is bound
+        // straight from a PUT body and System.Text.Json leaves them null when the
+        // client omits the property — nullable reference types are not enforced at
+        // runtime. Treat a missing collection as empty rather than throwing.
+        var prioritiesSeq = new YamlSequenceNode();
+        foreach (var p in config.Priorities ?? new List<string>())
+        {
+            prioritiesSeq.Children.Add(new YamlScalarNode(p));
+        }
+        firstListener.Children[new YamlScalarNode("priorities")] = prioritiesSeq;
+
+        var forcedHostsMap = new YamlMappingNode();
+        foreach (var (host, target) in config.ForcedHosts ?? new Dictionary<string, string>())
+        {
+            forcedHostsMap.Children[new YamlScalarNode(host)] = new YamlScalarNode(target ?? string.Empty);
+        }
+        firstListener.Children[new YamlScalarNode("forced_hosts")] = forcedHostsMap;
+
+        var serversMap = new YamlMappingNode();
+        foreach (var (key, backend) in config.Servers ?? new Dictionary<string, BungeeBackendDto>())
+        {
+            var entry = new YamlMappingNode
+            {
+                { new YamlScalarNode("address"), new YamlScalarNode(backend?.Address ?? string.Empty) },
+                { new YamlScalarNode("motd"), new YamlScalarNode(backend?.Motd ?? string.Empty) },
+                { new YamlScalarNode("restricted"), new YamlScalarNode(backend?.Restricted == true ? "true" : "false") }
+            };
+            serversMap.Children[new YamlScalarNode(key)] = entry;
+        }
+        root.Children[new YamlScalarNode("servers")] = serversMap;
+
+        var writer = new StringWriter();
+        new YamlStream(new YamlDocument(root)).Save(writer, assignAnchors: false);
+        return writer.ToString();
+    }
+
+    /// <summary>
+    /// BungeeCord's own config.yml defaults, with one deliberate divergence noted inline.
+    /// </summary>
+    public static BungeeConfigDto BungeeConfigDefaults(bool exists)
+    {
+        return new BungeeConfigDto(
+            Exists: exists,
+            OnlineMode: true,
+            IpForward: false,
+            PlayerLimit: -1,
+            Timeout: 30000,
+            NetworkCompressionThreshold: 256,
+            ForgeSupport: false,
+            LogCommands: false,
+            // BungeeCord defaults log_pings to true. MineOS heartbeats SLP-ping
+            // the proxy every few seconds for the dashboard, which floods the
+            // log. Default off here; users can re-enable in the Properties tab.
+            LogPings: false,
+            ConnectionThrottle: 4000,
+            ConnectionThrottleLimit: 3,
+            Host: "0.0.0.0:25577",
+            Motd: "&1Another BungeeCord server",
+            MaxPlayers: 1,
+            QueryEnabled: false,
+            QueryPort: 25577,
+            PingPassthrough: false,
+            ForceDefaultServer: false,
+            TabList: "GLOBAL_PING",
+            ProxyProtocol: false,
+            Priorities: new List<string>(),
+            ForcedHosts: new Dictionary<string, string>(),
+            Servers: new Dictionary<string, BungeeBackendDto>());
+    }
+
+    private static YamlMappingNode? GetFirstListener(YamlMappingNode root)
+    {
+        if (!root.Children.TryGetValue(new YamlScalarNode("listeners"), out var listenersNode) ||
+            listenersNode is not YamlSequenceNode listeners ||
+            listeners.Children.Count == 0)
+        {
+            return null;
+        }
+        return listeners.Children[0] as YamlMappingNode;
+    }
+
+    private static string YamlGetString(YamlMappingNode node, string key, string fallback)
+    {
+        if (node.Children.TryGetValue(new YamlScalarNode(key), out var v) &&
+            v is YamlScalarNode s &&
+            s.Value is not null)
+        {
+            return s.Value;
+        }
+        return fallback;
+    }
+
+    private static int YamlGetInt(YamlMappingNode node, string key, int fallback)
+    {
+        if (node.Children.TryGetValue(new YamlScalarNode(key), out var v) &&
+            v is YamlScalarNode s &&
+            int.TryParse(s.Value, out var parsed))
+        {
+            return parsed;
+        }
+        return fallback;
+    }
+
+    private static bool YamlGetBool(YamlMappingNode node, string key, bool fallback)
+    {
+        if (node.Children.TryGetValue(new YamlScalarNode(key), out var v) &&
+            v is YamlScalarNode s &&
+            bool.TryParse(s.Value, out var parsed))
+        {
+            return parsed;
+        }
+        return fallback;
+    }
+
+    private static void SetScalar(YamlMappingNode node, string key, string value)
+    {
+        node.Children[new YamlScalarNode(key)] = new YamlScalarNode(value ?? string.Empty);
+    }
+
+    private static void SetScalar(YamlMappingNode node, string key, int value)
+    {
+        node.Children[new YamlScalarNode(key)] = new YamlScalarNode(value.ToString());
+    }
+
+    private static void SetScalar(YamlMappingNode node, string key, bool value)
+    {
+        node.Children[new YamlScalarNode(key)] = new YamlScalarNode(value ? "true" : "false");
+    }
+
+    private static List<string> ReadPriorities(YamlMappingNode listener)
+    {
+        var result = new List<string>();
+        if (listener.Children.TryGetValue(new YamlScalarNode("priorities"), out var v) &&
+            v is YamlSequenceNode seq)
+        {
+            foreach (var item in seq.Children)
+            {
+                if (item is YamlScalarNode s && s.Value is not null)
+                {
+                    result.Add(s.Value);
+                }
+            }
+        }
+        return result;
+    }
+
+    private static Dictionary<string, string> ReadBungeeForcedHosts(YamlMappingNode listener)
+    {
+        var result = new Dictionary<string, string>();
+        if (listener.Children.TryGetValue(new YamlScalarNode("forced_hosts"), out var v) &&
+            v is YamlMappingNode map)
+        {
+            foreach (var (key, value) in map.Children)
+            {
+                if (key is YamlScalarNode hostScalar &&
+                    hostScalar.Value is { } host &&
+                    value is YamlScalarNode targetScalar &&
+                    targetScalar.Value is { } target)
+                {
+                    result[host] = target;
+                }
+            }
+        }
+        return result;
+    }
+
+    private static Dictionary<string, BungeeBackendDto> ReadBungeeServers(YamlMappingNode root)
+    {
+        var result = new Dictionary<string, BungeeBackendDto>();
+        if (!root.Children.TryGetValue(new YamlScalarNode("servers"), out var v) ||
+            v is not YamlMappingNode map)
+        {
+            return result;
+        }
+
+        foreach (var (key, value) in map.Children)
+        {
+            if (key is not YamlScalarNode keyScalar ||
+                keyScalar.Value is not { } name ||
+                value is not YamlMappingNode entry)
+            {
+                continue;
+            }
+            var address = YamlGetString(entry, "address", "");
+            var motd = YamlGetString(entry, "motd", "");
+            var restricted = YamlGetBool(entry, "restricted", false);
+            result[name] = new BungeeBackendDto(address, motd, restricted);
         }
         return result;
     }
@@ -1629,6 +2068,18 @@ public class ServerService : IServerService
         var timeout = TimeSpan.FromSeconds(10);
         var started = DateTimeOffset.UtcNow;
 
+        // Brief settle so the echo'd "Launching <name>" line lands before we
+        // sample the baseline. The launcher writes that line via echo BEFORE
+        // exec'ing the server; we want to count only output past it as proof
+        // the server produced output of its own.
+        await Task.Delay(300, cancellationToken);
+        long startupBaselineBytes = 0;
+        if (File.Exists(startupLogPath))
+        {
+            try { startupBaselineBytes = new FileInfo(startupLogPath).Length; }
+            catch (IOException) { }
+        }
+
         while (DateTimeOffset.UtcNow - started < timeout)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -1650,6 +2101,22 @@ public class ServerService : IServerService
                 if (logInfo.LastWriteTimeUtc >= startTime.UtcDateTime)
                 {
                     _logger.LogInformation("Detected log output for {ServerName} at {LogPath}", name, logPath);
+                    return;
+                }
+            }
+
+            // Fallback: the launcher tees stdout/stderr to startup.log. Any growth
+            // past the baseline means the server emitted output of its own — this
+            // is what covers BungeeCord, which writes proxy.log.0 rather than
+            // logs/latest.log and so never trips the check above.
+            if (File.Exists(startupLogPath))
+            {
+                var startupInfo = new FileInfo(startupLogPath);
+                if (startupInfo.Length > startupBaselineBytes)
+                {
+                    _logger.LogInformation(
+                        "Detected startup activity for {ServerName} at {LogPath} (grew from {Baseline} to {Length} bytes)",
+                        name, startupLogPath, startupBaselineBytes, startupInfo.Length);
                     return;
                 }
             }
@@ -1812,10 +2279,31 @@ public class ServerService : IServerService
     private static readonly HashSet<string> AllowedServerTypes = new(StringComparer.OrdinalIgnoreCase)
     {
         "java", "bedrock", "proxy", "vanilla", "paper", "spigot", "craftbukkit", "purpur",
-        "forge", "neoforge", "fabric", "quilt", "folia", "velocity"
+        "forge", "neoforge", "fabric", "quilt", "folia", "velocity", "bungeecord"
     };
 
-    public async Task UpdateServerTypeAsync(string name, string serverType, CancellationToken cancellationToken)
+    private static readonly HashSet<string> AllowedProxyKinds = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "velocity", "bungeecord"
+    };
+
+    /// <summary>
+    /// Normalizes a caller-supplied proxy implementation to a known kind. Null or
+    /// empty means "velocity" (the default proxy, and what pre-ProxyKind clients
+    /// send). Anything else is rejected rather than silently treated as BungeeCord.
+    /// </summary>
+    private static string NormalizeProxyKind(string? proxyKind)
+    {
+        if (string.IsNullOrWhiteSpace(proxyKind))
+            return "velocity";
+
+        if (!AllowedProxyKinds.Contains(proxyKind))
+            throw new ArgumentException($"Invalid proxy kind: '{proxyKind}'");
+
+        return proxyKind.ToLowerInvariant();
+    }
+
+    public async Task UpdateServerTypeAsync(string name, string serverType, string? proxyKind, CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(serverType) || !AllowedServerTypes.Contains(serverType))
             throw new ArgumentException($"Invalid server type: '{serverType}'");
@@ -1828,14 +2316,14 @@ public class ServerService : IServerService
         await File.WriteAllTextAsync(
             Path.Combine(serverPath, ServerTypeFile), normalized, cancellationToken);
 
-        // When converting an existing server to a proxy, bootstrap velocity.toml
-        // the same way CreateServerAsync does: pre-populated with sibling Java
-        // backends and an empty [forced-hosts] table. Mirrors the wizard so a
-        // type-changed proxy is functional from the first launch.
+        // When converting an existing server to a proxy, bootstrap the right
+        // config file (mirrors CreateServerAsync): pre-populated with sibling
+        // Java backends so a type-changed proxy is functional from first launch.
+        // proxyKind narrows to velocity (TOML) vs bungeecord (YAML).
         if (normalized == "proxy")
         {
-            // Velocity rejects `nogui`; flip unconventional so the launcher won't
-            // append it (wizard-created proxies already set this at creation).
+            // Neither proxy accepts `nogui`; flip unconventional so the launcher
+            // won't append it (wizard-created proxies already set this at creation).
             var config = await GetServerConfigAsync(name, cancellationToken);
             if (!config.Minecraft.Unconventional)
             {
@@ -1845,22 +2333,50 @@ public class ServerService : IServerService
                     cancellationToken);
             }
 
-            var tomlPath = GetVelocityTomlPath(name);
-            if (!File.Exists(tomlPath))
+            var kind = NormalizeProxyKind(proxyKind);
+            var backends = await DiscoverJavaBackendsAsync(name, cancellationToken);
+
+            if (kind == "velocity")
             {
-                var backends = await DiscoverJavaBackendsAsync(name, cancellationToken);
-                var initialConfig = VelocityConfigDefaults(exists: true) with
+                var tomlPath = GetVelocityTomlPath(name);
+                if (!File.Exists(tomlPath))
                 {
-                    Servers = backends,
-                    Try = backends.Count > 0
-                        ? new List<string> { backends.Keys.First() }
-                        : new List<string>()
-                };
-                await WriteVelocityTomlAsync(tomlPath, initialConfig, cancellationToken);
+                    var initialConfig = VelocityConfigDefaults(exists: true) with
+                    {
+                        Servers = backends,
+                        Try = backends.Count > 0
+                            ? new List<string> { backends.Keys.First() }
+                            : new List<string>()
+                    };
+                    await WriteVelocityTomlAsync(tomlPath, initialConfig, cancellationToken);
+                }
+            }
+            else
+            {
+                var yamlPath = GetBungeeConfigPath(name);
+                if (!File.Exists(yamlPath))
+                {
+                    // See CreateServerAsync — BungeeCord requires at least one
+                    // entry in servers: or it fails to start.
+                    var bungeeBackends = backends.Count > 0
+                        ? backends.ToDictionary(
+                            kv => kv.Key,
+                            kv => new BungeeBackendDto(kv.Value, "&1Backend server", false))
+                        : new Dictionary<string, BungeeBackendDto>
+                        {
+                            ["lobby"] = new("127.0.0.1:25565", "&1Just another BungeeCord - Forced Host", false)
+                        };
+                    var initialConfig = BungeeConfigDefaults(exists: true) with
+                    {
+                        Servers = bungeeBackends,
+                        Priorities = new List<string> { bungeeBackends.Keys.First() }
+                    };
+                    await WriteBungeeConfigAsync(yamlPath, initialConfig, cancellationToken);
+                }
             }
         }
 
-        _logger.LogInformation("Updated server type for {Server} to {Type}", name, normalized);
+        _logger.LogInformation("Updated server type for {Server} to {Type} (proxyKind={Kind})", name, normalized, proxyKind ?? "n/a");
     }
 
     private static readonly System.Text.RegularExpressions.Regex[] JarLoaderPatterns =

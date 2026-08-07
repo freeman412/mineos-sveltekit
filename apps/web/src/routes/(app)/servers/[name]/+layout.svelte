@@ -37,12 +37,12 @@
 	);
 
 	// For proxies, the SLP ping returns a protocol-range string ("Velocity 1.7.2-1.18.1")
-	// that's confusing in the page header. Derive the actual proxy build (e.g. "Velocity 3.1.1")
-	// from the jar filename so the chip says what's running.
+	// that's confusing in the page header. Derive the actual proxy build (e.g. "Velocity 3.1.1",
+	// "BungeeCord build-2068") from the jar filename so the chip says what's running.
 	const proxyVersionFromJar = $derived.by(() => {
 		if (!isProxy) return null;
 		const raw = server?.config?.java?.jarFile ?? '';
-		const m = raw.match(/^(velocity|bungeecord|waterfall)-(\d+\.\d+(?:\.\d+)?)/i);
+		const m = raw.match(/^(velocity|bungeecord|waterfall)-(.+?)\.jar$/i);
 		if (!m) return null;
 		const name = m[1].charAt(0).toUpperCase() + m[1].slice(1).toLowerCase();
 		return `${name} ${m[2]}`;
