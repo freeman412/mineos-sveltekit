@@ -186,10 +186,12 @@ The core is pure and table-driven: given a proxy config, a loader, a
 - Write-path ordering: a failure in step 3 leaves `online-mode` untouched.
 - Exposure: published range, host networking, unreadable socket → `Unknown`.
 
-New tests must be measured against a captured clean baseline. `dotnet test` on
-`vibing` in a `mcr.microsoft.com/dotnet/sdk:8.0` container currently reports
-**53 passed / 6 failed / 59 total**; those 6 are pre-existing Bedrock and Mod
-integration failures.
+New tests are measured against a captured clean baseline. That baseline used to
+carry 6 pre-existing failures; they turned out to be a single bug in
+`MineOsWebApplicationFactory`, which ran the integration tests against the real
+`/var/games/minecraft` instead of a temp directory (fixed separately in #163).
+`dotnet test` on `vibing` now reports **73 passed / 0 failed / 73 total**, so
+"green" means green and this feature is measured against zero.
 
 ## Delivery
 
