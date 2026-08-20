@@ -92,7 +92,10 @@ public record CrashEventDto(
 
 public record ConsoleCommandDto(string Command);
 
-public record CreateServerRequest(string Name, int OwnerUid, int OwnerGid, string ServerType = "java");
+// ProxyKind narrows ServerType="proxy" to a specific implementation
+// (velocity / bungeecord) so server creation skips the velocity.toml
+// bootstrap when the user picked a YAML-based proxy.
+public record CreateServerRequest(string Name, int OwnerUid, int OwnerGid, string ServerType = "java", string? ProxyKind = null);
 
 public record CloneServerRequest(string NewName);
 

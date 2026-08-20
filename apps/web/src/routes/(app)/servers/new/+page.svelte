@@ -126,15 +126,20 @@
 		// Create the server first
 		simpleStepText = 'Creating server...';
 		simpleProgress = 5;
+		const isProxy = implementation === 'velocity' || implementation === 'bungeecord';
 		const serverType =
 			implementation === 'bedrock' ? 'bedrock'
-			: implementation === 'velocity' ? 'proxy'
+			: isProxy ? 'proxy'
 			: 'java';
+		const proxyKind = isProxy
+			? (implementation as 'velocity' | 'bungeecord')
+			: undefined;
 		const createResult = await api.createServer(fetch, {
 			name,
 			ownerUid: 1000,
 			ownerGid: 1000,
-			serverType
+			serverType,
+			proxyKind
 		});
 		if (createResult.error) {
 			createError = createResult.error;

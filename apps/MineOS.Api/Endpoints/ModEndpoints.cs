@@ -683,7 +683,7 @@ public static class ModEndpoints
         {
             try
             {
-                await serverService.UpdateServerTypeAsync(name, request.ServerType, cancellationToken);
+                await serverService.UpdateServerTypeAsync(name, request.ServerType, request.ProxyKind, cancellationToken);
                 return Results.Ok(new { message = "Server type updated" });
             }
             catch (DirectoryNotFoundException ex)
@@ -695,7 +695,7 @@ public static class ModEndpoints
         return servers;
     }
 
-    private record UpdateServerTypeRequest(string ServerType);
+    private record UpdateServerTypeRequest(string ServerType, string? ProxyKind = null);
 
     /// <summary>
     /// Resolves the mod loader and Minecraft version for a server.

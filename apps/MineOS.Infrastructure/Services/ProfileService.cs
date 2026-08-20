@@ -22,9 +22,16 @@ public sealed class ProfileService : IProfileService
     // PaperMC's legacy api.papermc.io/v2 API was sunset in 2026; Fill v3 is the replacement.
     private const string PaperProjectUrl = "https://fill.papermc.io/v3/projects/paper";
     private const string VelocityProjectUrl = "https://fill.papermc.io/v3/projects/velocity";
+    // BungeeCord lives on md_5's Jenkins (hub.spigotmc.org auto-redirects there).
+    // Each successful build publishes bootstrap/target/BungeeCord.jar; we expose
+    // the most recent N successful builds as profiles.
+    private const string BungeeCordJenkinsApi =
+        "https://hub.spigotmc.org/jenkins/job/BungeeCord/api/json?depth=1&tree=builds[number,result,timestamp,artifacts[relativePath,fileName]]";
+    private const string BungeeCordBuildBaseUrl = "https://hub.spigotmc.org/jenkins/job/BungeeCord";
     private const string MojangVersionManifestUrl = "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json";
     private const int PaperVersionLimit = 20;
     private const int VelocityVersionLimit = 10;
+    private const int BungeeCordBuildLimit = 10;
     private static readonly TimeSpan PaperCacheTtl = TimeSpan.FromMinutes(10);
     private static readonly SemaphoreSlim PaperCacheLock = new(1, 1);
     private static DateTimeOffset? _paperLastFetch;
@@ -33,6 +40,10 @@ public sealed class ProfileService : IProfileService
     private static readonly SemaphoreSlim VelocityCacheLock = new(1, 1);
     private static DateTimeOffset? _velocityLastFetch;
     private static List<ProfileDto> _velocityCache = new();
+    private static readonly TimeSpan BungeeCordCacheTtl = TimeSpan.FromMinutes(10);
+    private static readonly SemaphoreSlim BungeeCordCacheLock = new(1, 1);
+    private static DateTimeOffset? _bungeeCordLastFetch;
+    private static List<ProfileDto> _bungeeCordCache = new();
     private static readonly TimeSpan VanillaCacheTtl = TimeSpan.FromMinutes(10);
     private static readonly SemaphoreSlim VanillaCacheLock = new(1, 1);
     private static DateTimeOffset? _vanillaLastFetch;
@@ -105,6 +116,7 @@ public sealed class ProfileService : IProfileService
         var vanillaProfiles = await GetVanillaProfilesAsync(cancellationToken);
         var paperProfiles = await GetPaperProfilesAsync(cancellationToken);
         var velocityProfiles = await GetVelocityProfilesAsync(cancellationToken);
+        var bungeeCordProfiles = await GetBungeeCordProfilesAsync(cancellationToken);
         var buildToolsProfiles = await DiscoverBuildToolsProfilesAsync(cancellationToken);
         var bedrockProfiles = await GetBedrockProfilesAsync(cancellationToken);
         var combined = new Dictionary<string, ProfileDto>(StringComparer.OrdinalIgnoreCase);
@@ -125,6 +137,11 @@ public sealed class ProfileService : IProfileService
         }
 
         foreach (var profile in velocityProfiles)
+        {
+            combined[profile.Id] = profile;
+        }
+
+        foreach (var profile in bungeeCordProfiles)
         {
             combined[profile.Id] = profile;
         }
@@ -1314,6 +1331,127 @@ public sealed class ProfileService : IProfileService
     private static bool IsStableVelocityVersion(string version)
     {
         return !version.Contains('-', StringComparison.OrdinalIgnoreCase);
+    }
+
+    private async Task<IReadOnlyList<ProfileDto>> GetBungeeCordProfilesAsync(CancellationToken cancellationToken)
+    {
+        var now = DateTimeOffset.UtcNow;
+        if (_bungeeCordLastFetch.HasValue &&
+            now - _bungeeCordLastFetch.Value < BungeeCordCacheTtl &&
+            _bungeeCordCache.Count > 0)
+        {
+            return _bungeeCordCache;
+        }
+
+        await BungeeCordCacheLock.WaitAsync(cancellationToken);
+        try
+        {
+            if (_bungeeCordLastFetch.HasValue &&
+                now - _bungeeCordLastFetch.Value < BungeeCordCacheTtl &&
+                _bungeeCordCache.Count > 0)
+            {
+                return _bungeeCordCache;
+            }
+
+            var fetched = await FetchBungeeCordProfilesAsync(cancellationToken);
+            if (fetched.Count > 0)
+            {
+                _bungeeCordCache = fetched.ToList();
+                _bungeeCordLastFetch = DateTimeOffset.UtcNow;
+            }
+            else if (_bungeeCordCache.Count == 0)
+            {
+                _bungeeCordLastFetch = DateTimeOffset.UtcNow;
+            }
+
+            return _bungeeCordCache;
+        }
+        finally
+        {
+            BungeeCordCacheLock.Release();
+        }
+    }
+
+    private async Task<IReadOnlyList<ProfileDto>> FetchBungeeCordProfilesAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            var json = await _httpClient.GetStringAsync(BungeeCordJenkinsApi, cancellationToken);
+            using var doc = JsonDocument.Parse(json);
+            if (!doc.RootElement.TryGetProperty("builds", out var builds) ||
+                builds.ValueKind != JsonValueKind.Array)
+            {
+                return Array.Empty<ProfileDto>();
+            }
+
+            var results = new List<ProfileDto>();
+            foreach (var build in builds.EnumerateArray())
+            {
+                if (results.Count >= BungeeCordBuildLimit)
+                {
+                    break;
+                }
+
+                if (!build.TryGetProperty("result", out var resultElement) ||
+                    resultElement.GetString() != "SUCCESS" ||
+                    !build.TryGetProperty("number", out var numberElement) ||
+                    numberElement.ValueKind != JsonValueKind.Number)
+                {
+                    continue;
+                }
+
+                var buildNumber = numberElement.GetInt32();
+
+                // Find the BungeeCord.jar artifact (relativePath is bootstrap/target/BungeeCord.jar)
+                string? relativePath = null;
+                if (build.TryGetProperty("artifacts", out var artifacts) &&
+                    artifacts.ValueKind == JsonValueKind.Array)
+                {
+                    foreach (var artifact in artifacts.EnumerateArray())
+                    {
+                        if (artifact.TryGetProperty("fileName", out var fileNameEl) &&
+                            fileNameEl.GetString() == "BungeeCord.jar" &&
+                            artifact.TryGetProperty("relativePath", out var relPathEl))
+                        {
+                            relativePath = relPathEl.GetString();
+                            break;
+                        }
+                    }
+                }
+
+                if (string.IsNullOrWhiteSpace(relativePath))
+                {
+                    continue;
+                }
+
+                var time = build.TryGetProperty("timestamp", out var ts) && ts.ValueKind == JsonValueKind.Number
+                    ? DateTimeOffset.FromUnixTimeMilliseconds(ts.GetInt64()).ToString("O")
+                    : DateTimeOffset.UtcNow.ToString("O");
+                var version = $"build-{buildNumber}";
+                var downloadUrl = $"{BungeeCordBuildBaseUrl}/{buildNumber}/artifact/{relativePath}";
+
+                results.Add(new ProfileDto(
+                    $"bungeecord-{version}",
+                    "bungeecord",
+                    "release",
+                    version,
+                    time,
+                    downloadUrl,
+                    // Local filename includes the build number so multiple BungeeCord
+                    // builds can coexist on disk and the proxy-version chip in the UI
+                    // can disambiguate which build is installed.
+                    $"bungeecord-{version}.jar",
+                    false,
+                    null));
+            }
+
+            return results;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to fetch BungeeCord profiles");
+            return Array.Empty<ProfileDto>();
+        }
     }
 
     private static Version? TryParseVersion(string? version)

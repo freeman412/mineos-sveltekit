@@ -25,11 +25,13 @@ public interface IServerService
     Task UpdateServerConfigAsync(string name, ServerConfigDto config, CancellationToken cancellationToken);
     Task<VelocityConfigDto> GetVelocityConfigAsync(string name, CancellationToken cancellationToken);
     Task UpdateVelocityConfigAsync(string name, VelocityConfigDto config, CancellationToken cancellationToken);
+    Task<BungeeConfigDto> GetBungeeConfigAsync(string name, CancellationToken cancellationToken);
+    Task UpdateBungeeConfigAsync(string name, BungeeConfigDto config, CancellationToken cancellationToken);
 
     /// <summary>
-    /// Returns the (host, port) the server listens on, branching on server type
-    /// (server.properties for java/bedrock, velocity.toml for proxy).
-    /// Returns null if neither config exists or the value is malformed.
+    /// Returns the (host, port) the server listens on, branching on server type:
+    /// server.properties for java/bedrock, velocity.toml or config.yml for proxies.
+    /// Returns null if no config exists or the value is malformed.
     /// </summary>
     Task<(string Host, int Port)?> GetServerListenEndpointAsync(string name, CancellationToken cancellationToken);
 
@@ -38,5 +40,5 @@ public interface IServerService
 
     // Loader detection
     Task<ServerLoaderDto> DetectLoaderAsync(string name, CancellationToken cancellationToken);
-    Task UpdateServerTypeAsync(string name, string serverType, CancellationToken cancellationToken);
+    Task UpdateServerTypeAsync(string name, string serverType, string? proxyKind, CancellationToken cancellationToken);
 }
