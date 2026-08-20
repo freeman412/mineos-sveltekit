@@ -206,16 +206,16 @@ public class ProxyForwardingService : IProxyForwardingService
 
         return new BackendForwardingDto(
             ServerName: serverName,
-            Status: assessment.Status,
+            Status: assessment.Status.ToString(),
             IsSpoofable: assessment.IsSpoofable,
-            ProxyKind: facts.ProxyKind,
-            Tier: tier,
+            ProxyKind: facts.ProxyKind.ToString(),
+            Tier: tier.ToString(),
             ProxyName: link?.ProxyName,
             Loader: loader,
             ServerOnlineMode: onlineMode,
             BackendForwardingConfigured: configured,
             SecretMatches: secretMatches,
-            Exposure: exposure,
+            Exposure: exposure.ToString(),
             ExposureDetail: exposureDetail,
             RemediationAction: remediation);
     }

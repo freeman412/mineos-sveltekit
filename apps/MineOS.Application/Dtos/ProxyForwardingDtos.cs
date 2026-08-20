@@ -1,5 +1,3 @@
-using MineOS.Domain.ValueObjects;
-
 namespace MineOS.Application.Dtos;
 
 /// <summary>
@@ -13,12 +11,16 @@ namespace MineOS.Application.Dtos;
 /// </summary>
 public record BackendForwardingDto(
     string ServerName,
-    ProxyForwardingStatus Status,
+    // Enum *names*, not numbers. System.Text.Json serializes enums as integers by
+    // default, and the web client matches on names ('Secured', 'Exposed'). Sending
+    // 3 where the UI expects "Securable" fails silently: the panel renders with an
+    // empty headline rather than erroring, so nothing surfaces the mismatch.
+    string Status,
     // True when the server currently accepts unauthenticated connections:
     // online-mode is off and nothing verifies the forwarded identity.
     bool IsSpoofable,
-    ProxyForwardingKind ProxyKind,
-    LoaderTier Tier,
+    string ProxyKind,
+    string Tier,
     string? ProxyName,
     string? Loader,
     bool ServerOnlineMode,
@@ -26,7 +28,7 @@ public record BackendForwardingDto(
     bool SecretMatches,
     // Only meaningful when no verified path exists — then isolation is the
     // only control and we report whether it actually holds.
-    ExposureVerdict Exposure,
+    string Exposure,
     string? ExposureDetail,
     // What the caller can do about it, if anything: "secure", "install-mod", or null.
     string? RemediationAction);

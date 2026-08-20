@@ -1,4 +1,5 @@
 using System.Text.Json;
+using MineOS.Application.Dtos;
 using MineOS.Domain.ValueObjects;
 using MineOS.Infrastructure.Services;
 
@@ -204,6 +205,57 @@ public class ProxyForwardingTests
         Assert.Contains("velocity:", result);
         Assert.Contains("enabled: true", result);
         Assert.Contains("secret: topsecret", result);
+    }
+
+    [Fact]
+    public void The_Dto_Puts_Enum_Names_On_The_Wire_Not_Numbers()
+    {
+        // Regression test for a bug the C# and TypeScript suites both missed by
+        // testing either side in isolation: System.Text.Json serializes enums as
+        // integers by default, so the API sent {"status":3} while the web client
+        // matched on 'Securable'. Nothing threw — the panel just rendered with an
+        // empty headline, which is the worst way for a security warning to fail.
+        var dto = new BackendForwardingDto(
+            ServerName: "freemancraft",
+            Status: ProxyForwardingStatus.Securable.ToString(),
+            IsSpoofable: false,
+            ProxyKind: ProxyForwardingKind.VelocityModern.ToString(),
+            Tier: LoaderTier.Native.ToString(),
+            ProxyName: "hub",
+            Loader: "paper",
+            ServerOnlineMode: true,
+            BackendForwardingConfigured: false,
+            SecretMatches: false,
+            Exposure: ExposureVerdict.Unknown.ToString(),
+            ExposureDetail: null,
+            RemediationAction: "secure");
+
+        var json = JsonSerializer.Serialize(dto);
+
+        Assert.Contains("\"status\":\"Securable\"", json, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("\"proxyKind\":\"VelocityModern\"", json, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("\"tier\":\"Native\"", json, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("\"exposure\":\"Unknown\"", json, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Every_Status_And_Verdict_Name_Matches_What_The_Web_Client_Expects()
+    {
+        // These strings are duplicated in apps/web/src/lib/api/types.ts. If an enum
+        // member is ever renamed, this fails here rather than silently blanking a
+        // warning in the browser.
+        Assert.Equal(
+            new[] { "NotABackend", "Secured", "Misconfigured", "Securable", "Unverifiable" },
+            Enum.GetNames<ProxyForwardingStatus>());
+        Assert.Equal(
+            new[] { "None", "VelocityModern", "VelocityUnverified", "BungeeCord" },
+            Enum.GetNames<ProxyForwardingKind>());
+        Assert.Equal(
+            new[] { "Native", "ModRequired", "Unsupported" },
+            Enum.GetNames<LoaderTier>());
+        Assert.Equal(
+            new[] { "Unknown", "NotExposed", "Exposed" },
+            Enum.GetNames<ExposureVerdict>());
     }
 
     private static JsonElement Container(string json) => JsonDocument.Parse(json).RootElement;
