@@ -33,29 +33,6 @@ public class FabricForwardingModTests
         Assert.False(FabricForwardingMod.IsForwardingModJar("FabricProxy-Lite-0.9.0.jar.disabled"));
     }
 
-    [Theory]
-    [InlineData("fabric-server-mc.1.21.1-loader.0.19.3.jar", "1.21.1")]
-    [InlineData("fabric-server-mc.1.20-loader.0.15.0.jar", "1.20")]
-    [InlineData("quilt-server-mc.1.21.4-loader.0.26.0.jar", "1.21.4")]
-    [InlineData("server.jar", null)]
-    [InlineData("", null)]
-    [InlineData(null, null)]
-    public void The_Minecraft_Version_Comes_From_The_Jar_Name(string? jar, string? expected)
-    {
-        // Regression test for a bug found running this against a real Fabric
-        // install: DetectLoaderAsync reports the LOADER version for Fabric
-        // (0.19.3), so using it as the game version asked Modrinth for builds
-        // supporting "Minecraft 0.19.3" and the install refused every time.
-        Assert.Equal(expected, FabricForwardingMod.TryParseMinecraftVersion(jar));
-    }
-
-    [Fact]
-    public void The_Loader_Version_Is_Never_Mistaken_For_The_Game_Version()
-    {
-        Assert.Equal("1.21.1",
-            FabricForwardingMod.TryParseMinecraftVersion("fabric-server-mc.1.21.1-loader.0.19.3.jar"));
-    }
-
     private static ModrinthVersionDto Version(
         string id, string number, string published, string[] gameVersions, string[] loaders,
         ModrinthVersionFileDto[]? files = null, ModrinthDependencyDto[]? dependencies = null) =>

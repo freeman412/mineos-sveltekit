@@ -44,32 +44,6 @@ internal static class FabricForwardingMod
     }
 
     /// <summary>
-    /// Pulls the Minecraft version out of a Fabric/Quilt server jar name, e.g.
-    /// "fabric-server-mc.1.21.1-loader.0.19.3.jar" -> "1.21.1".
-    ///
-    /// Needed because DetectLoaderAsync reports the *loader* version for these
-    /// servers (0.19.3), not the game version. Asking Modrinth for builds
-    /// supporting "Minecraft 0.19.3" matches nothing, so without this the install
-    /// refuses on every Fabric server it is offered.
-    /// </summary>
-    internal static string? TryParseMinecraftVersion(string? jarFile)
-    {
-        if (string.IsNullOrWhiteSpace(jarFile))
-        {
-            return null;
-        }
-
-        // "mc.1.21.1" / "mc1.21.1" is the marker Fabric and Quilt both use, and it
-        // is unambiguous — unlike the bare numbers elsewhere in the name.
-        var match = System.Text.RegularExpressions.Regex.Match(
-            jarFile,
-            @"mc\.?(?<mc>\d+\.\d+(?:\.\d+)?)",
-            System.Text.RegularExpressions.RegexOptions.IgnoreCase);
-
-        return match.Success ? match.Groups["mc"].Value : null;
-    }
-
-    /// <summary>
     /// Picks the newest release that suits this server, or null when none does.
     ///
     /// Returning null matters: installing a FabricProxy-Lite built for another

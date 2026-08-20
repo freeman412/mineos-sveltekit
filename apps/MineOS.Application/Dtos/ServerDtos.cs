@@ -1,6 +1,9 @@
 namespace MineOS.Application.Dtos;
 
-public record ServerLoaderDto(string? Loader, string? Version);
+// Version is the LOADER's version; MinecraftVersion is the game version. They are
+// the same thing for Paper-style jars and completely different for Fabric/Quilt,
+// where "fabric-server-mc.1.21.1-loader.0.19.3.jar" is game 1.21.1, loader 0.19.3.
+public record ServerLoaderDto(string? Loader, string? Version, string? MinecraftVersion = null);
 
 public record CronJobDto(string Hash, string Source, string Action, string? Msg, bool Enabled);
 

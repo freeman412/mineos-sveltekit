@@ -663,7 +663,15 @@ public static class ModEndpoints
             try
             {
                 var result = await serverService.DetectLoaderAsync(name, cancellationToken);
-                return Results.Ok(new { loader = result.Loader, version = result.Version });
+                // minecraftVersion is additive: existing clients keep reading
+                // loader/version unchanged, and anything that needs the game
+                // version no longer has to infer it from the loader version.
+                return Results.Ok(new
+                {
+                    loader = result.Loader,
+                    version = result.Version,
+                    minecraftVersion = result.MinecraftVersion
+                });
             }
             catch (DirectoryNotFoundException ex)
             {
@@ -710,10 +718,15 @@ public static class ModEndpoints
     {
         try
         {
-            // Use the canonical detection from ServerService
+            // Use the canonical detection from ServerService.
+            //
+            // MinecraftVersion, not Version: the latter is the LOADER's version, and
+            // for Fabric/Quilt the two are unrelated. Filtering Modrinth by a loader
+            // version ("0.19.3") matched nothing, so mod search returned zero results
+            // on every Fabric server.
             var detected = await serverService.DetectLoaderAsync(serverName, cancellationToken);
             var loader = detected.Loader;
-            var version = detected.Version;
+            var version = detected.MinecraftVersion;
 
             // If we have a loader but no version, try to get it from the profile
             if (loader != null && version == null)
