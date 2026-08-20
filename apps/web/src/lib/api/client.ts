@@ -813,3 +813,24 @@ export async function getPlayerActivityStats(
 	}
 	return { data: result.data?.data ?? null, error: null };
 }
+
+export async function getForwardingStatus(
+	fetcher: Fetcher,
+	name: string
+): Promise<ApiResult<import('./types').BackendForwarding>> {
+	return apiFetch(fetcher, `/api/servers/${name}/forwarding`);
+}
+
+export async function getProxyBackends(
+	fetcher: Fetcher,
+	name: string
+): Promise<ApiResult<import('./types').ProxyBackendSummary>> {
+	return apiFetch(fetcher, `/api/servers/${name}/forwarding/backends`);
+}
+
+export async function secureBackend(
+	fetcher: Fetcher,
+	name: string
+): Promise<ApiResult<import('./types').BackendForwarding>> {
+	return apiPost(fetcher, `/api/servers/${name}/forwarding/secure`);
+}

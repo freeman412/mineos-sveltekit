@@ -38,6 +38,13 @@ public interface IServerService
     Task AcceptEulaAsync(string name, CancellationToken cancellationToken);
     Task RunFtbInstallerAsync(string name, CancellationToken cancellationToken);
 
+    /// <summary>
+    /// Flags a server as needing a restart for pending config changes to apply.
+    /// Exposed because callers outside ServerService now change files a running
+    /// server has already read (proxy forwarding writes both halves of a pair).
+    /// </summary>
+    Task MarkRestartRequiredAsync(string name, CancellationToken cancellationToken);
+
     // Loader detection
     Task<ServerLoaderDto> DetectLoaderAsync(string name, CancellationToken cancellationToken);
     Task UpdateServerTypeAsync(string name, string serverType, string? proxyKind, CancellationToken cancellationToken);

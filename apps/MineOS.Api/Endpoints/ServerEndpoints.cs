@@ -370,6 +370,93 @@ public static class ServerEndpoints
             }
         });
 
+        // Proxy forwarding security. Both routes sit in the `servers` group, so
+        // ServerAccessFilter gates them against the server being acted on — the
+        // secure action deliberately targets the *backend*, which is the server
+        // whose files it changes.
+        servers.MapGet("/{name}/forwarding", async (
+            string name,
+            IProxyForwardingService forwardingService,
+            CancellationToken cancellationToken) =>
+        {
+            try
+            {
+                return Results.Ok(await forwardingService.GetForwardingStatusAsync(name, cancellationToken));
+            }
+            catch (DirectoryNotFoundException ex)
+            {
+                return Results.NotFound(new { error = ex.Message });
+            }
+        });
+
+        servers.MapGet("/{name}/forwarding/backends", async (
+            string name,
+            HttpContext httpContext,
+            IProxyForwardingService forwardingService,
+            IServerAccessService accessService,
+            CancellationToken cancellationToken) =>
+        {
+            try
+            {
+                var summary = await forwardingService.GetProxyBackendsAsync(name, cancellationToken);
+
+                // ServerAccessFilter only guards the proxy named in the route. The
+                // rows describe *other* servers, and "this one is open to
+                // impersonation" is exactly the sort of thing a partially
+                // privileged user should not learn about a server they cannot see.
+                var user = httpContext.User;
+                var role = user.FindFirstValue(ClaimTypes.Role) ?? "user";
+                var isAdmin = string.Equals(role, "admin", StringComparison.OrdinalIgnoreCase);
+
+                if (user.Identity?.IsAuthenticated == true && !isAdmin)
+                {
+                    if (!ServerAccessFilter.TryGetUserId(user, out var userId))
+                    {
+                        return Results.Unauthorized();
+                    }
+
+                    var visible = new List<BackendForwardingDto>();
+                    foreach (var backend in summary.Backends)
+                    {
+                        var access = await accessService.GetAccessAsync(
+                            userId, backend.ServerName, cancellationToken);
+                        if (access != null)
+                        {
+                            visible.Add(backend);
+                        }
+                    }
+                    summary = summary with { Backends = visible };
+                }
+
+                return Results.Ok(summary);
+            }
+            catch (DirectoryNotFoundException ex)
+            {
+                return Results.NotFound(new { error = ex.Message });
+            }
+        });
+
+        servers.MapPost("/{name}/forwarding/secure", async (
+            string name,
+            IProxyForwardingService forwardingService,
+            CancellationToken cancellationToken) =>
+        {
+            try
+            {
+                return Results.Ok(await forwardingService.SecureBackendAsync(name, cancellationToken));
+            }
+            catch (DirectoryNotFoundException ex)
+            {
+                return Results.NotFound(new { error = ex.Message });
+            }
+            catch (InvalidOperationException ex)
+            {
+                // Refusals are expected here (no proxy, several proxies, a loader
+                // with no verified path) and each carries a message worth showing.
+                return Results.Conflict(new { error = ex.Message });
+            }
+        });
+
         // Server config
         servers.MapGet("/{name}/server-config", async (
             string name,

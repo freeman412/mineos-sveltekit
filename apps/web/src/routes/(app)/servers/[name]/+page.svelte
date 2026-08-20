@@ -4,6 +4,7 @@
 	import { modal } from '$lib/stores/modal';
 	import { formatBytes, formatDate } from '$lib/utils/formatting';
 	import ChangeServerType from '$lib/components/ChangeServerType.svelte';
+	import ForwardingStatus from '$lib/components/ForwardingStatus.svelte';
 	import type { PageData } from './$types';
 	import type { LayoutData } from './$types';
 
@@ -430,6 +431,8 @@
 </script>
 
 <div class="dashboard">
+	<ForwardingStatus forwarding={data.forwarding?.data ?? null} />
+
 	<div class="grid">
 		<div class="card">
 			<h3>Server Information</h3>

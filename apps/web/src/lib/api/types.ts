@@ -632,3 +632,39 @@ export type PlayerActivityStats = {
 	leaveCount: number;
 	deathCount: number;
 };
+
+export type ProxyForwardingStatus =
+	| 'NotABackend'
+	| 'Secured'
+	| 'Misconfigured'
+	| 'Securable'
+	| 'Unverifiable';
+
+export type ProxyForwardingKind = 'None' | 'VelocityModern' | 'VelocityUnverified' | 'BungeeCord';
+
+export type LoaderTier = 'Native' | 'ModRequired' | 'Unsupported';
+
+export type ExposureVerdict = 'Unknown' | 'NotExposed' | 'Exposed';
+
+// Note there is no secret here, by design: the API reports only whether the two
+// sides agree, never the value.
+export type BackendForwarding = {
+	serverName: string;
+	status: ProxyForwardingStatus;
+	isSpoofable: boolean;
+	proxyKind: ProxyForwardingKind;
+	tier: LoaderTier;
+	proxyName: string | null;
+	loader: string | null;
+	serverOnlineMode: boolean;
+	backendForwardingConfigured: boolean;
+	secretMatches: boolean;
+	exposure: ExposureVerdict;
+	exposureDetail: string | null;
+	remediationAction: 'secure' | 'install-mod' | null;
+};
+
+export type ProxyBackendSummary = {
+	proxyName: string;
+	backends: BackendForwarding[];
+};

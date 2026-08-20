@@ -4,6 +4,7 @@
 	import type { PageData, ActionData } from './$types';
 	import type { VelocityConfig } from '$lib/api/types';
 	import BungeeConfigEditor from './BungeeConfigEditor.svelte';
+	import ProxyBackendRollup from '$lib/components/ProxyBackendRollup.svelte';
 
 	let { data, form }: { data: PageData; form: ActionData } = $props();
 
@@ -150,6 +151,8 @@
 <svelte:head>
 	<title>Proxy Config | {data.serverName} | MineOS</title>
 </svelte:head>
+
+<ProxyBackendRollup summary={data.backends?.data ?? null} />
 
 {#if data.proxyKind !== 'velocity'}
 	<BungeeConfigEditor
