@@ -1217,7 +1217,12 @@ public class ServerService : IServerService
             OnlineMode: true,
             ForceKeyAuthentication: true,
             PreventClientProxyConnections: false,
-            PlayerInfoForwardingMode: "none",
+            // Verified forwarding by default. "none" leaves backends unable to
+            // check who a forwarded player claims to be, which combined with the
+            // online-mode=false those backends require means anyone reaching one
+            // directly can join as anyone. Existing proxies keep whatever their
+            // velocity.toml already says — this default applies to new ones.
+            PlayerInfoForwardingMode: "modern",
             ForwardingSecretFile: "forwarding.secret",
             AnnounceForge: false,
             KickExistingPlayers: false,
@@ -1989,6 +1994,9 @@ public class ServerService : IServerService
         var eulaLine = lines.FirstOrDefault(line => line.TrimStart().StartsWith("eula=", StringComparison.OrdinalIgnoreCase));
         return eulaLine != null && eulaLine.Trim().Equals("eula=true", StringComparison.OrdinalIgnoreCase);
     }
+
+    public Task MarkRestartRequiredAsync(string name, CancellationToken cancellationToken) =>
+        MarkRestartRequiredAsync(name);
 
     private async Task MarkRestartRequiredAsync(string name)
     {

@@ -4,7 +4,8 @@ import {
 	updateVelocityConfig,
 	getBungeeConfig,
 	updateBungeeConfig,
-	getServer
+	getServer,
+	getProxyBackends
 } from '$lib/api/client';
 import { fail } from '@sveltejs/kit';
 
@@ -45,10 +46,15 @@ export const load: PageServerLoad = async ({ params, fetch }) => {
 		proxyKind = detectProxyKindFromJar(server.data?.config?.java?.jarFile ?? null);
 	}
 
+	// Roll-up of every backend this proxy claims, so the security posture of the
+	// whole set is visible from the place the backend list is edited.
+	const backends = await getProxyBackends(fetch, params.name);
+
 	return {
 		proxyKind,
 		velocityConfig: proxyKind === 'velocity' ? velocityConfig : null,
 		bungeeConfig: proxyKind === 'bungeecord' ? bungeeConfig : null,
+		backends,
 		serverName: params.name
 	};
 };
