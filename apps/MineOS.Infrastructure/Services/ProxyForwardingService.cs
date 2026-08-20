@@ -23,17 +23,26 @@ namespace MineOS.Infrastructure.Services;
 public class ProxyForwardingService : IProxyForwardingService
 {
     private readonly IServerService _serverService;
+    private readonly IModService _modService;
+    private readonly IModrinthService _modrinthService;
+    private readonly IProfileService _profileService;
     private readonly IContainerPortInspector _portInspector;
     private readonly HostOptions _options;
     private readonly ILogger<ProxyForwardingService> _logger;
 
     public ProxyForwardingService(
         IServerService serverService,
+        IModService modService,
+        IModrinthService modrinthService,
+        IProfileService profileService,
         IContainerPortInspector portInspector,
         IOptions<HostOptions> options,
         ILogger<ProxyForwardingService> logger)
     {
         _serverService = serverService;
+        _modService = modService;
+        _modrinthService = modrinthService;
+        _profileService = profileService;
         _portInspector = portInspector;
         _options = options.Value;
         _logger = logger;
@@ -107,11 +116,11 @@ public class ProxyForwardingService : IProxyForwardingService
                 $"'{loader}' has no verified-forwarding support, so this backend cannot be secured. " +
                 "Keep its port unreachable from outside instead.");
         }
-        if (tier == LoaderTier.ModRequired && !File.Exists(GetFabricProxyConfigPath(serverName)))
+        if (tier == LoaderTier.ModRequired && !await HasForwardingModAsync(serverName, cancellationToken))
         {
             throw new InvalidOperationException(
-                "This Fabric server needs the FabricProxy-Lite mod before it can verify forwarded players. " +
-                "Install it, start the server once to generate its config, then secure it.");
+                $"This Fabric server needs the {FabricForwardingMod.DisplayName} mod before it can verify " +
+                "forwarded players. Install it first — MineOS can do that for you.");
         }
 
         // 1. Ensure the proxy has a secret. Reuse an existing one — regenerating
@@ -147,6 +156,133 @@ public class ProxyForwardingService : IProxyForwardingService
 
         var refreshed = await _serverService.ListServersAsync(cancellationToken);
         return await BuildStatusAsync(serverName, refreshed, cancellationToken);
+    }
+
+    public async Task<BackendForwardingDto> InstallForwardingModAsync(
+        string serverName, CancellationToken cancellationToken)
+    {
+        var loader = await SafeDetectLoaderAsync(serverName, cancellationToken);
+        if (ProxyForwardingRules.TierFor(loader) != LoaderTier.ModRequired)
+        {
+            throw new InvalidOperationException(
+                $"{FabricForwardingMod.DisplayName} is only for Fabric servers. " +
+                $"'{loader ?? "This server"}' does not use it.");
+        }
+
+        if (await HasForwardingModAsync(serverName, cancellationToken))
+        {
+            _logger.LogInformation(
+                "{Mod} already installed for {Server}; nothing to do", FabricForwardingMod.DisplayName, serverName);
+            return await GetForwardingStatusAsync(serverName, cancellationToken);
+        }
+
+        var gameVersion = await ResolveGameVersionAsync(serverName, cancellationToken);
+        var versions = await _modrinthService.GetProjectVersionsAsync(
+            FabricForwardingMod.ModrinthProjectId, "fabric", gameVersion, cancellationToken);
+
+        var version = FabricForwardingMod.SelectVersion(versions, gameVersion);
+        var file = FabricForwardingMod.SelectFile(version);
+        if (version is null || file is null)
+        {
+            // Refusing beats installing a build for the wrong Minecraft version:
+            // that would leave a server that looks secured and verifies nothing.
+            throw new InvalidOperationException(
+                $"No {FabricForwardingMod.DisplayName} build was found for " +
+                $"{(string.IsNullOrWhiteSpace(gameVersion) ? "this server" : $"Minecraft {gameVersion}")}. " +
+                "Install it manually from the Mods tab, then secure this backend.");
+        }
+
+        // Hard dependencies first. Fabric refuses to boot at all when a mod's
+        // required dependency is missing, so a half-installed set is worse than
+        // no install: the button would leave the server unable to start.
+        var installed = new List<string>();
+        foreach (var dependencyId in FabricForwardingMod.RequiredDependencyProjects(version))
+        {
+            var dependencyVersions = await _modrinthService.GetProjectVersionsAsync(
+                dependencyId, "fabric", gameVersion, cancellationToken);
+            var dependencyVersion = FabricForwardingMod.SelectVersion(dependencyVersions, gameVersion);
+            var dependencyFile = FabricForwardingMod.SelectFile(dependencyVersion);
+
+            if (dependencyFile is null)
+            {
+                throw new InvalidOperationException(
+                    $"{FabricForwardingMod.DisplayName} needs '{dependencyId}', but no build of it was found " +
+                    $"for {(string.IsNullOrWhiteSpace(gameVersion) ? "this server" : $"Minecraft {gameVersion}")}. " +
+                    "Nothing was installed.");
+            }
+
+            await InstallFileAsync(serverName, dependencyFile, cancellationToken);
+            installed.Add(dependencyFile.FileName);
+        }
+
+        await InstallFileAsync(serverName, file, cancellationToken);
+        installed.Add(file.FileName);
+
+        await _serverService.MarkRestartRequiredAsync(serverName, cancellationToken);
+        _logger.LogInformation(
+            "Installed {Mod} {Version} for {Server}: {Files}",
+            FabricForwardingMod.DisplayName, version.VersionNumber, serverName, string.Join(", ", installed));
+
+        return await GetForwardingStatusAsync(serverName, cancellationToken);
+    }
+
+    private async Task InstallFileAsync(
+        string serverName, ModrinthVersionFileDto file, CancellationToken cancellationToken)
+    {
+        await using var download = await _modrinthService.OpenDownloadStreamAsync(file.Url, cancellationToken);
+        await _modService.SaveModAsync(serverName, file.FileName, download, cancellationToken);
+    }
+
+    private async Task<bool> HasForwardingModAsync(string serverName, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var mods = await _modService.ListModsAsync(serverName, cancellationToken);
+            // A disabled jar loads nothing, so it does not count as installed.
+            return mods.Any(m => !m.IsDisabled && FabricForwardingMod.IsForwardingModJar(m.FileName));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Could not list mods for {Server}", serverName);
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// The Minecraft version this server runs, used to pick a matching mod build.
+    /// Mirrors how the mods endpoints resolve it: detection first, then the
+    /// configured profile as a fallback.
+    /// </summary>
+    private async Task<string?> ResolveGameVersionAsync(string serverName, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var config = await _serverService.GetServerConfigAsync(serverName, cancellationToken);
+
+            // The jar name is the reliable source here. DetectLoaderAsync's Version
+            // is the *loader* version for Fabric/Quilt (0.19.3), not the game
+            // version, and feeding that to Modrinth matches nothing.
+            var fromJar = FabricForwardingMod.TryParseMinecraftVersion(config.Java.JarFile);
+            if (!string.IsNullOrWhiteSpace(fromJar))
+            {
+                return fromJar;
+            }
+
+            if (!string.IsNullOrWhiteSpace(config.Minecraft.Profile))
+            {
+                var profile = await _profileService.GetProfileAsync(config.Minecraft.Profile, cancellationToken);
+                if (!string.IsNullOrWhiteSpace(profile?.Version))
+                {
+                    return profile!.Version;
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Could not resolve the Minecraft version for {Server}", serverName);
+        }
+
+        return null;
     }
 
     // ---- status assembly -------------------------------------------------
@@ -186,6 +322,9 @@ public class ProxyForwardingService : IProxyForwardingService
 
         var assessment = ProxyForwardingRules.Resolve(facts);
 
+        var hasForwardingMod = tier == LoaderTier.ModRequired &&
+                               await HasForwardingModAsync(serverName, cancellationToken);
+
         // The exposure check is the only control left when nothing can be
         // verified, so that is exactly when we spend the call.
         var exposure = ExposureVerdict.Unknown;
@@ -200,7 +339,7 @@ public class ProxyForwardingService : IProxyForwardingService
             ProxyForwardingStatus.Securable or ProxyForwardingStatus.Misconfigured when tier == LoaderTier.Native
                 => "secure",
             ProxyForwardingStatus.Securable or ProxyForwardingStatus.Misconfigured when tier == LoaderTier.ModRequired
-                => File.Exists(GetFabricProxyConfigPath(serverName)) ? "secure" : "install-mod",
+                => hasForwardingMod ? "secure" : "install-mod",
             _ => null
         };
 

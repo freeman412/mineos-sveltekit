@@ -457,6 +457,27 @@ public static class ServerEndpoints
             }
         });
 
+        servers.MapPost("/{name}/forwarding/install-mod", async (
+            string name,
+            IProxyForwardingService forwardingService,
+            CancellationToken cancellationToken) =>
+        {
+            try
+            {
+                return Results.Ok(await forwardingService.InstallForwardingModAsync(name, cancellationToken));
+            }
+            catch (DirectoryNotFoundException ex)
+            {
+                return Results.NotFound(new { error = ex.Message });
+            }
+            catch (InvalidOperationException ex)
+            {
+                // Wrong loader, or no build matching this Minecraft version. Both
+                // carry a message the user needs to read.
+                return Results.Conflict(new { error = ex.Message });
+            }
+        });
+
         // Server config
         servers.MapGet("/{name}/server-config", async (
             string name,

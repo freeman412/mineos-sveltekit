@@ -199,9 +199,20 @@ carry 6 pre-existing failures; they turned out to be a single bug in
 check, `VelocityConfigDefaults` → `modern`, BungeeCord as `Unverifiable`.
 
 **PR 2** — Fabric: detect FabricProxy-Lite, offer to install it, then treat the
-backend as `Securable`. Requires a single-mod Modrinth install path;
-`IModrinthService` has search and version lookup, but `IModService` currently
-installs modpacks only.
+backend as `Securable`. **Delivered.**
+
+Three things only surfaced once it ran against a real Fabric server, and each is
+now covered by a regression test:
+
+1. `DetectLoaderAsync` reports the *loader* version for Fabric (`0.19.3`), not
+   the game version, so the Minecraft version is parsed from the server jar name
+   (`fabric-server-mc.1.21.1-loader.0.19.3.jar`) instead. Without this, every
+   install was refused.
+2. FabricProxy-Lite hard-requires Fabric API, and Fabric **refuses to boot** when
+   a required dependency is missing — so the install resolves required Modrinth
+   dependencies too, or aborts without installing anything.
+3. A disabled mod jar must not count as installed; MineOS disables mods by
+   renaming them, and a disabled FabricProxy-Lite verifies nothing.
 
 ## Release notes
 
