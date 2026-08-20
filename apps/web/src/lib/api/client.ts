@@ -834,3 +834,10 @@ export async function secureBackend(
 ): Promise<ApiResult<import('./types').BackendForwarding>> {
 	return apiPost(fetcher, `/api/servers/${name}/forwarding/secure`);
 }
+
+export async function installForwardingMod(
+	fetcher: Fetcher,
+	name: string
+): Promise<ApiResult<import('./types').BackendForwarding>> {
+	return apiPost(fetcher, `/api/servers/${name}/forwarding/install-mod`);
+}

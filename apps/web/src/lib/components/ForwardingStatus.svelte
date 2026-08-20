@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { invalidateAll } from '$app/navigation';
-	import { secureBackend } from '$lib/api/client';
+	import { secureBackend, installForwardingMod } from '$lib/api/client';
 	import type { BackendForwarding } from '$lib/api/types';
 
 	let { forwarding }: { forwarding: BackendForwarding | null } = $props();
@@ -65,6 +65,19 @@
 		}
 	});
 
+	async function installMod() {
+		if (!forwarding) return;
+		busy = true;
+		error = null;
+		const result = await installForwardingMod(fetch, forwarding.serverName);
+		busy = false;
+		if (result.error) {
+			error = result.error;
+			return;
+		}
+		await invalidateAll();
+	}
+
 	async function secure() {
 		if (!forwarding) return;
 		busy = true;
@@ -120,9 +133,13 @@
 				server and the proxy need a restart afterwards.
 			</p>
 		{:else if forwarding.remediationAction === 'install-mod'}
+			<button type="button" onclick={installMod} disabled={busy}>
+				{busy ? 'Installing…' : 'Install FabricProxy-Lite'}
+			</button>
 			<p class="note">
 				Fabric servers need the <strong>FabricProxy-Lite</strong> mod to verify forwarded players.
-				Install it from the Mods tab, start the server once so it writes its config, then secure it here.
+				MineOS picks a build matching this server's Minecraft version; you can secure the backend
+				once it is installed.
 			</p>
 		{/if}
 	</section>

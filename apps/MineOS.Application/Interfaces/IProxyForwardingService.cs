@@ -31,4 +31,15 @@ public interface IProxyForwardingService
     /// has no verified-forwarding path.
     /// </summary>
     Task<BackendForwardingDto> SecureBackendAsync(string serverName, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Installs the mod a Fabric backend needs before it can verify forwarded
+    /// players (FabricProxy-Lite), picking a build that matches the server's
+    /// Minecraft version.
+    ///
+    /// Idempotent. Throws <see cref="InvalidOperationException"/> when the server
+    /// is not Fabric, or when no build matches — installing a mismatched build
+    /// would leave a server that looks secured while verifying nothing.
+    /// </summary>
+    Task<BackendForwardingDto> InstallForwardingModAsync(string serverName, CancellationToken cancellationToken);
 }
