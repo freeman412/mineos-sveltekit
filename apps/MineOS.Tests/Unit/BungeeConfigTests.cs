@@ -1,3 +1,4 @@
+using System.Linq;
 using System.Text.Json;
 using MineOS.Application.Dtos;
 using MineOS.Infrastructure.Services;
@@ -258,6 +259,53 @@ public class BungeeConfigTests
         // MineOS SLP-pings proxies on every heartbeat; BungeeCord's own default of
         // log_pings: true would flood the console with one line per poll.
         Assert.False(ServerService.BungeeConfigDefaults(exists: true).LogPings);
+    }
+
+    [Fact]
+    public void Serialize_Preserves_Existing_Servers_When_The_Request_Omits_Them()
+    {
+        // The dangerous half of the null-collection case. Tolerating null by writing
+        // an empty node turns any partial PUT into a silent wipe of every backend the
+        // proxy has — worse than the 500 it replaced, because nothing reports it.
+        var partialBody = """
+            {"exists":true,"onlineMode":true,"host":"0.0.0.0:25577",
+             "motd":"x","maxPlayers":1,"tabList":"GLOBAL_PING"}
+            """;
+        var config = JsonSerializer.Deserialize<BungeeConfigDto>(
+            partialBody, new JsonSerializerOptions { PropertyNameCaseInsensitive = true })!;
+
+        Assert.Null(config.Servers);       // guards the premise
+        Assert.Null(config.Priorities);
+        Assert.Null(config.ForcedHosts);
+
+        var reparsed = ServerService.ParseBungeeConfig(
+            ServerService.SerializeBungeeConfig(config, existingYaml: SampleConfig));
+
+        // The edit the client did ask for still lands...
+        Assert.Equal("0.0.0.0:25577", reparsed.Host);
+
+        // ...and everything it said nothing about survives.
+        var sample = ParseSample();
+        Assert.Equal(sample.Servers.Keys.OrderBy(k => k), reparsed.Servers.Keys.OrderBy(k => k));
+        Assert.NotEmpty(reparsed.Servers);
+        Assert.Equal(sample.Priorities, reparsed.Priorities);
+        Assert.Equal(sample.ForcedHosts, reparsed.ForcedHosts);
+    }
+
+    [Fact]
+    public void Serialize_Still_Clears_Collections_When_The_Request_Sends_Them_Empty()
+    {
+        // An explicitly empty collection is a real instruction ("remove them all")
+        // and must stay distinguishable from an omitted one.
+        var config = ServerService.BungeeConfigDefaults(exists: true) with
+        {
+            Servers = new Dictionary<string, BungeeBackendDto>()
+        };
+
+        var reparsed = ServerService.ParseBungeeConfig(
+            ServerService.SerializeBungeeConfig(config, existingYaml: SampleConfig));
+
+        Assert.Empty(reparsed.Servers);
     }
 
     private static BungeeConfigDto ParseSample() => ServerService.ParseBungeeConfig(SampleConfig);

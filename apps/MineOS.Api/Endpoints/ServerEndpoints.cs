@@ -343,6 +343,10 @@ public static class ServerEndpoints
             {
                 return Results.NotFound(new { error = ex.Message });
             }
+            catch (InvalidOperationException ex)
+            {
+                return Results.Conflict(new { error = ex.Message });
+            }
         });
 
         servers.MapPut("/{name}/bungee-config", async (

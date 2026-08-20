@@ -198,6 +198,13 @@ public class ServerService : IServerService
         if (request.Name.Contains(".."))
             throw new ArgumentException("Server name cannot contain '..'");
 
+        // Validate the proxy kind before anything is created on disk. Otherwise an
+        // unrecognized value throws part-way through the proxy branch below and
+        // leaves a half-built server behind. NormalizeProxyKind is pure, so the
+        // call in that branch can stay as-is.
+        if (string.Equals(request.ServerType, "proxy", StringComparison.OrdinalIgnoreCase))
+            NormalizeProxyKind(request.ProxyKind);
+
         var serverPath = GetServerPath(request.Name);
         var backupPath = GetBackupPath(request.Name);
         var archivePath = GetArchivePath(request.Name);
@@ -1364,7 +1371,18 @@ public class ServerService : IServerService
         }
 
         var content = await File.ReadAllTextAsync(yamlPath, cancellationToken);
-        return ParseBungeeConfig(content);
+        try
+        {
+            return ParseBungeeConfig(content);
+        }
+        catch (YamlDotNet.Core.YamlException ex)
+        {
+            // Translated here rather than caught in the Api layer: YamlException is
+            // an Infrastructure detail, and letting it escape produced an opaque 500
+            // that took the whole Properties tab down with no explanation.
+            throw new InvalidOperationException(
+                $"config.yml for '{name}' is not valid YAML: {ex.Message}", ex);
+        }
     }
 
     /// <summary>
@@ -1514,33 +1532,44 @@ public class ServerService : IServerService
         // The collections are non-nullable on the record, but this DTO is bound
         // straight from a PUT body and System.Text.Json leaves them null when the
         // client omits the property — nullable reference types are not enforced at
-        // runtime. Treat a missing collection as empty rather than throwing.
-        var prioritiesSeq = new YamlSequenceNode();
-        foreach (var p in config.Priorities ?? new List<string>())
+        // runtime. A null here means "the client said nothing about this key", which
+        // must leave whatever is already in the file alone. Writing an empty node
+        // instead would silently wipe the backend map on any partial PUT.
+        if (config.Priorities is not null)
         {
-            prioritiesSeq.Children.Add(new YamlScalarNode(p));
-        }
-        firstListener.Children[new YamlScalarNode("priorities")] = prioritiesSeq;
-
-        var forcedHostsMap = new YamlMappingNode();
-        foreach (var (host, target) in config.ForcedHosts ?? new Dictionary<string, string>())
-        {
-            forcedHostsMap.Children[new YamlScalarNode(host)] = new YamlScalarNode(target ?? string.Empty);
-        }
-        firstListener.Children[new YamlScalarNode("forced_hosts")] = forcedHostsMap;
-
-        var serversMap = new YamlMappingNode();
-        foreach (var (key, backend) in config.Servers ?? new Dictionary<string, BungeeBackendDto>())
-        {
-            var entry = new YamlMappingNode
+            var prioritiesSeq = new YamlSequenceNode();
+            foreach (var p in config.Priorities)
             {
-                { new YamlScalarNode("address"), new YamlScalarNode(backend?.Address ?? string.Empty) },
-                { new YamlScalarNode("motd"), new YamlScalarNode(backend?.Motd ?? string.Empty) },
-                { new YamlScalarNode("restricted"), new YamlScalarNode(backend?.Restricted == true ? "true" : "false") }
-            };
-            serversMap.Children[new YamlScalarNode(key)] = entry;
+                prioritiesSeq.Children.Add(new YamlScalarNode(p));
+            }
+            firstListener.Children[new YamlScalarNode("priorities")] = prioritiesSeq;
         }
-        root.Children[new YamlScalarNode("servers")] = serversMap;
+
+        if (config.ForcedHosts is not null)
+        {
+            var forcedHostsMap = new YamlMappingNode();
+            foreach (var (host, target) in config.ForcedHosts)
+            {
+                forcedHostsMap.Children[new YamlScalarNode(host)] = new YamlScalarNode(target ?? string.Empty);
+            }
+            firstListener.Children[new YamlScalarNode("forced_hosts")] = forcedHostsMap;
+        }
+
+        if (config.Servers is not null)
+        {
+            var serversMap = new YamlMappingNode();
+            foreach (var (key, backend) in config.Servers)
+            {
+                var entry = new YamlMappingNode
+                {
+                    { new YamlScalarNode("address"), new YamlScalarNode(backend?.Address ?? string.Empty) },
+                    { new YamlScalarNode("motd"), new YamlScalarNode(backend?.Motd ?? string.Empty) },
+                    { new YamlScalarNode("restricted"), new YamlScalarNode(backend?.Restricted == true ? "true" : "false") }
+                };
+                serversMap.Children[new YamlScalarNode(key)] = entry;
+            }
+            root.Children[new YamlScalarNode("servers")] = serversMap;
+        }
 
         var writer = new StringWriter();
         new YamlStream(new YamlDocument(root)).Save(writer, assignAnchors: false);
@@ -2065,20 +2094,19 @@ public class ServerService : IServerService
         CancellationToken cancellationToken)
     {
         var logPath = Path.Combine(serverPath, "logs", "latest.log");
+        // BungeeCord logs to proxy.log.0 in the server root rather than
+        // logs/latest.log, so it never trips the latest.log check. Both are
+        // written by the server's own logger, which only runs once the process
+        // is genuinely up — unlike startup.log, which also captures JVM-level
+        // failure output (bad Java version, missing jar, unaccepted EULA) and
+        // so cannot distinguish a started server from a crashed one.
+        var logCandidates = new[]
+        {
+            logPath,
+            Path.Combine(serverPath, "proxy.log.0")
+        };
         var timeout = TimeSpan.FromSeconds(10);
         var started = DateTimeOffset.UtcNow;
-
-        // Brief settle so the echo'd "Launching <name>" line lands before we
-        // sample the baseline. The launcher writes that line via echo BEFORE
-        // exec'ing the server; we want to count only output past it as proof
-        // the server produced output of its own.
-        await Task.Delay(300, cancellationToken);
-        long startupBaselineBytes = 0;
-        if (File.Exists(startupLogPath))
-        {
-            try { startupBaselineBytes = new FileInfo(startupLogPath).Length; }
-            catch (IOException) { }
-        }
 
         while (DateTimeOffset.UtcNow - started < timeout)
         {
@@ -2095,28 +2123,16 @@ public class ServerService : IServerService
                 return;
             }
 
-            if (File.Exists(logPath))
+            foreach (var candidate in logCandidates)
             {
-                var logInfo = new FileInfo(logPath);
+                if (!File.Exists(candidate))
+                {
+                    continue;
+                }
+                var logInfo = new FileInfo(candidate);
                 if (logInfo.LastWriteTimeUtc >= startTime.UtcDateTime)
                 {
-                    _logger.LogInformation("Detected log output for {ServerName} at {LogPath}", name, logPath);
-                    return;
-                }
-            }
-
-            // Fallback: the launcher tees stdout/stderr to startup.log. Any growth
-            // past the baseline means the server emitted output of its own — this
-            // is what covers BungeeCord, which writes proxy.log.0 rather than
-            // logs/latest.log and so never trips the check above.
-            if (File.Exists(startupLogPath))
-            {
-                var startupInfo = new FileInfo(startupLogPath);
-                if (startupInfo.Length > startupBaselineBytes)
-                {
-                    _logger.LogInformation(
-                        "Detected startup activity for {ServerName} at {LogPath} (grew from {Baseline} to {Length} bytes)",
-                        name, startupLogPath, startupBaselineBytes, startupInfo.Length);
+                    _logger.LogInformation("Detected log output for {ServerName} at {LogPath}", name, candidate);
                     return;
                 }
             }
@@ -2313,6 +2329,23 @@ public class ServerService : IServerService
             throw new DirectoryNotFoundException($"Server '{name}' not found");
 
         var normalized = serverType.ToLowerInvariant();
+
+        // "velocity" and "bungeecord" are accepted server types, but writing either
+        // verbatim to .mineos-server-type breaks every DetectServerType(name) ==
+        // "proxy" branch downstream (EULA skip, "end" vs "stop" on shutdown, which
+        // file the listen endpoint is read from). Normalize to "proxy" and let the
+        // value imply the proxy kind when the caller did not pass one.
+        string? requestedKind = proxyKind;
+        if (normalized is "velocity" or "bungeecord")
+        {
+            requestedKind ??= normalized;
+            normalized = "proxy";
+        }
+
+        // Validate before writing anything: an invalid kind must not leave a server
+        // marked "proxy" with no proxy config behind.
+        var kind = normalized == "proxy" ? NormalizeProxyKind(requestedKind) : null;
+
         await File.WriteAllTextAsync(
             Path.Combine(serverPath, ServerTypeFile), normalized, cancellationToken);
 
@@ -2333,7 +2366,6 @@ public class ServerService : IServerService
                     cancellationToken);
             }
 
-            var kind = NormalizeProxyKind(proxyKind);
             var backends = await DiscoverJavaBackendsAsync(name, cancellationToken);
 
             if (kind == "velocity")
