@@ -257,17 +257,16 @@ public class ProxyForwardingService : IProxyForwardingService
     {
         try
         {
-            var config = await _serverService.GetServerConfigAsync(serverName, cancellationToken);
-
-            // The jar name is the reliable source here. DetectLoaderAsync's Version
-            // is the *loader* version for Fabric/Quilt (0.19.3), not the game
-            // version, and feeding that to Modrinth matches nothing.
-            var fromJar = FabricForwardingMod.TryParseMinecraftVersion(config.Java.JarFile);
-            if (!string.IsNullOrWhiteSpace(fromJar))
+            // DetectLoaderAsync now reports the game version separately from the
+            // loader version, so this uses the same source as the mods browser
+            // rather than parsing jar names a second time.
+            var detected = await _serverService.DetectLoaderAsync(serverName, cancellationToken);
+            if (!string.IsNullOrWhiteSpace(detected.MinecraftVersion))
             {
-                return fromJar;
+                return detected.MinecraftVersion;
             }
 
+            var config = await _serverService.GetServerConfigAsync(serverName, cancellationToken);
             if (!string.IsNullOrWhiteSpace(config.Minecraft.Profile))
             {
                 var profile = await _profileService.GetProfileAsync(config.Minecraft.Profile, cancellationToken);

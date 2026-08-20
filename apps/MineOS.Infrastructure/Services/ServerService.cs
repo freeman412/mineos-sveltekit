@@ -2464,6 +2464,55 @@ public class ServerService : IServerService
         return match.Success ? match.Groups["v"].Value : null;
     }
 
+    /// <summary>
+    /// Extracts the Minecraft version a server jar targets.
+    ///
+    /// This is deliberately separate from <see cref="ExtractLoaderVersion"/>, which
+    /// reports the *loader's* version. For Fabric and Quilt the two differ
+    /// completely — "fabric-server-mc.1.21.1-loader.0.19.3.jar" is Minecraft 1.21.1
+    /// running loader 0.19.3 — and treating the loader version as the game version
+    /// made every Modrinth query filter on a game version that does not exist,
+    /// which returned zero mods for every Fabric server.
+    ///
+    /// Returns null when the jar name carries no usable version, so callers can
+    /// fall back to the configured profile rather than filtering on a wrong value.
+    /// </summary>
+    public static string? ParseMinecraftVersion(string? jarValue)
+    {
+        if (string.IsNullOrWhiteSpace(jarValue))
+        {
+            return null;
+        }
+
+        // Fabric and Quilt tag the game version explicitly, which is unambiguous.
+        var mcTagged = System.Text.RegularExpressions.Regex.Match(
+            jarValue, @"mc\.?(?<mc>\d+\.\d+(?:\.\d+)?)",
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        if (mcTagged.Success)
+        {
+            return mcTagged.Groups["mc"].Value;
+        }
+
+        // NeoForge names carry no Minecraft version at all: its own version encodes
+        // it, so 21.1.227 means Minecraft 1.21.1 and 21.0.x means 1.21.
+        var neoforge = System.Text.RegularExpressions.Regex.Match(
+            jarValue, @"neoforge[-/\\](?<major>\d+)\.(?<minor>\d+)\.\d+",
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        if (neoforge.Success)
+        {
+            var major = neoforge.Groups["major"].Value;
+            var minor = neoforge.Groups["minor"].Value;
+            return minor == "0" ? $"1.{major}" : $"1.{major}.{minor}";
+        }
+
+        // Everything else (paper-1.21.11-132.jar, forge-1.20.1-47.2.0.jar,
+        // minecraft_server.1.20.1.jar) carries a literal 1.x[.y]; the leftmost
+        // match is the game version, later numbers are build or loader versions.
+        var literal = System.Text.RegularExpressions.Regex.Match(
+            jarValue, @"(?:^|[-_./\\])(?<mc>1\.\d+(?:\.\d+)?)(?:[-_./\\]|$)");
+        return literal.Success ? literal.Groups["mc"].Value : null;
+    }
+
     public async Task<ServerLoaderDto> DetectLoaderAsync(string name, CancellationToken cancellationToken)
     {
         var serverPath = GetServerPath(name);
@@ -2487,15 +2536,15 @@ public class ServerService : IServerService
             // "forge", and NeoForge also uses the @argfile syntax — so an ordering/@-based
             // check would otherwise mislabel NeoForge servers as Forge.
             if (jarLower.Contains("neoforge") || jarLower.Contains("neoforged"))
-                return new ServerLoaderDto("neoforge", ExtractLoaderVersion("neoforge", jarFile));
+                return new ServerLoaderDto("neoforge", ExtractLoaderVersion("neoforge", jarFile), ParseMinecraftVersion(jarFile));
             if (jarLower.Contains("minecraftforge") || jarLower.Contains("forge"))
-                return new ServerLoaderDto("forge", ExtractLoaderVersion("forge", jarFile));
-            if (jarLower.Contains("fabric")) return new ServerLoaderDto("fabric", ExtractLoaderVersion("fabric", jarFile));
-            if (jarLower.Contains("quilt")) return new ServerLoaderDto("quilt", ExtractLoaderVersion("quilt", jarFile));
-            if (jarLower.Contains("paper")) return new ServerLoaderDto("paper", null);
-            if (jarLower.Contains("spigot")) return new ServerLoaderDto("spigot", null);
-            if (jarLower.Contains("purpur")) return new ServerLoaderDto("purpur", null);
-            if (jarLower.Contains("bukkit")) return new ServerLoaderDto("bukkit", null);
+                return new ServerLoaderDto("forge", ExtractLoaderVersion("forge", jarFile), ParseMinecraftVersion(jarFile));
+            if (jarLower.Contains("fabric")) return new ServerLoaderDto("fabric", ExtractLoaderVersion("fabric", jarFile), ParseMinecraftVersion(jarFile));
+            if (jarLower.Contains("quilt")) return new ServerLoaderDto("quilt", ExtractLoaderVersion("quilt", jarFile), ParseMinecraftVersion(jarFile));
+            if (jarLower.Contains("paper")) return new ServerLoaderDto("paper", null, ParseMinecraftVersion(jarFile));
+            if (jarLower.Contains("spigot")) return new ServerLoaderDto("spigot", null, ParseMinecraftVersion(jarFile));
+            if (jarLower.Contains("purpur")) return new ServerLoaderDto("purpur", null, ParseMinecraftVersion(jarFile));
+            if (jarLower.Contains("bukkit")) return new ServerLoaderDto("bukkit", null, ParseMinecraftVersion(jarFile));
         }
 
         // Priority 3: bare @argfile with no loader hint in the path — legacy Forge modpacks
