@@ -182,6 +182,7 @@ builder.Services.AddSingleton<TelemetryReporterService>();
 builder.Services.AddSingleton<ITelemetryReportTrigger>(sp => sp.GetRequiredService<TelemetryReporterService>());
 builder.Services.AddHostedService(sp => sp.GetRequiredService<TelemetryReporterService>());
 builder.Services.AddHostedService<ApplicationLifetimeService>();
+builder.Services.AddScoped<IModDependencyService, ModDependencyService>();
 builder.Services.AddSingleton<IContainerPortInspector, DockerPortInspector>();
 builder.Services.AddScoped<IProxyForwardingService, ProxyForwardingService>();
 builder.Services.AddSingleton<WatchdogService>();

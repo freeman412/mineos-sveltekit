@@ -520,8 +520,7 @@ public static class ModEndpoints
         modrinth.MapPost("/install", async (
             string name,
             [FromBody] ModrinthInstallRequest request,
-            IModrinthService modrinthService,
-            IModService modService,
+            IModDependencyService dependencyService,
             CancellationToken cancellationToken) =>
         {
             if (string.IsNullOrWhiteSpace(request.VersionId))
@@ -529,21 +528,63 @@ public static class ModEndpoints
                 return Results.BadRequest(new { error = "VersionId is required" });
             }
 
-            var version = await modrinthService.GetVersionAsync(request.VersionId, cancellationToken);
-            if (version == null)
+            try
             {
-                return Results.NotFound(new { error = "Version not found" });
+                // Installs hard dependencies alongside the mod. A mod whose
+                // required dependency is missing does not warn at startup —
+                // Fabric aborts the boot — so installing the jar alone was
+                // reliably breaking servers.
+                var result = await dependencyService.InstallWithDependenciesAsync(
+                    name,
+                    request.VersionId,
+                    request.OptionalProjectIds ?? Array.Empty<string>(),
+                    cancellationToken);
+
+                var installed = string.Join(", ", result.InstalledFiles);
+                return Results.Ok(new
+                {
+                    message = result.InstalledFiles.Count == 1
+                        ? $"Installed mod '{installed}'"
+                        : $"Installed {result.InstalledFiles.Count} files: {installed}",
+                    installedFiles = result.InstalledFiles,
+                    skippedAlreadyInstalled = result.SkippedAlreadyInstalled
+                });
+            }
+            catch (DirectoryNotFoundException ex)
+            {
+                return Results.NotFound(new { error = ex.Message });
+            }
+            catch (InvalidOperationException ex)
+            {
+                // Unresolvable hard dependency: nothing was written, and the
+                // message names what could not be satisfied.
+                return Results.Conflict(new { error = ex.Message });
+            }
+        });
+
+        modrinth.MapGet("/install/plan", async (
+            string name,
+            [FromQuery] string versionId,
+            IModDependencyService dependencyService,
+            CancellationToken cancellationToken) =>
+        {
+            if (string.IsNullOrWhiteSpace(versionId))
+            {
+                return Results.BadRequest(new { error = "versionId is required" });
             }
 
-            var file = version.Files.FirstOrDefault(f => f.Primary) ?? version.Files.FirstOrDefault();
-            if (file == null)
+            try
             {
-                return Results.BadRequest(new { error = "No files available for this version" });
+                return Results.Ok(await dependencyService.PlanInstallAsync(name, versionId, cancellationToken));
             }
-
-            await using var stream = await modrinthService.OpenDownloadStreamAsync(file.Url, cancellationToken);
-            await modService.SaveModAsync(name, file.FileName, stream, cancellationToken);
-            return Results.Ok(new { message = $"Installed mod '{file.FileName}'" });
+            catch (DirectoryNotFoundException ex)
+            {
+                return Results.NotFound(new { error = ex.Message });
+            }
+            catch (InvalidOperationException ex)
+            {
+                return Results.Conflict(new { error = ex.Message });
+            }
         });
 
         var modrinthModpacks = servers.MapGroup("/{name}/mods/modrinth/modpacks");
