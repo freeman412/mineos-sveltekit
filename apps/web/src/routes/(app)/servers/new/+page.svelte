@@ -65,20 +65,31 @@
 	let attachNotice = $state<string | null>(null);
 	/** Server awaiting network wiring once its files finish installing */
 	let pendingAttachName = $state('');
+	/** Attach is in flight; the completion button waits rather than racing it. */
+	let attaching = $state(false);
+	/** The attach ran and failed, so the server is not on the Proxies page. */
+	let attachFailed = $state(false);
 
 	/** Wire the new server into its chosen network, if one was picked. */
 	async function runPendingAttach(serverName: string) {
 		if (!pendingAttachName || pendingAttachName !== serverName) return;
 		pendingAttachName = '';
-		attachNotice = await attachToProxy(serverName);
-		await invalidateAll();
+		attaching = true;
+		try {
+			attachNotice = await attachToProxy(serverName);
+			attachFailed = attachNotice !== null;
+			await invalidateAll();
+		} finally {
+			attaching = false;
+		}
 	}
 
 	const isProxyImplementation = $derived(
 		implementation === 'velocity' || implementation === 'bungeecord'
 	);
-	// Proxies and attached servers belong on the Proxies page
-	const landsOnProxies = $derived(isProxyImplementation || (!isProxyImplementation && !!attachProxy));
+	// Proxies and attached servers belong on the Proxies page — but a server
+	// whose attach failed is not attached, so it stays a plain server.
+	const landsOnProxies = $derived(isProxyImplementation || (!!attachProxy && !attachFailed));
 	const viewLabel = $derived(landsOnProxies ? 'View Proxy' : 'View Server');
 
 	/**
@@ -513,6 +524,7 @@
 				completed={createCompleted}
 				error={createError || undefined}
 				notice={attachNotice ?? undefined}
+				finishing={attaching}
 				viewLabel={viewLabel}
 				oncomplete={() => runPendingAttach(serverName.trim())}
 				onviewserver={viewServer}

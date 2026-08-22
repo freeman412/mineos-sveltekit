@@ -7,6 +7,7 @@
 	import { modal } from '$lib/stores/modal';
 	import { formatBytes, formatDate } from '$lib/utils/formatting';
 	import { createEventStream, type EventStreamHandle } from '$lib/utils/eventStream';
+	import { createClassificationRefresher } from '$lib/utils/proxy';
 	import CopyButton from '$lib/components/CopyButton.svelte';
 	import ProgressBar from '$lib/components/ProgressBar.svelte';
 	import StatusBadge from '$lib/components/StatusBadge.svelte';
@@ -30,7 +31,8 @@
 	let servers = $state<ServerSummary[]>(data.servers.data ?? []);
 	let serversError = $state<string | null>(data.servers.error);
 	// Proxies live on the Proxies page, not in this grid. The SSE stream has
-	// no serverType, so proxy names come from load and refresh on invalidation.
+	// no serverType, so proxy names come from load; a server the stream
+	// reports for the first time triggers one reload to classify it.
 	let proxyNames = $derived(new Set(data.proxyNames ?? []));
 	const visibleServers = $derived(servers.filter((s) => !proxyNames.has(s.name)));
 	let serversStream: EventStreamHandle | null = null;
@@ -479,12 +481,18 @@
 		restoreImportJobsFromStorage();
 		restoreImportedServersFromStorage();
 
+		const classifyNewcomers = createClassificationRefresher(
+			(data.servers.data ?? []).map((s) => s.name),
+			() => void invalidateAll()
+		);
+
 		serversStream = createEventStream<ServerSummary[]>({
 			url: '/api/host/servers/stream',
 			onMessage: (nextServers) => {
 				servers = nextServers;
 				updateMemoryHistory(nextServers);
 				serversError = null;
+				classifyNewcomers(nextServers);
 			},
 			reconnect: {},
 			onClose: () => {

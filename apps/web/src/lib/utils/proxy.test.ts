@@ -3,6 +3,7 @@ import {
 	addBackendToBungee,
 	addBackendToVelocity,
 	backendAddress,
+	createClassificationRefresher,
 	loadProxyOverviews,
 	overlaySummaries,
 	removeBackendFromBungee,
@@ -234,5 +235,40 @@ describe('loadProxyOverviews', () => {
 		const { fetcher, requested } = fakeFetcher({});
 		expect(await loadProxyOverviews(fetcher, [])).toEqual([]);
 		expect(requested).toEqual([]);
+	});
+});
+
+describe('createClassificationRefresher', () => {
+	it('does not refresh while the stream only reports known servers', () => {
+		let refreshes = 0;
+		const onRows = createClassificationRefresher(['hub', 'creative'], () => refreshes++);
+
+		onRows([{ name: 'hub' }, { name: 'creative' }]);
+		onRows([{ name: 'creative' }, { name: 'hub' }]);
+
+		expect(refreshes).toBe(0);
+	});
+
+	it('refreshes once when a server it has never seen appears', () => {
+		let refreshes = 0;
+		const onRows = createClassificationRefresher(['hub'], () => refreshes++);
+
+		onRows([{ name: 'hub' }, { name: 'survival' }]);
+		expect(refreshes).toBe(1);
+
+		// The same newcomer on every later tick must not refresh again.
+		onRows([{ name: 'hub' }, { name: 'survival' }]);
+		onRows([{ name: 'hub' }, { name: 'survival' }]);
+		expect(refreshes).toBe(1);
+	});
+
+	it('refreshes again for a second newcomer', () => {
+		let refreshes = 0;
+		const onRows = createClassificationRefresher([], () => refreshes++);
+
+		onRows([{ name: 'hub' }]);
+		onRows([{ name: 'hub' }, { name: 'creative' }]);
+
+		expect(refreshes).toBe(2);
 	});
 });

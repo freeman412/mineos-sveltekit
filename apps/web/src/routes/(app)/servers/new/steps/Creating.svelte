@@ -25,6 +25,8 @@
 		viewLabel?: string;
 		/** Fires once when creation completes (for post-create work) */
 		oncomplete?: () => void;
+		/** Post-create work is still running; the view button waits for it */
+		finishing?: boolean;
 		/** Navigate to the created server */
 		onviewserver: () => void;
 	}
@@ -41,12 +43,14 @@
 		notice,
 		viewLabel,
 		oncomplete,
+		finishing = false,
 		onviewserver
 	}: Props = $props();
 
 	let streamCompleted = $state(false);
 	let streamError = $state('');
-	let notifiedComplete = $state(false);
+	// A plain latch: only the effect reads it, so it needs no reactivity.
+	let notifiedComplete = false;
 	const isCompleted = $derived(completed || streamCompleted);
 	const displayError = $derived(error || streamError || '');
 
@@ -89,7 +93,9 @@
 			{#if notice}
 				<p class="notice">{notice}</p>
 			{/if}
-			<button class="view-btn" onclick={onviewserver} type="button">{viewLabel ?? 'View Server'}</button>
+			<button class="view-btn" onclick={onviewserver} type="button" disabled={finishing}>
+				{finishing ? 'Finishing setup…' : (viewLabel ?? 'View Server')}
+			</button>
 		</div>
 	{/if}
 </div>
@@ -142,6 +148,11 @@
 		font-weight: 400;
 		font-size: 0.85rem;
 		color: #f59e0b;
+	}
+
+	.view-btn:disabled {
+		opacity: 0.6;
+		cursor: progress;
 	}
 
 	.view-btn {

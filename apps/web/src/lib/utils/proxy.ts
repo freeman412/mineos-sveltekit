@@ -36,6 +36,10 @@ export type ProxyOverview = {
 /**
  * The address a proxy uses to reach a backend server, or null when the
  * server has no assigned port yet (and therefore cannot be attached).
+ *
+ * MineOS runs every server on the host the proxy runs on, so `localhost`
+ * is always right today; backends on another host or in a separate
+ * container would need the address to come from the API instead.
  */
 export function backendAddress(port?: number | null): string | null {
 	if (!port || port <= 0) return null;
@@ -121,4 +125,26 @@ export async function loadProxyOverviews(
 		})
 	);
 	return results;
+}
+
+/**
+ * The host summary stream carries no serverType, so a server created in
+ * another tab cannot be told apart from a proxy until the page data
+ * reloads. Returns a callback for stream payloads that asks for exactly
+ * one reload per newly-seen name — never a reload per message.
+ */
+export function createClassificationRefresher(
+	knownNames: readonly string[],
+	refresh: () => void
+): (names: readonly { name: string }[]) => void {
+	const seen = new Set(knownNames);
+	return (rows) => {
+		let sawNew = false;
+		for (const row of rows) {
+			if (seen.has(row.name)) continue;
+			seen.add(row.name);
+			sawNew = true;
+		}
+		if (sawNew) refresh();
+	};
 }

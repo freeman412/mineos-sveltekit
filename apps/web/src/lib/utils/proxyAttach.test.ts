@@ -151,6 +151,33 @@ describe('attachServerToProxy', () => {
 		if (!result.ok) expect(result.error).toContain('securing forwarding failed');
 	});
 
+	it('warns instead of claiming success when the forwarding check fails', async () => {
+		const { fetcher, calls } = recordingFetcher({
+			'GET /api/host/servers': { body: hostList({ name: 'creative', port: 25567 }) },
+			'GET /api/servers/hub/velocity-config': { body: velocityFixture() },
+			'PUT /api/servers/hub/velocity-config': { body: { ok: true } },
+			'GET /api/servers/creative/forwarding': { status: 500, body: { error: 'status unavailable' } }
+		});
+
+		const result = await attachServerToProxy(fetcher, {
+			serverName: 'creative',
+			proxyName: 'hub'
+		});
+
+		// Registered, but nothing may claim it is secured.
+		expect(result.ok).toBe(false);
+		if (!result.ok) {
+			expect(result.error).toContain("couldn't check forwarding status");
+			expect(result.error).toContain('open to impersonation');
+		}
+		expect(calls.map((c) => `${c.method} ${c.path}`)).toEqual([
+			'GET /api/host/servers',
+			'GET /api/servers/hub/velocity-config',
+			'PUT /api/servers/hub/velocity-config',
+			'GET /api/servers/creative/forwarding'
+		]);
+	});
+
 	it('reports progress through onStep', async () => {
 		const { fetcher } = recordingFetcher({
 			'GET /api/host/servers': { body: hostList({ name: 'creative', port: 25567 }) },

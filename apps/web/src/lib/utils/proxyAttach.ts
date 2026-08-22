@@ -50,6 +50,9 @@ export async function attachServerToProxy(
 	}
 
 	// Prefer Velocity's structured config; fall back to BungeeCord's.
+	// Both endpoints replace the whole config, so this read-modify-write loses
+	// any edit saved from the properties editor between the GET and the PUT.
+	// Acceptable while attaching is a deliberate, one-at-a-time action.
 	let configError: string | null = null;
 	const velocity = await api.getVelocityConfig(fetcher, proxyName);
 	if (velocity.data?.exists) {
@@ -79,7 +82,16 @@ export async function attachServerToProxy(
 	// Where the backend supports it, let the proxy vouch for players.
 	onStep?.('Setting up verified forwarding...');
 	const statusResult = await api.getForwardingStatus(fetcher, serverName);
-	const remediation = statusResult.data?.remediationAction;
+	if (statusResult.error || !statusResult.data) {
+		// Registered but unverified: without the status we cannot tell whether
+		// this backend still needs securing, and silently reporting success
+		// would leave it open to impersonation with nothing said.
+		return {
+			ok: false,
+			error: `Attached, but couldn't check forwarding status: ${statusResult.error ?? 'no response'}. ${serverName} may still be open to impersonation.`
+		};
+	}
+	const remediation = statusResult.data.remediationAction;
 	if (remediation === 'install-mod') {
 		const modResult = await api.installForwardingMod(fetcher, serverName);
 		if (modResult.error) {

@@ -5,6 +5,7 @@
 	import { modal } from '$lib/stores/modal';
 	import { formatBytes, formatUptime } from '$lib/utils/formatting';
 	import { createEventStream, type EventStreamHandle } from '$lib/utils/eventStream';
+	import { createClassificationRefresher } from '$lib/utils/proxy';
 	import StatusBadge from '$lib/components/StatusBadge.svelte';
 	import type { PageData } from './$types';
 	import type { HostMetrics, ServerSummary } from '$lib/api/types';
@@ -117,12 +118,18 @@
 	onMount(() => {
 		updateMemoryHistory(servers);
 
+		const classifyNewcomers = createClassificationRefresher(
+			(data.servers.data ?? []).map((s) => s.name),
+			() => void invalidateAll()
+		);
+
 		serversStream = createEventStream<ServerSummary[]>({
 			url: '/api/host/servers/stream',
 			onMessage: (nextServers) => {
 				servers = nextServers;
 				updateMemoryHistory(nextServers);
 				serversError = null;
+				classifyNewcomers(nextServers);
 			},
 			reconnect: {},
 			onClose: () => {

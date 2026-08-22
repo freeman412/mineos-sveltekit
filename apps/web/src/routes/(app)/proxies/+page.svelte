@@ -37,7 +37,11 @@
 	let overviewBusy = $state<Record<string, boolean>>({});
 	/** Backend an attach/detach/fix action is running on, per proxy. */
 	let backendBusy = $state<Record<string, string | null>>({});
-	/** Per-proxy pick in the "Attach a server" dropdown. */
+	/**
+	 * Per-proxy pick in the "Attach a server" dropdown. Missing keys read as
+	 * the empty placeholder, so the select starts on "Choose a server…"
+	 * instead of showing a candidate the disabled button would not act on.
+	 */
 	let attachPick = $state<Record<string, string>>({});
 
 	// The proxy list itself (which proxies exist) still comes from load;
@@ -76,7 +80,6 @@
 			if (overview) overviewMap[proxyName] = overview;
 		} finally {
 			delete overviewBusy[proxyName];
-			overviewBusy = { ...overviewBusy };
 		}
 	}
 
@@ -126,9 +129,8 @@
 		}
 	}
 
-	async function clearBusy(proxyName: string) {
+	function clearBusy(proxyName: string) {
 		delete backendBusy[proxyName];
-		backendBusy = { ...backendBusy };
 	}
 
 	async function handleAttach(proxyName: string) {
@@ -140,11 +142,15 @@
 			const result = await attachServerToProxy(fetch, { serverName, proxyName });
 			if (!result.ok) {
 				actionError[proxyName] = result.error;
+				// The attach may have registered the backend before failing, so the
+				// rollup still needs refreshing before we surface the warning.
+				await refreshOverview(proxyName);
 				return;
 			}
+			attachPick[proxyName] = '';
 			await refreshOverview(proxyName);
 		} finally {
-			await clearBusy(proxyName);
+			clearBusy(proxyName);
 		}
 	}
 
@@ -168,7 +174,7 @@
 			}
 			await refreshOverview(proxyName);
 		} finally {
-			await clearBusy(proxyName);
+			clearBusy(proxyName);
 		}
 	}
 
@@ -191,7 +197,7 @@
 			}
 			await refreshOverview(proxyName);
 		} finally {
-			await clearBusy(proxyName);
+			clearBusy(proxyName);
 		}
 	}
 </script>
@@ -223,6 +229,34 @@
 			<a class="btn-setup" href="/servers/new?type=proxy">Set up a proxy</a>
 		</div>
 	{:else}
+	{#snippet attachRow(proxy: PageData['proxies'][number], label: string)}
+		{@const candidates = candidateBackends(proxy)}
+		{#if candidates.length > 0}
+			<div class="attach-row">
+				<label class="attach-label" for="attach-{proxy.name}">{label}</label>
+				<select
+					id="attach-{proxy.name}"
+					class="attach-select"
+					value={attachPick[proxy.name] ?? ''}
+					onchange={(e) => (attachPick[proxy.name] = e.currentTarget.value)}
+				>
+					<option value="" disabled>Choose a server…</option>
+					{#each candidates as name (name)}
+						<option value={name}>{name}</option>
+					{/each}
+				</select>
+				<button
+					class="btn-action btn-attach"
+					type="button"
+					disabled={!attachPick[proxy.name] || backendBusy[proxy.name] != null}
+					onclick={() => handleAttach(proxy.name)}
+				>
+					{backendBusy[proxy.name] ? 'Attaching…' : 'Attach'}
+				</button>
+			</div>
+		{/if}
+	{/snippet}
+
 		{#each proxies as proxy (proxy.name)}
 			{@const overview = overviewFor(proxy)}
 			<section class="card">
@@ -304,29 +338,7 @@
 						No backends configured yet — players joining this proxy have nowhere to go. Attach a
 						game server below, or pick one in the create-server wizard.
 					</p>
-					{#if candidateBackends(proxy).length > 0}
-						<div class="attach-row">
-							<label class="attach-label" for="attach-{proxy.name}">Attach a server:</label>
-							<select
-								id="attach-{proxy.name}"
-								class="attach-select"
-								bind:value={attachPick[proxy.name]}
-							>
-								<option value="" disabled>Choose a server…</option>
-								{#each candidateBackends(proxy) as name (name)}
-									<option value={name}>{name}</option>
-								{/each}
-							</select>
-							<button
-								class="btn-action btn-attach"
-								type="button"
-								disabled={!attachPick[proxy.name] || backendBusy[proxy.name] != null}
-								onclick={() => handleAttach(proxy.name)}
-							>
-								{backendBusy[proxy.name] ? 'Attaching…' : 'Attach'}
-							</button>
-						</div>
-					{/if}
+					{@render attachRow(proxy, 'Attach a server:')}
 				{:else}
 					<ProxyBackendRollup
 						summary={overview.summary}
@@ -334,29 +346,7 @@
 						onremediate={(backend) => handleRemediate(proxy.name, backend)}
 						ondetach={(backend) => handleDetach(proxy.name, backend)}
 					/>
-					{#if candidateBackends(proxy).length > 0}
-						<div class="attach-row">
-							<label class="attach-label" for="attach-{proxy.name}">Attach another server:</label>
-							<select
-								id="attach-{proxy.name}"
-								class="attach-select"
-								bind:value={attachPick[proxy.name]}
-							>
-								<option value="" disabled>Choose a server…</option>
-								{#each candidateBackends(proxy) as name (name)}
-									<option value={name}>{name}</option>
-								{/each}
-							</select>
-							<button
-								class="btn-action btn-attach"
-								type="button"
-								disabled={!attachPick[proxy.name] || backendBusy[proxy.name] != null}
-								onclick={() => handleAttach(proxy.name)}
-							>
-								{backendBusy[proxy.name] ? 'Attaching…' : 'Attach'}
-							</button>
-						</div>
-					{/if}
+					{@render attachRow(proxy, 'Attach another server:')}
 				{/if}
 			</section>
 		{/each}
