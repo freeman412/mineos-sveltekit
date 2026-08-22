@@ -4,7 +4,7 @@ import {
 	addBackendToVelocity,
 	backendAddress,
 	loadProxyOverviews
-} from './networking';
+} from './proxy';
 import type { BungeeConfig, ProxyBackendSummary, VelocityConfig } from '$lib/api/types';
 
 function backend(name: string) {

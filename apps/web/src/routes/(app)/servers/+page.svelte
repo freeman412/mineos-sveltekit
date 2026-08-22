@@ -29,7 +29,7 @@
 	let importLoading = $state<Record<string, boolean>>({});
 	let servers = $state<ServerSummary[]>(data.servers.data ?? []);
 	let serversError = $state<string | null>(data.servers.error);
-	// Proxies live on the Networking page, not in this grid. The SSE stream has
+	// Proxies live on the Proxies page, not in this grid. The SSE stream has
 	// no serverType, so proxy names come from load and refresh on invalidation.
 	let proxyNames = $derived(new Set(data.proxyNames ?? []));
 	const visibleServers = $derived(servers.filter((s) => !proxyNames.has(s.name)));

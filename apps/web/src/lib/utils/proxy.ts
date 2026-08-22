@@ -3,7 +3,7 @@ import { getProxyBackends } from '$lib/api/client';
 import type { BungeeBackend, BungeeConfig, ProxyBackendSummary, VelocityConfig } from '$lib/api/types';
 
 /**
- * One proxy's backend rollup for the networking overview. `summary` is null
+ * One proxy's backend rollup for the proxies overview. `summary` is null
  * when the backend fetch failed; `error` carries the reason in that case.
  */
 export type ProxyOverview = {

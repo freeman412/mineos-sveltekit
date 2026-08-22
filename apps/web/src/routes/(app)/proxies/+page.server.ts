@@ -1,6 +1,6 @@
 import type { PageServerLoad } from './$types';
 import { getAllServers, getHostServers } from '$lib/api/client';
-import { loadProxyOverviews } from '$lib/utils/networking';
+import { loadProxyOverviews } from '$lib/utils/proxy';
 
 export const load: PageServerLoad = async ({ fetch }) => {
 	// The host summary carries live status/players/memory but no serverType;

@@ -9,7 +9,7 @@
 		addBackendToBungee,
 		addBackendToVelocity,
 		backendAddress
-	} from '$lib/utils/networking';
+	} from '$lib/utils/proxy';
 	import CategorySelect, { type ServerCategory } from './steps/CategorySelect.svelte';
 	import ImplementationSelect, { type Implementation } from './steps/ImplementationSelect.svelte';
 	import VersionSelect from './steps/VersionSelect.svelte';
@@ -74,23 +74,23 @@
 	async function runPendingAttach(serverName: string) {
 		if (!pendingAttachName || pendingAttachName !== serverName) return;
 		pendingAttachName = '';
-		attachNotice = await attachToNetwork(serverName);
+		attachNotice = await attachToProxy(serverName);
 		await invalidateAll();
 	}
 
 	const isProxyImplementation = $derived(
 		implementation === 'velocity' || implementation === 'bungeecord'
 	);
-	// Proxies and network-attached servers belong on the Networking page
-	const landsOnNetworking = $derived(isProxyImplementation || (!isProxyImplementation && !!attachProxy));
-	const viewLabel = $derived(landsOnNetworking ? 'View Network' : 'View Server');
+	// Proxies and attached servers belong on the Proxies page
+	const landsOnProxies = $derived(isProxyImplementation || (!isProxyImplementation && !!attachProxy));
+	const viewLabel = $derived(landsOnProxies ? 'View Proxy' : 'View Server');
 
 	/**
 	 * Register a freshly created game server with the chosen proxy and hand
 	 * identity verification over to it. Returns null on success, or a warning
 	 * string when something after the initial create failed.
 	 */
-	async function attachToNetwork(serverName: string): Promise<string | null> {
+	async function attachToProxy(serverName: string): Promise<string | null> {
 		const proxyName = attachProxy;
 		simpleStepText = `Attaching to ${proxyName}...`;
 
@@ -98,7 +98,7 @@
 		const summary = (host.data ?? []).find((s) => s.name === serverName);
 		const address = backendAddress(summary?.port);
 		if (!address) {
-			return `Couldn't find an assigned port for ${serverName}, so it wasn't attached. Attach it from Networking.`;
+			return `Couldn't find an assigned port for ${serverName}, so it wasn't attached. Attach it from Proxies.`;
 		}
 
 		// Prefer Velocity's structured config; fall back to BungeeCord's.
@@ -395,14 +395,14 @@
 
 	// Creating a proxy is setting up a network — the whole wizard says so.
 	const proxyMode = $derived(category === 'proxy');
-	const wizardTitle = $derived(proxyMode ? 'Set Up a Network' : 'Create New Server');
+	const wizardTitle = $derived(proxyMode ? 'Set Up a Proxy' : 'Create New Server');
 	const wizardSubtitle = $derived(
 		proxyMode
 			? 'Create a proxy players join, then attach your game servers behind it'
 			: 'Set up your perfect Minecraft server in just a few steps'
 	);
 	const stepLabels = $derived(
-		proxyMode ? ['Network', 'Software', 'Name', 'Create'] : ['Server Type', 'Version', 'Name', 'Create']
+		proxyMode ? ['Type', 'Software', 'Name', 'Create'] : ['Server Type', 'Version', 'Name', 'Create']
 	);
 
 	/** Wait for a fast install to complete by watching the SSE stream inline */
@@ -475,8 +475,8 @@
 	}
 
 	function viewServer() {
-		if (landsOnNetworking) {
-			goto('/networking');
+		if (landsOnProxies) {
+			goto('/proxies');
 			return;
 		}
 		goto(`/servers/${encodeURIComponent(serverName.trim())}`);

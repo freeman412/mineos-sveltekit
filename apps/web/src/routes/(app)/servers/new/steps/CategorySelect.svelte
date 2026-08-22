@@ -37,8 +37,8 @@
 			color: '#a855f7',
 			features: ['New blocks', 'Dimensions', 'Total conversions']
 		},
-		// NOTE: no 'proxy' entry here — networks are created through the
-		// Networking page (/servers/new?type=proxy), never the server wizard.
+		// NOTE: no 'proxy' entry here — proxies are created through the
+		// Proxies page (/servers/new?type=proxy), never the server wizard.
 		{
 			id: 'bedrock' as const,
 			name: 'Bedrock',

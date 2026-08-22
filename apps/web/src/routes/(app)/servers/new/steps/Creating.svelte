@@ -58,12 +58,12 @@
 	});
 
 	const label = $derived(
-		`${isProxy ? 'Setting up' : 'Installing'} ${implementation} ${isProxy ? 'network' : 'server'} "${serverName}"`
+		`${isProxy ? 'Setting up' : 'Installing'} ${implementation} ${isProxy ? 'proxy' : 'server'} "${serverName}"`
 	);
 </script>
 
 <div class="step">
-	<h2>{isProxy ? 'Setting up network...' : 'Creating server...'}</h2>
+	<h2>{isProxy ? 'Setting up proxy...' : 'Creating server...'}</h2>
 
 	{#if streamUrl}
 		<InstallProgress
@@ -85,7 +85,7 @@
 
 	{#if isCompleted}
 		<div class="completed">
-			<p>{isProxy ? 'Network created successfully!' : 'Server created successfully!'}</p>
+			<p>{isProxy ? 'Proxy created successfully!' : 'Server created successfully!'}</p>
 			{#if notice}
 				<p class="notice">{notice}</p>
 			{/if}

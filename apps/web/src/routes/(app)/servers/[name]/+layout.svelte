@@ -65,7 +65,7 @@
 				href: `/servers/${s}/config`,
 				label: 'Properties',
 				disabled: isProxy,
-				tooltip: isProxy ? 'Proxy properties live on the Networking page' : undefined
+				tooltip: isProxy ? 'Proxy properties live on its Proxies page' : undefined
 			},
 			{
 				href: `/servers/${s}/advanced`,

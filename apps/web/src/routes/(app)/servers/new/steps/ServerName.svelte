@@ -19,7 +19,7 @@
 
 <div class="step">
 	<div class="header">
-		<h2>{isProxy ? 'Name your network' : 'Name your server'}</h2>
+		<h2>{isProxy ? 'Name your proxy' : 'Name your server'}</h2>
 	</div>
 
 	<div class="name-input-group">

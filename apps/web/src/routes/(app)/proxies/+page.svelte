@@ -47,29 +47,30 @@
 </script>
 
 <svelte:head>
-	<title>Networking | MineOS</title>
+	<title>Proxies | MineOS</title>
 </svelte:head>
 
 <div class="page">
 	<header class="header">
 		<div>
-			<h1>Networking</h1>
+			<h1>Proxies</h1>
 			<p class="subtitle">
-				Your proxy servers and the backends they route players to. Each proxy is still a server
-				process — its console, files, and backups live on its server page.
+				Your proxies and the game servers behind them. Players join a proxy's address and hop
+				between its servers — together, that's your network. A proxy is still a server process:
+				console, files, and backups stay on its server page.
 			</p>
 		</div>
-		<a class="btn-setup" href="/servers/new?type=proxy">+ Set up a network</a>
+		<a class="btn-setup" href="/servers/new?type=proxy">+ Set up a proxy</a>
 	</header>
 
 	{#if data.proxies.length === 0}
 		<div class="empty-state">
-			<p><strong>No networks yet.</strong></p>
+			<p><strong>No proxies yet.</strong></p>
 			<p>
-				A network is a proxy (Velocity, BungeeCord, Waterfall) that players join, with your game
-				servers attached behind it so they can hop between worlds without changing address.
+				A proxy (Velocity, BungeeCord, Waterfall) gives players one address to join, with your
+				game servers attached behind it so they can hop between worlds without switching servers.
 			</p>
-			<a class="btn-setup" href="/servers/new?type=proxy">Set up a network</a>
+			<a class="btn-setup" href="/servers/new?type=proxy">Set up a proxy</a>
 		</div>
 	{:else}
 		{#each data.proxies as proxy (proxy.name)}
@@ -86,7 +87,7 @@
 						</StatusBadge>
 					</div>
 					<div class="proxy-actions">
-						<a class="edit-link" href="/networking/{proxy.name}/proxy-config">Edit properties</a>
+						<a class="edit-link" href="/proxies/{proxy.name}/proxy-config">Edit properties</a>
 						{#if isRunning(proxy)}
 							<button
 								class="btn-action"

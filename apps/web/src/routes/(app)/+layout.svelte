@@ -38,7 +38,7 @@
 	const navItems = [
 		{ href: '/dashboard', label: 'Dashboard', icon: '[D]' },
 		{ href: '/servers', label: 'Servers', icon: '[S]' },
-		{ href: '/networking', label: 'Networking', icon: '[N]' },
+		{ href: '/proxies', label: 'Proxies', icon: '[X]' },
 		{ href: '/profiles', label: 'Profiles', icon: '[P]' },
 		{ href: '/admin/access', label: 'Users', icon: '[U]', requiresAdmin: true },
 		{ href: '/admin/settings', label: 'Settings', icon: '[G]', requiresAdmin: true },
