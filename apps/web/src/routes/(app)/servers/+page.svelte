@@ -7,6 +7,7 @@
 	import { modal } from '$lib/stores/modal';
 	import { formatBytes, formatDate } from '$lib/utils/formatting';
 	import { createEventStream, type EventStreamHandle } from '$lib/utils/eventStream';
+	import { splitByProxy } from '$lib/utils/networking';
 	import CopyButton from '$lib/components/CopyButton.svelte';
 	import ProgressBar from '$lib/components/ProgressBar.svelte';
 	import StatusBadge from '$lib/components/StatusBadge.svelte';
@@ -29,6 +30,10 @@
 	let importLoading = $state<Record<string, boolean>>({});
 	let servers = $state<ServerSummary[]>(data.servers.data ?? []);
 	let serversError = $state<string | null>(data.servers.error);
+	// Proxy names come from the detailed server list (the SSE summary stream has
+	// no serverType), so they only refresh on load invalidation.
+	let proxyNames = $derived(new Set(data.proxyNames ?? []));
+	const { proxies, game } = $derived.by(() => splitByProxy(servers, proxyNames));
 	let serversStream: EventStreamHandle | null = null;
 	let memoryHistory = $state<Record<string, number[]>>({});
 	let imports = $state<ArchiveEntry[]>(data.imports.data ?? []);
@@ -518,128 +523,141 @@
 		<p>Failed to load servers: {serversError}</p>
 	</div>
 {:else if servers.length > 0}
-	<div class="server-grid">
-		{#each servers as server}
-			{@const isCreating = creatingServers.has(server.name)}
-			<div
-				class="server-card"
-				class:creating={isCreating}
-				role="link"
-				tabindex="0"
-				onclick={() => handleCardClick(server.name)}
-				onkeydown={(event) => handleCardKeydown(event, server.name)}
-			>
-				<div class="card-header">
-					<div class="server-icon-wrapper">
-						<img
-							src="/api/servers/{server.name}/icon"
-							alt="{server.name} icon"
-							class="server-icon"
-							onerror={(e) => ((e.currentTarget as HTMLElement).style.display = 'none')}
+	{#snippet serverCard(server: ServerSummary)}
+		{@const isCreating = creatingServers.has(server.name)}
+		<div
+			class="server-card"
+			class:creating={isCreating}
+			role="link"
+			tabindex="0"
+			onclick={() => handleCardClick(server.name)}
+			onkeydown={(event) => handleCardKeydown(event, server.name)}
+		>
+			<div class="card-header">
+				<div class="server-icon-wrapper">
+					<img
+						src="/api/servers/{server.name}/icon"
+						alt="{server.name} icon"
+						class="server-icon"
+						onerror={(e) => ((e.currentTarget as HTMLElement).style.display = 'none')}
+					/>
+				</div>
+				<div class="server-title">
+					<StatusBadge variant={isCreating ? 'warning' : server.up ? 'success' : 'error'} dot size="lg" />
+					<h2>{server.name}</h2>
+				</div>
+				<StatusBadge variant={isCreating ? 'warning' : server.up ? 'success' : 'error'} size="sm">
+					{isCreating ? 'Creating' : server.up ? 'Running' : 'Stopped'}
+				</StatusBadge>
+			</div>
+
+			<div class="card-meta">
+				{#if isCreating}
+					<span class="badge badge-warning">Creating</span>
+				{/if}
+				{#if server.profile}
+					<span class="badge">Profile: {server.profile}</span>
+				{/if}
+				{#if server.port}
+					<span class="badge badge-muted address-badge">
+						<span>{hostname}:{server.port}</span>
+						<CopyButton
+							value={`${hostname}:${server.port}`}
+							title="Copy server address"
+							variant="ghost"
+							size="sm"
+							showErrors={false}
 						/>
-					</div>
-					<div class="server-title">
-						<StatusBadge variant={isCreating ? 'warning' : server.up ? 'success' : 'error'} dot size="lg" />
-						<h2>{server.name}</h2>
-					</div>
-					<StatusBadge variant={isCreating ? 'warning' : server.up ? 'success' : 'error'} size="sm">
-						{isCreating ? 'Creating' : server.up ? 'Running' : 'Stopped'}
-					</StatusBadge>
+					</span>
+				{/if}
+				{#if server.needsRestart}
+					<span class="badge badge-warning">Restart required</span>
+				{/if}
+			</div>
+			<div class="card-metrics">
+				<div class="metric">
+					<span class="metric-label">Players</span>
+					<span class="metric-value">
+						{server.playersOnline ?? '--'} / {server.playersMax ?? '--'}
+					</span>
 				</div>
-
-				<div class="card-meta">
-					{#if isCreating}
-						<span class="badge badge-warning">Creating</span>
-					{/if}
-					{#if server.profile}
-						<span class="badge">Profile: {server.profile}</span>
-					{/if}
-					{#if server.port}
-						<span class="badge badge-muted address-badge">
-							<span>{hostname}:{server.port}</span>
-							<CopyButton
-								value={`${hostname}:${server.port}`}
-								title="Copy server address"
-								variant="ghost"
-								size="sm"
-								showErrors={false}
+				<div class="metric">
+					<span class="metric-label">Status</span>
+					<span class="metric-value">{isCreating ? 'Creating' : server.up ? 'Online' : 'Offline'}</span>
+				</div>
+				<div class="metric memory">
+					<span class="metric-label">Memory</span>
+					<span class="metric-value">{formatBytes(server.memoryBytes)}</span>
+					{#if memoryHistory[server.name]?.length > 1}
+						<svg class="sparkline" viewBox="0 0 120 32" preserveAspectRatio="none">
+							<polyline
+								points={buildSparkline(memoryHistory[server.name])}
+								fill="none"
+								stroke="rgba(106, 176, 76, 0.8)"
+								stroke-width="2"
+								stroke-linecap="round"
+								stroke-linejoin="round"
 							/>
-						</span>
+						</svg>
 					{/if}
-					{#if server.needsRestart}
-						<span class="badge badge-warning">Restart required</span>
-					{/if}
-				</div>
-				<div class="card-metrics">
-					<div class="metric">
-						<span class="metric-label">Players</span>
-						<span class="metric-value">
-							{server.playersOnline ?? '--'} / {server.playersMax ?? '--'}
-						</span>
-					</div>
-					<div class="metric">
-						<span class="metric-label">Status</span>
-						<span class="metric-value">{isCreating ? 'Creating' : server.up ? 'Online' : 'Offline'}</span>
-					</div>
-					<div class="metric memory">
-						<span class="metric-label">Memory</span>
-						<span class="metric-value">{formatBytes(server.memoryBytes)}</span>
-						{#if memoryHistory[server.name]?.length > 1}
-							<svg class="sparkline" viewBox="0 0 120 32" preserveAspectRatio="none">
-								<polyline
-									points={buildSparkline(memoryHistory[server.name])}
-									fill="none"
-									stroke="rgba(106, 176, 76, 0.8)"
-									stroke-width="2"
-									stroke-linecap="round"
-									stroke-linejoin="round"
-								/>
-							</svg>
-						{/if}
-					</div>
-				</div>
-
-				<div class="card-actions">
-					{#if server.up}
-						<button
-							class="btn-action btn-warning"
-							onclick={(event) => handleAction(server.name, 'stop', event)}
-							disabled={actionLoading[server.name] || isCreating}
-						>
-							Stop
-						</button>
-						<button
-							class="btn-action"
-							onclick={(event) => handleAction(server.name, 'restart', event)}
-							disabled={actionLoading[server.name] || isCreating}
-						>
-							Restart
-						</button>
-						<button
-							class="btn-action btn-danger"
-							onclick={(event) => handleAction(server.name, 'kill', event)}
-							disabled={actionLoading[server.name] || isCreating}
-						>
-							Kill
-						</button>
-					{:else}
-						<button
-							class="btn-action btn-success"
-							onclick={(event) => handleAction(server.name, 'start', event)}
-							disabled={actionLoading[server.name] || isCreating}
-						>
-							Start
-						</button>
-					{/if}
-					<button
-						class="btn-action btn-danger"
-						onclick={(event) => handleDelete(server.name, event)}
-						disabled={actionLoading[server.name] || isCreating}
-					>
-						Delete
-					</button>
 				</div>
 			</div>
+
+			<div class="card-actions">
+				{#if server.up}
+					<button
+						class="btn-action btn-warning"
+						onclick={(event) => handleAction(server.name, 'stop', event)}
+						disabled={actionLoading[server.name] || isCreating}
+					>
+						Stop
+					</button>
+					<button
+						class="btn-action"
+						onclick={(event) => handleAction(server.name, 'restart', event)}
+						disabled={actionLoading[server.name] || isCreating}
+					>
+						Restart
+					</button>
+					<button
+						class="btn-action btn-danger"
+						onclick={(event) => handleAction(server.name, 'kill', event)}
+						disabled={actionLoading[server.name] || isCreating}
+					>
+						Kill
+					</button>
+				{:else}
+					<button
+						class="btn-action btn-success"
+						onclick={(event) => handleAction(server.name, 'start', event)}
+						disabled={actionLoading[server.name] || isCreating}
+					>
+						Start
+					</button>
+				{/if}
+				<button
+					class="btn-action btn-danger"
+					onclick={(event) => handleDelete(server.name, event)}
+					disabled={actionLoading[server.name] || isCreating}
+				>
+					Delete
+				</button>
+			</div>
+		</div>
+	{/snippet}
+
+	{#if proxies.length > 0}
+		<div class="grid-section-label">Proxies</div>
+		<div class="server-grid">
+			{#each proxies as server}
+				{@render serverCard(server)}
+			{/each}
+		</div>
+		<div class="grid-section-label">Game Servers</div>
+	{/if}
+	<div class="server-grid">
+		{#each game as server}
+			{@render serverCard(server)}
 		{/each}
 	</div>
 {:else}
@@ -889,6 +907,19 @@
 		display: grid;
 		grid-template-columns: repeat(auto-fill, minmax(min(350px, 100%), 1fr));
 		gap: 20px;
+	}
+
+	.grid-section-label {
+		margin: 4px 0 14px;
+		font-size: 13px;
+		font-weight: 600;
+		text-transform: uppercase;
+		letter-spacing: 0.08em;
+		color: #8e96bb;
+	}
+
+	.grid-section-label + .server-grid {
+		margin-bottom: 8px;
 	}
 
 	.server-card {
