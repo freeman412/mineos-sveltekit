@@ -5,11 +5,7 @@
 	import type { PageData } from './$types';
 	import type { ForgeVersion } from '$lib/api/types';
 	import type { NeoForgeVersion } from '$lib/api/types';
-	import {
-		addBackendToBungee,
-		addBackendToVelocity,
-		backendAddress
-	} from '$lib/utils/proxy';
+	import { attachServerToProxy } from '$lib/utils/proxyAttach';
 	import CategorySelect, { type ServerCategory } from './steps/CategorySelect.svelte';
 	import ImplementationSelect, { type Implementation } from './steps/ImplementationSelect.svelte';
 	import VersionSelect from './steps/VersionSelect.svelte';
@@ -91,58 +87,12 @@
 	 * string when something after the initial create failed.
 	 */
 	async function attachToProxy(serverName: string): Promise<string | null> {
-		const proxyName = attachProxy;
-		simpleStepText = `Attaching to ${proxyName}...`;
-
-		const host = await api.getHostServers(fetch);
-		const summary = (host.data ?? []).find((s) => s.name === serverName);
-		const address = backendAddress(summary?.port);
-		if (!address) {
-			return `Couldn't find an assigned port for ${serverName}, so it wasn't attached. Attach it from Proxies.`;
-		}
-
-		// Prefer Velocity's structured config; fall back to BungeeCord's.
-		const velocity = await api.getVelocityConfig(fetch, proxyName);
-		let configError: string | null = null;
-		if (velocity.data?.exists) {
-			const { error } = await api.updateVelocityConfig(
-				fetch,
-				proxyName,
-				addBackendToVelocity(velocity.data, serverName, address)
-			);
-			configError = error;
-		} else {
-			const bungee = await api.getBungeeConfig(fetch, proxyName);
-			if (bungee.data?.exists) {
-				const { error } = await api.updateBungeeConfig(
-					fetch,
-					proxyName,
-					addBackendToBungee(bungee.data, serverName, address)
-				);
-				configError = error;
-			} else {
-				configError = `couldn't load ${proxyName}'s proxy config`;
-			}
-		}
-		if (configError) return `Attached nowhere — updating ${proxyName}'s config failed: ${configError}`;
-
-		// Where the backend supports it, let the proxy vouch for players.
-		simpleStepText = 'Setting up verified forwarding...';
-		const status = await api.getForwardingStatus(fetch, serverName);
-		const remediation = status.data?.remediationAction;
-		if (remediation === 'install-mod') {
-			const modResult = await api.installForwardingMod(fetch, serverName);
-			if (modResult.error) {
-				return `Attached, but installing the forwarding mod failed: ${modResult.error}`;
-			}
-		}
-		if (remediation === 'secure' || remediation === 'install-mod') {
-			const secureResult = await api.secureBackend(fetch, serverName);
-			if (secureResult.error) {
-				return `Attached, but securing forwarding failed: ${secureResult.error}`;
-			}
-		}
-		return null;
+		const result = await attachServerToProxy(fetch, {
+			serverName,
+			proxyName: attachProxy,
+			onStep: (label) => (simpleStepText = label)
+		});
+		return result.ok ? null : result.error;
 	}
 
 	function selectCategory(cat: ServerCategory) {

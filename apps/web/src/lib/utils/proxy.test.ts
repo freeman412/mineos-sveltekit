@@ -4,95 +4,17 @@ import {
 	addBackendToVelocity,
 	backendAddress,
 	loadProxyOverviews,
-	overlaySummaries
+	overlaySummaries,
+	removeBackendFromBungee,
+	removeBackendFromVelocity
 } from './proxy';
-import type { BungeeConfig, ProxyBackendSummary, ServerSummary, VelocityConfig } from '$lib/api/types';
-
-function backend(name: string) {
-	return {
-		serverName: name,
-		status: 'Secured',
-		isSpoofable: false,
-		proxyKind: 'VelocityModern',
-		tier: 'Native',
-		proxyName: 'hub',
-		loader: 'paper',
-		serverOnlineMode: false,
-		backendForwardingConfigured: true,
-		secretMatches: true,
-		exposure: 'NotExposed',
-		exposureDetail: null,
-		remediationAction: null
-	} as ProxyBackendSummary['backends'][number];
-}
-
-function summary(proxyName: string, backends: string[]): ProxyBackendSummary {
-	return { proxyName, backends: backends.map(backend) };
-}
-
-/** Fake fetcher: maps paths to JSON payloads or status codes, recording requested URLs. */
-function fakeFetcher(routes: Record<string, { status?: number; body?: unknown }>) {
-	const requested: string[] = [];
-	const fetcher = async (input: RequestInfo | URL) => {
-		const path = String(input);
-		requested.push(path);
-		const route = routes[path];
-		if (!route) throw new Error(`unexpected request: ${path}`);
-		return new Response(JSON.stringify(route.body ?? {}), {
-			status: route.status ?? 200
-		});
-	};
-	return { fetcher, requested };
-}
-
-function velocityFixture(): VelocityConfig {
-	return {
-		exists: true,
-		bind: '0.0.0.0:25565',
-		motd: 'A Velocity Server',
-		showMaxPlayers: 500,
-		onlineMode: true,
-		forceKeyAuthentication: true,
-		preventClientProxyConnections: true,
-		playerInfoForwardingMode: 'modern',
-		forwardingSecretFile: 'forwarding.secret',
-		announceForge: false,
-		kickExistingPlayers: false,
-		pingPassthrough: 'DISABLED',
-		enablePlayerAddressLogging: false,
-		servers: { lobby: 'localhost:25566' },
-		try: ['lobby'],
-		forcedHosts: {}
-	};
-}
-
-function bungeeFixture(): BungeeConfig {
-	return {
-		exists: true,
-		onlineMode: false,
-		ipForward: true,
-		playerLimit: 100,
-		timeout: 30000,
-		networkCompressionThreshold: 256,
-		forgeSupport: false,
-		logCommands: false,
-		logPings: false,
-		connectionThrottle: 4000,
-		connectionThrottleLimit: 3,
-		host: '0.0.0.0:25565',
-		motd: 'A BungeeCord server',
-		maxPlayers: 100,
-		queryEnabled: false,
-		queryPort: 25577,
-		pingPassthrough: false,
-		forceDefaultServer: false,
-		tabList: 'SERVER',
-		proxyProtocol: false,
-		priorities: ['lobby'],
-		forcedHosts: {},
-		servers: { lobby: { address: 'localhost:25566', motd: 'lobby', restricted: false } }
-	};
-}
+import {
+	bungeeFixture,
+	fakeFetcher,
+	summary,
+	velocityFixture
+} from './proxyTestUtils';
+import type { ServerSummary } from '$lib/api/types';
 
 describe('addBackendToVelocity', () => {
 	it('adds the backend to the servers map without mutating the original config', () => {
@@ -145,6 +67,62 @@ describe('addBackendToBungee', () => {
 
 		expect(Object.keys(updated.servers)).toEqual(['lobby']);
 		expect(updated.servers.lobby.address).toBe('localhost:29999');
+	});
+});
+
+describe('removeBackendFromVelocity', () => {
+	it('removes the backend without mutating the original config', () => {
+		const original = velocityFixture();
+
+		const updated = removeBackendFromVelocity(original, 'lobby');
+
+		expect(updated.servers).toEqual({});
+		expect(original.servers).toEqual({ lobby: 'localhost:25566' });
+	});
+
+	it('leaves other backends and fields untouched', () => {
+		const original = addBackendToVelocity(velocityFixture(), 'creative', 'localhost:25567');
+
+		const updated = removeBackendFromVelocity(original, 'creative');
+
+		expect(updated.servers).toEqual({ lobby: 'localhost:25566' });
+		expect(updated.bind).toBe(original.bind);
+	});
+
+	it('also drops the server from the try list so Velocity does not warn about it', () => {
+		const original = velocityFixture();
+
+		const updated = removeBackendFromVelocity(original, 'lobby');
+
+		expect(updated.try).toEqual([]);
+		expect(original.try).toEqual(['lobby']);
+	});
+
+	it('returns an equivalent config when the backend is already absent', () => {
+		const original = velocityFixture();
+
+		const updated = removeBackendFromVelocity(original, 'ghost');
+
+		expect(updated.servers).toEqual(original.servers);
+	});
+});
+
+describe('removeBackendFromBungee', () => {
+	it('removes the backend without mutating the original config', () => {
+		const original = bungeeFixture();
+
+		const updated = removeBackendFromBungee(original, 'lobby');
+
+		expect(updated.servers).toEqual({});
+		expect(original.servers.lobby).toBeDefined();
+	});
+
+	it('leaves other backends untouched', () => {
+		const original = addBackendToBungee(bungeeFixture(), 'creative', 'localhost:25567');
+
+		const updated = removeBackendFromBungee(original, 'lobby');
+
+		expect(Object.keys(updated.servers)).toEqual(['creative']);
 	});
 });
 

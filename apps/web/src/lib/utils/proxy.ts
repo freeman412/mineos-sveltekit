@@ -70,6 +70,26 @@ export function addBackendToBungee(
 }
 
 /**
+ * Remove a game server from a Velocity proxy's server map and its try
+ * list (a try entry without a matching server makes Velocity warn at
+ * boot). Returns a new config; the original is left untouched. Removing
+ * an absent name is a no-op.
+ */
+export function removeBackendFromVelocity(config: VelocityConfig, name: string): VelocityConfig {
+	const { [name]: _removed, ...servers } = config.servers;
+	return { ...config, servers, try: config.try.filter((n) => n !== name) };
+}
+
+/**
+ * Remove a game server from a BungeeCord proxy's server map. Returns a new
+ * config; the original is left untouched. Removing an absent name is a no-op.
+ */
+export function removeBackendFromBungee(config: BungeeConfig, name: string): BungeeConfig {
+	const { [name]: _removed, ...servers } = config.servers;
+	return { ...config, servers };
+}
+
+/**
  * Fetch the backend summary for every proxy in parallel. A proxy whose fetch
  * fails degrades to an error entry instead of failing the whole overview.
  */
