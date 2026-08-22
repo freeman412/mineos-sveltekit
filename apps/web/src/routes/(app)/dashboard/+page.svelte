@@ -124,6 +124,7 @@
 				updateMemoryHistory(nextServers);
 				serversError = null;
 			},
+			reconnect: {},
 			onClose: () => {
 				serversStream = null;
 			}
@@ -135,6 +136,7 @@
 				hostMetrics = data;
 				hostMetricsError = null;
 			},
+			reconnect: {},
 			onClose: () => {
 				metricsStream = null;
 			}

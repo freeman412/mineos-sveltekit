@@ -486,6 +486,7 @@
 				updateMemoryHistory(nextServers);
 				serversError = null;
 			},
+			reconnect: {},
 			onClose: () => {
 				serversStream = null;
 			}
