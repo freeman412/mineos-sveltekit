@@ -1,9 +1,11 @@
 <script lang="ts">
 	import { page } from '$app/stores';
+	import { createEventStream, type EventStreamHandle } from '$lib/utils/eventStream';
 	import StatusBadge from '$lib/components/StatusBadge.svelte';
 	import ServerQuickActions from '$lib/components/ServerQuickActions.svelte';
 	import ServerIconUploader from '$lib/components/ServerIconUploader.svelte';
 	import type { LayoutData } from './$types';
+	import type { ServerHeartbeat } from '$lib/api/types';
 
 	let { data, children }: { data: LayoutData; children: any } = $props();
 	let server = $state(data.server);
@@ -131,10 +133,9 @@
 
 	const statusMeta = $derived(normalizeStatus(server?.status));
 
-	let statusSource: EventSource | null = null;
+	let statusStream: EventStreamHandle | null = null;
 
 	function scheduleBurstRefresh() {
-		statusSource?.close();
 		connectStatusStream();
 	}
 
@@ -152,20 +153,18 @@
 		connectStatusStream(data.server?.name);
 
 		return () => {
-			statusSource?.close();
-			statusSource = null;
+			statusStream?.close();
+			statusStream = null;
 		};
 	});
 
 	function connectStatusStream(name: string | undefined = server?.name) {
 		if (!name) return;
-		statusSource?.close();
-		statusSource = new EventSource(
-			`/api/servers/${encodeURIComponent(name)}/heartbeat/stream`
-		);
-		statusSource.onmessage = (event) => {
-			try {
-				const heartbeat = JSON.parse(event.data);
+		statusStream?.close();
+		// Reconnects with backoff instead of the old every-2-seconds retry loop.
+		statusStream = createEventStream<ServerHeartbeat>({
+			url: `/api/servers/${encodeURIComponent(name)}/heartbeat/stream`,
+			onMessage: (heartbeat) => {
 				if (server) {
 					server = {
 						...server,
@@ -175,20 +174,14 @@
 					};
 				}
 				playerInfo = {
-					online: heartbeat?.ping?.playersOnline ?? null,
-					max: heartbeat?.ping?.playersMax ?? null,
-					version: heartbeat?.ping?.serverVersion ?? null
+					online: heartbeat.ping?.playersOnline ?? null,
+					max: heartbeat.ping?.playersMax ?? null,
+					version: heartbeat.ping?.serverVersion ?? null
 				};
-			} catch (err) {
-				console.error('Failed to parse heartbeat:', err);
-			}
-		};
-	statusSource.onerror = () => {
-		statusSource?.close();
-		statusSource = null;
-		setTimeout(() => connectStatusStream(name), 2000);
-	};
-}
+			},
+			reconnect: {}
+		});
+	}
 </script>
 
 <div class="server-container">
