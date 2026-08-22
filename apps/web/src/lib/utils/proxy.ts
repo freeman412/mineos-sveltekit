@@ -1,6 +1,27 @@
 import type { Fetcher } from '$lib/api/client';
 import { getProxyBackends } from '$lib/api/client';
-import type { BungeeBackend, BungeeConfig, ProxyBackendSummary, VelocityConfig } from '$lib/api/types';
+import type {
+	BungeeBackend,
+	BungeeConfig,
+	ProxyBackendSummary,
+	ServerSummary,
+	VelocityConfig
+} from '$lib/api/types';
+
+/**
+ * Overlay the newest host-stream summaries onto load-time proxy rows so
+ * status/players/memory tick live. Rows the stream has no entry for keep
+ * their load-time summary.
+ */
+export function overlaySummaries<T extends { name: string; summary: ServerSummary | null }>(
+	proxies: readonly T[],
+	liveSummaries: Readonly<Record<string, ServerSummary>>
+): T[] {
+	return proxies.map((proxy) => {
+		const live = liveSummaries[proxy.name];
+		return live ? { ...proxy, summary: live } : proxy;
+	});
+}
 
 /**
  * One proxy's backend rollup for the proxies overview. `summary` is null

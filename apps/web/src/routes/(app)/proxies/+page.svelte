@@ -1,13 +1,17 @@
 <script lang="ts">
+	import { onMount } from 'svelte';
 	import { invalidateAll } from '$app/navigation';
 	import { env } from '$env/dynamic/public';
 	import { browser } from '$app/environment';
 	import * as api from '$lib/api/client';
 	import { formatBytes } from '$lib/utils/formatting';
+	import { overlaySummaries } from '$lib/utils/proxy';
+	import { createEventStream, type EventStreamHandle } from '$lib/utils/eventStream';
 	import ProxyBackendRollup from '$lib/components/ProxyBackendRollup.svelte';
 	import CopyButton from '$lib/components/CopyButton.svelte';
 	import StatusBadge from '$lib/components/StatusBadge.svelte';
 	import type { PageData } from './$types';
+	import type { ServerSummary } from '$lib/api/types';
 
 	let { data }: { data: PageData } = $props();
 
@@ -18,6 +22,32 @@
 
 	let actionLoading = $state<Record<string, boolean>>({});
 	let actionError = $state<Record<string, string>>({});
+	// Newest summaries from the host SSE stream, keyed by name; the cards
+	// re-derive from these so status/players/memory tick without a reload.
+	let liveSummaries = $state<Record<string, ServerSummary>>({});
+	let serversStream: EventStreamHandle | null = null;
+
+	// The proxy list itself (which proxies exist) still comes from load;
+	// the stream only refreshes each row's summary.
+	const proxies = $derived(overlaySummaries(data.proxies, liveSummaries));
+
+	onMount(() => {
+		serversStream = createEventStream<ServerSummary[]>({
+			url: '/api/host/servers/stream',
+			onMessage: (nextServers) => {
+				const next: Record<string, ServerSummary> = {};
+				for (const server of nextServers) next[server.name] = server;
+				liveSummaries = next;
+			},
+			onClose: () => {
+				serversStream = null;
+			}
+		});
+
+		return () => {
+			serversStream?.close();
+		};
+	});
 
 	function isRunning(proxy: PageData['proxies'][number]): boolean {
 		if (proxy.summary) return proxy.summary.up;
@@ -73,7 +103,7 @@
 			<a class="btn-setup" href="/servers/new?type=proxy">Set up a proxy</a>
 		</div>
 	{:else}
-		{#each data.proxies as proxy (proxy.name)}
+		{#each proxies as proxy (proxy.name)}
 			<section class="card">
 				<div class="proxy-head">
 					<div class="proxy-title">

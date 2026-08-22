@@ -3,9 +3,10 @@ import {
 	addBackendToBungee,
 	addBackendToVelocity,
 	backendAddress,
-	loadProxyOverviews
+	loadProxyOverviews,
+	overlaySummaries
 } from './proxy';
-import type { BungeeConfig, ProxyBackendSummary, VelocityConfig } from '$lib/api/types';
+import type { BungeeConfig, ProxyBackendSummary, ServerSummary, VelocityConfig } from '$lib/api/types';
 
 function backend(name: string) {
 	return {
@@ -155,6 +156,49 @@ describe('backendAddress', () => {
 	it('returns null when the server has no assigned port yet', () => {
 		expect(backendAddress(null)).toBeNull();
 		expect(backendAddress(undefined)).toBeNull();
+	});
+});
+
+function hostSummary(name: string, up: boolean): ServerSummary {
+	return {
+		name,
+		up,
+		status: up ? 'Running' : 'Stopped',
+		profile: 'velocity',
+		port: 25565,
+		playersOnline: up ? 3 : 0,
+		playersMax: 100,
+		memoryBytes: 123456,
+		needsRestart: false
+	} as ServerSummary;
+}
+
+describe('overlaySummaries', () => {
+	it('replaces the load-time summary with the streamed one for known proxies', () => {
+		const rows = [{ name: 'hub', detailStatus: 'Running', summary: hostSummary('hub', false) }];
+		const live = { hub: hostSummary('hub', true) };
+
+		const [updated] = overlaySummaries(rows, live);
+
+		expect(updated.summary?.up).toBe(true);
+	});
+
+	it('keeps the load-time summary when the stream has no entry for a proxy', () => {
+		const loadTime = hostSummary('hub', false);
+		const rows = [{ name: 'hub', detailStatus: 'Stopped', summary: loadTime }];
+
+		const [updated] = overlaySummaries(rows, {});
+
+		expect(updated.summary).toBe(loadTime);
+	});
+
+	it('does not mutate the input rows', () => {
+		const loadTime = hostSummary('hub', false);
+		const rows = [{ name: 'hub', detailStatus: 'Stopped', summary: loadTime }];
+
+		overlaySummaries(rows, { hub: hostSummary('hub', true) });
+
+		expect(rows[0].summary?.up).toBe(false);
 	});
 });
 
