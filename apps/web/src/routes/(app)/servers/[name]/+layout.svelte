@@ -1,9 +1,11 @@
 <script lang="ts">
 	import { page } from '$app/stores';
+	import { createEventStream, type EventStreamHandle } from '$lib/utils/eventStream';
 	import StatusBadge from '$lib/components/StatusBadge.svelte';
 	import ServerQuickActions from '$lib/components/ServerQuickActions.svelte';
 	import ServerIconUploader from '$lib/components/ServerIconUploader.svelte';
 	import type { LayoutData } from './$types';
+	import type { ServerHeartbeat } from '$lib/api/types';
 
 	let { data, children }: { data: LayoutData; children: any } = $props();
 	let server = $state(data.server);
@@ -59,17 +61,14 @@
 
 	const tabs: Tab[] = $derived.by(() => {
 		const s = server?.name;
-		return [
+		const all: Tab[] = [
 			{ href: `/servers/${s}`, label: 'Dashboard', exact: true },
-			isProxy
-				? {
-						href: `/servers/${s}/proxy-config`,
-						label: 'Properties'
-					}
-				: {
-						href: `/servers/${s}/config`,
-						label: 'Properties'
-					},
+			{
+				href: `/servers/${s}/config`,
+				label: 'Properties',
+				disabled: isProxy,
+				tooltip: isProxy ? 'Proxy properties live on its Proxies page' : undefined
+			},
 			{
 				href: `/servers/${s}/advanced`,
 				label: 'Config',
@@ -114,6 +113,7 @@
 			},
 			{ href: `/servers/${s}/cron`, label: 'Cron Jobs' }
 		];
+		return all;
 	});
 
 	function isActiveTab(href: string, exact = false) {
@@ -133,10 +133,9 @@
 
 	const statusMeta = $derived(normalizeStatus(server?.status));
 
-	let statusSource: EventSource | null = null;
+	let statusStream: EventStreamHandle | null = null;
 
 	function scheduleBurstRefresh() {
-		statusSource?.close();
 		connectStatusStream();
 	}
 
@@ -154,20 +153,18 @@
 		connectStatusStream(data.server?.name);
 
 		return () => {
-			statusSource?.close();
-			statusSource = null;
+			statusStream?.close();
+			statusStream = null;
 		};
 	});
 
 	function connectStatusStream(name: string | undefined = server?.name) {
 		if (!name) return;
-		statusSource?.close();
-		statusSource = new EventSource(
-			`/api/servers/${encodeURIComponent(name)}/heartbeat/stream`
-		);
-		statusSource.onmessage = (event) => {
-			try {
-				const heartbeat = JSON.parse(event.data);
+		statusStream?.close();
+		// Reconnects with backoff instead of the old every-2-seconds retry loop.
+		statusStream = createEventStream<ServerHeartbeat>({
+			url: `/api/servers/${encodeURIComponent(name)}/heartbeat/stream`,
+			onMessage: (heartbeat) => {
 				if (server) {
 					server = {
 						...server,
@@ -177,31 +174,30 @@
 					};
 				}
 				playerInfo = {
-					online: heartbeat?.ping?.playersOnline ?? null,
-					max: heartbeat?.ping?.playersMax ?? null,
-					version: heartbeat?.ping?.serverVersion ?? null
+					online: heartbeat.ping?.playersOnline ?? null,
+					max: heartbeat.ping?.playersMax ?? null,
+					version: heartbeat.ping?.serverVersion ?? null
 				};
-			} catch (err) {
-				console.error('Failed to parse heartbeat:', err);
-			}
-		};
-	statusSource.onerror = () => {
-		statusSource?.close();
-		statusSource = null;
-		setTimeout(() => connectStatusStream(name), 2000);
-	};
-}
+			},
+			reconnect: {}
+		});
+	}
 </script>
 
 <div class="server-container">
 	<div class="server-header">
 		<div class="server-info">
-			<a href="/servers" class="breadcrumb">&lt; Back to Servers</a>
+			<a href={isProxy ? '/proxies' : '/servers'} class="breadcrumb">
+				&lt; Back to {isProxy ? 'Proxies' : 'Servers'}
+			</a>
 			<div class="title-row">
 				<h1>{server?.name}</h1>
 				<StatusBadge variant={statusMeta.running ? 'success' : 'warning'} size="lg">
 					{statusMeta.label}
 				</StatusBadge>
+				{#if isProxy}
+					<span class="proxy-chip">Proxy</span>
+				{/if}
 			</div>
 			<div class="server-meta">
 				<div class="meta-chip players">
@@ -324,6 +320,18 @@
 		align-items: center;
 		gap: 14px;
 		flex-wrap: wrap;
+	}
+
+	.proxy-chip {
+		padding: 4px 12px;
+		border-radius: 999px;
+		background: rgba(96, 141, 255, 0.15);
+		border: 1px solid rgba(96, 141, 255, 0.4);
+		color: #a8c2ff;
+		font-size: 11px;
+		font-weight: 700;
+		text-transform: uppercase;
+		letter-spacing: 0.08em;
 	}
 
 	.server-meta {

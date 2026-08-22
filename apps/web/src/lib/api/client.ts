@@ -9,7 +9,7 @@ import type {
 	CurseForgeMod
 } from './types';
 
-type Fetcher = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
+export type Fetcher = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
 
 /**
  * Generic API fetch with error handling for GET requests that return data.

@@ -38,11 +38,17 @@
 	const navItems = [
 		{ href: '/dashboard', label: 'Dashboard', icon: '[D]' },
 		{ href: '/servers', label: 'Servers', icon: '[S]' },
+		{ href: '/proxies', label: 'Proxies', icon: '[X]' },
 		{ href: '/profiles', label: 'Profiles', icon: '[P]' },
 		{ href: '/admin/access', label: 'Users', icon: '[U]', requiresAdmin: true },
 		{ href: '/admin/settings', label: 'Settings', icon: '[G]', requiresAdmin: true },
 		{ href: '/admin/shell', label: 'Admin Shell', icon: '[T]', requiresAdmin: true }
 	];
+
+	function isVisible(item: (typeof navItems)[number]) {
+		if (item.requiresAdmin && data.user?.role !== 'admin') return false;
+		return true;
+	}
 
 	function isActive(href: string) {
 		return $page.url.pathname === href || $page.url.pathname.startsWith(href + '/');
@@ -118,7 +124,7 @@
 		</div>
 
 		<ul class="nav-list">
-			{#each navItems.filter((item) => !item.requiresAdmin || data.user?.role === 'admin') as item}
+			{#each navItems.filter(isVisible) as item}
 				<li>
 					<a href={item.href} class:active={isActive(item.href)}>
 						<span class="icon">{item.icon}</span>

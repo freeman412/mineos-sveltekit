@@ -2,12 +2,16 @@
 	interface Props {
 		value: string;
 		error: string;
+		isProxy?: boolean;
+		proxies?: string[];
+		attachProxy?: string;
+		onattachchange?: (proxyName: string) => void;
 		onchange: (name: string) => void;
 		oncreate: () => void;
 		onback: () => void;
 	}
 
-	let { value, error, onchange, oncreate, onback }: Props = $props();
+	let { value, error, isProxy = false, proxies = [], attachProxy = '', onattachchange, onchange, oncreate, onback }: Props = $props();
 
 	const namePattern = /^[a-zA-Z0-9][a-zA-Z0-9 _\-\.]{0,63}$/;
 	const isValid = $derived(namePattern.test(value.trim()) && !value.includes('..'));
@@ -15,7 +19,7 @@
 
 <div class="step">
 	<div class="header">
-		<h2>Name your server</h2>
+		<h2>{isProxy ? 'Name your proxy' : 'Name your server'}</h2>
 	</div>
 
 	<div class="name-input-group">
@@ -37,6 +41,27 @@
 			<p class="validation-error">{error}</p>
 		{/if}
 	</div>
+
+	{#if proxies.length > 0}
+		<div class="attach-group">
+			<label class="attach-label" for="attach-proxy">Behind a proxy?</label>
+			<select
+				id="attach-proxy"
+				class="attach-select"
+				value={attachProxy}
+				onchange={(e) => onattachchange?.(e.currentTarget.value)}
+			>
+				<option value="">No — standalone server</option>
+				{#each proxies as proxyName (proxyName)}
+					<option value={proxyName}>Yes — join {proxyName}</option>
+				{/each}
+			</select>
+			<p class="attach-hint">
+				Attaching registers this server with the proxy and sets up verified forwarding, so
+				players reach it through the network instead of its own port.
+			</p>
+		</div>
+	{/if}
 
 </div>
 
@@ -104,24 +129,31 @@
 		color: #ef4444;
 	}
 
-	.create-btn {
-		padding: 0.6rem 1.5rem;
-		border: none;
-		border-radius: 0.5rem;
-		background: #3b82f6;
-		color: white;
-		font-size: 0.95rem;
+	.attach-group {
+		display: flex;
+		flex-direction: column;
+		gap: 0.5rem;
+		padding-top: 0.25rem;
+		border-top: 1px solid var(--border-color, #374151);
+	}
+
+	.attach-label {
+		font-size: 0.9rem;
 		font-weight: 600;
-		cursor: pointer;
-		align-self: flex-start;
 	}
 
-	.create-btn:hover:not(:disabled) {
-		background: #2563eb;
+	.attach-select {
+		padding: 0.55rem 0.75rem;
+		border: 2px solid var(--border-color, #374151);
+		border-radius: 0.5rem;
+		background: var(--input-bg, #1f2937);
+		color: inherit;
+		font-size: 0.95rem;
 	}
 
-	.create-btn:disabled {
-		opacity: 0.4;
-		cursor: not-allowed;
+	.attach-hint {
+		margin: 0;
+		font-size: 0.78rem;
+		color: var(--text-secondary, #9ca3af);
 	}
 </style>
