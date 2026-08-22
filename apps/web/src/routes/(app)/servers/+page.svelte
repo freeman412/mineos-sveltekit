@@ -535,7 +535,7 @@
 							src="/api/servers/{server.name}/icon"
 							alt="{server.name} icon"
 							class="server-icon"
-							onerror={(e) => (e.currentTarget.style.display = 'none')}
+							onerror={(e) => ((e.currentTarget as HTMLElement).style.display = 'none')}
 						/>
 					</div>
 					<div class="server-title">
