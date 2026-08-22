@@ -19,6 +19,9 @@
 		onComplete: () => void;
 	} = $props();
 
+	// 'bedrock' has no entry in serverTypes below, so it is never a target of
+	// selectType; it belongs in the union because currentServerType can be
+	// bedrock, and the guards that refuse a Bedrock/Java swap depend on it.
 	type ServerType = 'vanilla' | 'paper' | 'spigot' | 'bedrock' | 'forge' | 'neoforge' | 'fabric' | 'quilt' | 'velocity' | 'bungeecord';
 
 	const serverTypes: { id: ServerType; name: string; category: string }[] = [

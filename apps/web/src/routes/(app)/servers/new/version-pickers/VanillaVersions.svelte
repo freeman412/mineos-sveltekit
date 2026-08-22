@@ -4,6 +4,9 @@
 
 	interface Props {
 		profiles: Profile[];
+		// 'craftbukkit' is filtered below and offered by BuildTools, but the
+		// wizard's VersionSelect does not route it here yet; the union stays
+		// wide so that support is not deleted while it waits for a caller.
 		implementation: 'vanilla' | 'paper' | 'spigot' | 'craftbukkit';
 		onselect: (profile: Profile) => void;
 		onready?: (fn: (() => void) | null) => void;
