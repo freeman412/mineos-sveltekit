@@ -180,6 +180,12 @@
 	}
 
 	function goBackFromImpl() {
+		if (proxyMode) {
+			// The proxy flow never shows the game-server category grid — Back
+			// leaves the wizard and returns to the Proxies page it came from.
+			goto('/proxies');
+			return;
+		}
 		step = 'category';
 		category = null;
 		implementation = null;

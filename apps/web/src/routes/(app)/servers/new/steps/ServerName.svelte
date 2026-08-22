@@ -156,25 +156,4 @@
 		font-size: 0.78rem;
 		color: var(--text-secondary, #9ca3af);
 	}
-
-	.create-btn {
-		padding: 0.6rem 1.5rem;
-		border: none;
-		border-radius: 0.5rem;
-		background: #3b82f6;
-		color: white;
-		font-size: 0.95rem;
-		font-weight: 600;
-		cursor: pointer;
-		align-self: flex-start;
-	}
-
-	.create-btn:hover:not(:disabled) {
-		background: #2563eb;
-	}
-
-	.create-btn:disabled {
-		opacity: 0.4;
-		cursor: not-allowed;
-	}
 </style>
