@@ -43,8 +43,9 @@ export function backendAddress(port?: number | null): string | null {
 }
 
 /**
- * Register a game server in a Velocity proxy's server map. Returns a new
- * config; the original is left untouched. Re-attaching an existing name
+ * Register a game server in a Velocity proxy's server map and append it to
+ * the try list (fallback order) so players can be routed to it. Returns a
+ * new config; the original is left untouched. Re-attaching an existing name
  * overwrites its address rather than duplicating it.
  */
 export function addBackendToVelocity(
@@ -52,13 +53,18 @@ export function addBackendToVelocity(
 	name: string,
 	address: string
 ): VelocityConfig {
-	return { ...config, servers: { ...config.servers, [name]: address } };
+	return {
+		...config,
+		servers: { ...config.servers, [name]: address },
+		try: config.try.includes(name) ? config.try : [...config.try, name]
+	};
 }
 
 /**
- * Register a game server in a BungeeCord proxy's server map. New backends are
- * unrestricted and reuse the name as their MOTD. Returns a new config; the
- * original is left untouched.
+ * Register a game server in a BungeeCord proxy's server map and append it to
+ * the priorities list (fallback order), mirroring the Velocity try handling.
+ * New backends are unrestricted and reuse the name as their MOTD. Returns a
+ * new config; the original is left untouched.
  */
 export function addBackendToBungee(
 	config: BungeeConfig,
@@ -66,7 +72,13 @@ export function addBackendToBungee(
 	address: string
 ): BungeeConfig {
 	const entry: BungeeBackend = { address, motd: name, restricted: false };
-	return { ...config, servers: { ...config.servers, [name]: entry } };
+	return {
+		...config,
+		servers: { ...config.servers, [name]: entry },
+		priorities: config.priorities.includes(name)
+			? config.priorities
+			: [...config.priorities, name]
+	};
 }
 
 /**
@@ -81,12 +93,13 @@ export function removeBackendFromVelocity(config: VelocityConfig, name: string):
 }
 
 /**
- * Remove a game server from a BungeeCord proxy's server map. Returns a new
+ * Remove a game server from a BungeeCord proxy's server map and its
+ * priorities list, mirroring the Velocity try handling. Returns a new
  * config; the original is left untouched. Removing an absent name is a no-op.
  */
 export function removeBackendFromBungee(config: BungeeConfig, name: string): BungeeConfig {
 	const { [name]: _removed, ...servers } = config.servers;
-	return { ...config, servers };
+	return { ...config, servers, priorities: config.priorities.filter((n) => n !== name) };
 }
 
 /**

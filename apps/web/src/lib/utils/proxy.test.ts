@@ -26,14 +26,22 @@ describe('addBackendToVelocity', () => {
 		expect(original.servers).toEqual({ lobby: 'localhost:25566' });
 	});
 
-	it('leaves everything except the servers map untouched', () => {
+	it('adds the backend to the try list without disturbing other fields', () => {
 		const original = velocityFixture();
 
 		const updated = addBackendToVelocity(original, 'creative', 'localhost:25567');
 
-		expect(updated.try).toEqual(['lobby']);
+		expect(updated.try).toEqual(['lobby', 'creative']);
 		expect(updated.bind).toBe(original.bind);
 		expect(updated.playerInfoForwardingMode).toBe(original.playerInfoForwardingMode);
+	});
+
+	it('does not duplicate a try entry when overwriting an existing backend', () => {
+		const original = velocityFixture();
+
+		const updated = addBackendToVelocity(original, 'lobby', 'localhost:29999');
+
+		expect(updated.try).toEqual(['lobby']);
 	});
 
 	it('overwrites an existing backend of the same name instead of duplicating', () => {
@@ -60,13 +68,14 @@ describe('addBackendToBungee', () => {
 		expect(original.servers.creative).toBeUndefined();
 	});
 
-	it('overwrites an existing backend of the same name instead of duplicating', () => {
+	it('adds the backend to the priorities list without duplicating an existing entry', () => {
 		const original = bungeeFixture();
 
-		const updated = addBackendToBungee(original, 'lobby', 'localhost:29999');
-
-		expect(Object.keys(updated.servers)).toEqual(['lobby']);
-		expect(updated.servers.lobby.address).toBe('localhost:29999');
+		expect(addBackendToBungee(original, 'creative', 'localhost:25567').priorities).toEqual([
+			'lobby',
+			'creative'
+		]);
+		expect(addBackendToBungee(original, 'lobby', 'localhost:29999').priorities).toEqual(['lobby']);
 	});
 });
 
@@ -123,6 +132,14 @@ describe('removeBackendFromBungee', () => {
 		const updated = removeBackendFromBungee(original, 'lobby');
 
 		expect(Object.keys(updated.servers)).toEqual(['creative']);
+	});
+
+	it('also drops the server from the priorities list', () => {
+		const original = bungeeFixture();
+
+		const updated = removeBackendFromBungee(original, 'lobby');
+
+		expect(updated.priorities).toEqual([]);
 	});
 });
 

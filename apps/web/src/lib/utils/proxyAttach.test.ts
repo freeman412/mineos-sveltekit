@@ -74,7 +74,7 @@ describe('attachServerToProxy', () => {
 			'GET /api/host/servers': { body: hostList({ name: 'creative', port: 25567 }) },
 			'GET /api/servers/hub/velocity-config': { body: { exists: false } },
 			'GET /api/servers/hub/bungee-config': {
-				body: { exists: true, servers: {} }
+				body: { exists: true, servers: {}, priorities: [] }
 			},
 			'PUT /api/servers/hub/bungee-config': { body: { ok: true } },
 			'GET /api/servers/creative/forwarding': { body: forwarding('install-mod') },
@@ -207,7 +207,7 @@ describe('detachServerFromProxy', () => {
 		const { fetcher, calls } = recordingFetcher({
 			'GET /api/servers/hub/velocity-config': { body: { exists: false } },
 			'GET /api/servers/hub/bungee-config': {
-				body: { exists: true, servers: { creative: { address: 'localhost:25567', motd: 'c', restricted: false } } }
+				body: { exists: true, servers: { creative: { address: 'localhost:25567', motd: 'c', restricted: false } }, priorities: ['creative'] }
 			},
 			'PUT /api/servers/hub/bungee-config': { body: { ok: true } }
 		});
