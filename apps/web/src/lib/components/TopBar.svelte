@@ -125,7 +125,7 @@
 		return {
 			key: `server:${server.name}`,
 			type: 'server',
-			label: server.name,
+			label: server.displayName || server.name,
 			meta: isRunning ? 'RUNNING' : 'STOPPED',
 			href: `/servers/${encodeURIComponent(server.name)}`,
 			server

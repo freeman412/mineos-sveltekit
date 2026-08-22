@@ -147,6 +147,38 @@ public static class ServerEndpoints
             }
         });
 
+        // Mutable display label (issue #180). The on-disk name never changes,
+        // so this is allowed while the server is running. Rides the /servers
+        // group's ServerAccessFilter like every other server-scoped route.
+        servers.MapPut("/{name}/display-name", async (
+            string name,
+            [FromBody] SetDisplayNameRequest request,
+            IServerService serverService,
+            CancellationToken cancellationToken) =>
+        {
+            var displayName = request.DisplayName?.Trim();
+            if (displayName is { Length: > 64 })
+            {
+                return Results.BadRequest(new { error = "Display name must be 64 characters or fewer." });
+            }
+
+            if (displayName is not null && displayName.Any(char.IsControl))
+            {
+                return Results.BadRequest(new { error = "Display name cannot contain control characters." });
+            }
+
+            try
+            {
+                await serverService.SetDisplayNameAsync(
+                    name, string.IsNullOrEmpty(displayName) ? null : displayName, cancellationToken);
+                return Results.NoContent();
+            }
+            catch (DirectoryNotFoundException ex)
+            {
+                return Results.NotFound(new { error = ex.Message });
+            }
+        });
+
         // Server status
         servers.MapGet("/{name}/status", async (
             string name,

@@ -176,7 +176,8 @@ public class ServerService : IServerService
             config,
             serverType,
             eulaAccepted,
-            needsRestart
+            needsRestart,
+            config.DisplayName
         );
     }
 
@@ -528,6 +529,18 @@ public class ServerService : IServerService
             var defaultPort = GetNextAvailablePort(usedPorts, 25565);
             properties["server-port"] = defaultPort.ToString();
             await UpdateServerPropertiesAsync(newName, properties, cancellationToken);
+        }
+
+        // A clone is its own identity — don't carry over the source's label (issue #180).
+        var cloneConfigPath = GetConfigPath(newName);
+        if (File.Exists(cloneConfigPath))
+        {
+            var cloneContent = await File.ReadAllTextAsync(cloneConfigPath, cancellationToken);
+            var cloneSections = IniParser.ParseWithSections(cloneContent);
+            if (cloneSections.Remove("display"))
+            {
+                await File.WriteAllTextAsync(cloneConfigPath, IniParser.WriteWithSections(cloneSections), cancellationToken);
+            }
         }
 
         OwnershipHelper.TrySetOwnership(targetPath, _options.RunAsUid, _options.RunAsGid, _logger, recursive: true);
@@ -1805,7 +1818,12 @@ public class ServerService : IServerService
             tpsEnabled,
             string.IsNullOrWhiteSpace(tpsCommand) ? null : tpsCommand);
 
-        return new ServerConfigDto(java, minecraft, onreboot, autorestart, monitoring);
+        // [display] section — mutable user-facing label (issue #180).
+        var displaySection = sections.GetValueOrDefault("display", new Dictionary<string, string>());
+        var displayNameValue = GetOptionalValue(displaySection, "name");
+        var displayName = string.IsNullOrWhiteSpace(displayNameValue) ? null : displayNameValue!.Trim();
+
+        return new ServerConfigDto(java, minecraft, onreboot, autorestart, monitoring, displayName);
     }
 
     public async Task UpdateServerConfigAsync(string name, ServerConfigDto config, CancellationToken cancellationToken)
@@ -1845,6 +1863,11 @@ public class ServerService : IServerService
             {
                 ["tps_enabled"] = (config.Monitoring?.TpsEnabled ?? false).ToString().ToLower(),
                 ["tps_command"] = config.Monitoring?.TpsCommand ?? ""
+            },
+            // Round-trips the display label so a config edit can't wipe it (issue #180).
+            ["display"] = new()
+            {
+                ["name"] = config.DisplayName ?? ""
             }
         };
 
@@ -1861,6 +1884,24 @@ public class ServerService : IServerService
         }
 
         _logger.LogInformation("Updated server.config for {ServerName}", name);
+    }
+
+    public async Task SetDisplayNameAsync(string name, string? displayName, CancellationToken cancellationToken)
+    {
+        var serverPath = GetServerPath(name);
+        if (!Directory.Exists(serverPath))
+        {
+            throw new DirectoryNotFoundException($"Server '{name}' not found");
+        }
+
+        // Null/empty/whitespace clears the label; otherwise store it trimmed.
+        // Deliberately no running-state check: only server.config changes, and
+        // the JVM never reads it back (issue #180).
+        var trimmed = string.IsNullOrWhiteSpace(displayName) ? null : displayName!.Trim();
+        var config = await GetServerConfigAsync(name, cancellationToken);
+        await UpdateServerConfigAsync(name, config with { DisplayName = trimmed }, cancellationToken);
+
+        _logger.LogInformation("Set display name for {ServerName} to {DisplayName}", name, trimmed ?? "(cleared)");
     }
 
     public async Task AcceptEulaAsync(string name, CancellationToken cancellationToken)

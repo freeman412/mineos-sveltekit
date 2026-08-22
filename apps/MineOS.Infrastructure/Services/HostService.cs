@@ -5,6 +5,7 @@ using Microsoft.Extensions.Options;
 using MineOS.Application.Dtos;
 using MineOS.Application.Interfaces;
 using MineOS.Application.Options;
+using MineOS.Infrastructure.Utilities;
 
 namespace MineOS.Infrastructure.Services;
 
@@ -117,10 +118,42 @@ public sealed class HostService : IHostService
                 PlayersOnline: playersOnline,
                 PlayersMax: playersMax,
                 MemoryBytes: memoryBytes,
-                NeedsRestart: needsRestart));
+                NeedsRestart: needsRestart,
+                DisplayName: TryReadDisplayName(dir)));
         }
 
         return results;
+    }
+
+    /// <summary>
+    /// Reads the mutable display label from a server directory's server.config
+    /// ([display] section, issue #180). Returns null when unset or unreadable —
+    /// callers fall back to the backend name.
+    /// </summary>
+    private static string? TryReadDisplayName(string serverDir)
+    {
+        try
+        {
+            var configPath = Path.Combine(serverDir, "server.config");
+            if (!File.Exists(configPath))
+            {
+                return null;
+            }
+
+            var sections = IniParser.ParseWithSections(File.ReadAllText(configPath));
+            if (!sections.TryGetValue("display", out var display) ||
+                !display.TryGetValue("name", out var value) ||
+                string.IsNullOrWhiteSpace(value))
+            {
+                return null;
+            }
+
+            return value.Trim();
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return null;
+        }
     }
 
     public Task<IReadOnlyList<ProfileDto>> GetProfilesAsync(CancellationToken cancellationToken)

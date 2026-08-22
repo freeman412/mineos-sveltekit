@@ -20,6 +20,8 @@ export type ServerSummary = {
 	playersMax?: number | null;
 	memoryBytes?: number | null;
 	needsRestart: boolean;
+	// Mutable display label; null means "show name" (issue #180).
+	displayName?: string | null;
 };
 
 export type Profile = {
@@ -78,6 +80,8 @@ export type ServerDetail = {
 	serverType: string;
 	eulaAccepted: boolean;
 	needsRestart: boolean;
+	// Mutable display label; null means "show name" (issue #180).
+	displayName?: string | null;
 };
 
 export type ServerConfig = {

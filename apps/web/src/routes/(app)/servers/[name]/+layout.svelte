@@ -4,6 +4,7 @@
 	import StatusBadge from '$lib/components/StatusBadge.svelte';
 	import ServerQuickActions from '$lib/components/ServerQuickActions.svelte';
 	import ServerIconUploader from '$lib/components/ServerIconUploader.svelte';
+	import * as api from '$lib/api/client';
 	import type { LayoutData } from './$types';
 	import type { ServerHeartbeat } from '$lib/api/types';
 
@@ -14,6 +15,56 @@
 		max: null,
 		version: null
 	});
+
+	// Display-name rename (issue #180): the label is mutable, the backend name
+	// (directory / screen session) never is — show it whenever they differ.
+	const shownName = $derived(server?.displayName || server?.name);
+	const hasCustomName = $derived(Boolean(server?.displayName));
+	let showRenameModal = $state(false);
+	let renameValue = $state('');
+	let renameError = $state<string | null>(null);
+	let renaming = $state(false);
+	let renameInput: HTMLInputElement | undefined = $state();
+
+	function openRename() {
+		renameValue = server?.displayName ?? '';
+		renameError = null;
+		showRenameModal = true;
+	}
+
+	async function saveRename() {
+		if (!server || renaming) return;
+		renaming = true;
+		renameError = null;
+
+		const result = await api.setDisplayName(fetch, server.name, renameValue.trim() || null);
+
+		if (result.error) {
+			renameError = result.error;
+			renaming = false;
+			return;
+		}
+
+		server = { ...server, displayName: renameValue.trim() || null };
+		renaming = false;
+		showRenameModal = false;
+	}
+
+	function handleRenameKeydown(e: KeyboardEvent) {
+		if (!showRenameModal) return;
+		if (e.key === 'Escape') {
+			showRenameModal = false;
+		} else if (e.key === 'Enter') {
+			void saveRename();
+		}
+	}
+
+	$effect(() => {
+		if (showRenameModal) {
+			renameInput?.focus();
+		}
+	});
+
 
 	const isBedrock = $derived(server?.serverType === 'bedrock');
 	const isProxy = $derived(server?.serverType === 'proxy');
@@ -191,7 +242,10 @@
 				&lt; Back to {isProxy ? 'Proxies' : 'Servers'}
 			</a>
 			<div class="title-row">
-				<h1>{server?.name}</h1>
+				<h1>{shownName}</h1>
+				<button class="rename-btn" onclick={openRename} aria-label="Rename server" title="Rename server">
+					✎
+				</button>
 				<StatusBadge variant={statusMeta.running ? 'success' : 'warning'} size="lg">
 					{statusMeta.label}
 				</StatusBadge>
@@ -199,6 +253,9 @@
 					<span class="proxy-chip">Proxy</span>
 				{/if}
 			</div>
+			{#if hasCustomName && server?.name}
+				<div class="backend-name">Backend name: <code>{server.name}</code></div>
+			{/if}
 			<div class="server-meta">
 				<div class="meta-chip players">
 					<span class="chip-label">Players</span>
@@ -250,6 +307,43 @@
 		{@render children()}
 	</div>
 </div>
+
+<svelte:window onkeydown={handleRenameKeydown} />
+
+{#if showRenameModal}
+	<!-- svelte-ignore a11y_no_static_element_interactions, a11y_click_events_have_key_events -->
+	<div
+		class="rename-backdrop"
+		onclick={(e) => e.target === e.currentTarget && (showRenameModal = false)}
+		role="presentation"
+	>
+		<div class="rename-modal" role="dialog" aria-modal="true" aria-label="Rename server">
+			<h2>Rename server</h2>
+			<p class="rename-hint">
+				A friendly label shown in the UI. The backend name
+				<code>{server?.name}</code> never changes.
+			</p>
+			<input
+				bind:this={renameInput}
+				bind:value={renameValue}
+				maxlength="64"
+				placeholder={server?.name}
+				aria-label="Display name"
+			/>
+			{#if renameError}
+				<p class="rename-error">{renameError}</p>
+			{/if}
+			<div class="rename-actions">
+				<button class="btn-secondary" onclick={() => (showRenameModal = false)} disabled={renaming}>
+					Cancel
+				</button>
+				<button class="btn-primary" onclick={saveRename} disabled={renaming}>
+					{renaming ? 'Saving…' : 'Save'}
+				</button>
+			</div>
+		</div>
+	</div>
+{/if}
 
 <style>
 	.server-container {
@@ -332,6 +426,137 @@
 		font-weight: 700;
 		text-transform: uppercase;
 		letter-spacing: 0.08em;
+	}
+
+	.rename-btn {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		width: 30px;
+		height: 30px;
+		padding: 0;
+		border-radius: 8px;
+		border: 1px solid transparent;
+		background: transparent;
+		color: #8890b1;
+		font-size: 15px;
+		cursor: pointer;
+		transition: all 0.2s;
+	}
+
+	.rename-btn:hover {
+		color: var(--mc-grass);
+		border-color: rgba(106, 176, 76, 0.4);
+		background: rgba(106, 176, 76, 0.12);
+	}
+
+	.backend-name {
+		font-size: 12px;
+		color: #6d7597;
+		margin-top: -6px;
+	}
+
+	.backend-name code {
+		color: #8890b1;
+		font-size: 11px;
+		padding: 1px 6px;
+		border-radius: 5px;
+		background: rgba(19, 24, 40, 0.8);
+		border: 1px solid rgba(62, 69, 100, 0.6);
+	}
+
+	.rename-backdrop {
+		position: fixed;
+		inset: 0;
+		z-index: 200;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		padding: 24px;
+		background: rgba(4, 6, 14, 0.72);
+		backdrop-filter: blur(3px);
+	}
+
+	.rename-modal {
+		width: min(420px, 100%);
+		padding: 24px;
+		border-radius: 16px;
+		background: linear-gradient(135deg, rgba(22, 27, 46, 0.98), rgba(10, 14, 24, 0.98));
+		border: 1px solid rgba(42, 47, 71, 0.9);
+		box-shadow: 0 24px 48px rgba(0, 0, 0, 0.5);
+		display: flex;
+		flex-direction: column;
+		gap: 14px;
+	}
+
+	.rename-modal h2 {
+		margin: 0;
+		font-size: 18px;
+		font-weight: 700;
+	}
+
+	.rename-hint {
+		margin: 0;
+		font-size: 13px;
+		line-height: 1.5;
+		color: #8890b1;
+	}
+
+	.rename-modal input {
+		width: 100%;
+		padding: 10px 14px;
+		border-radius: 10px;
+		border: 1px solid rgba(62, 69, 100, 0.8);
+		background: rgba(19, 24, 40, 0.9);
+		color: #eef0f8;
+		font-size: 14px;
+		box-sizing: border-box;
+	}
+
+	.rename-modal input:focus {
+		outline: none;
+		border-color: var(--mc-grass);
+	}
+
+	.rename-error {
+		margin: 0;
+		font-size: 13px;
+		color: #ff8f8f;
+	}
+
+	.rename-actions {
+		display: flex;
+		justify-content: flex-end;
+		gap: 10px;
+		margin-top: 4px;
+	}
+
+	.btn-secondary {
+		padding: 9px 18px;
+		border-radius: 10px;
+		border: 1px solid rgba(62, 69, 100, 0.8);
+		background: rgba(19, 24, 40, 0.9);
+		color: #cdd3ee;
+		font-size: 13px;
+		font-weight: 600;
+		cursor: pointer;
+	}
+
+	.btn-primary {
+		padding: 9px 18px;
+		border-radius: 10px;
+		border: 1px solid transparent;
+		background: var(--mc-grass);
+		color: #0c1206;
+		font-size: 13px;
+		font-weight: 700;
+		cursor: pointer;
+	}
+
+	.btn-primary:disabled,
+	.btn-secondary:disabled {
+		opacity: 0.6;
+		cursor: not-allowed;
 	}
 
 	.server-meta {

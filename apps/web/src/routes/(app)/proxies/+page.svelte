@@ -262,7 +262,9 @@
 			<section class="card">
 				<div class="proxy-head">
 					<div class="proxy-title">
-						<h2><a href="/servers/{proxy.name}">{proxy.name}</a></h2>
+						<h2>
+							<a href="/servers/{proxy.name}">{proxy.summary?.displayName || proxy.name}</a>
+						</h2>
 						<StatusBadge
 							variant={isRunning(proxy) ? 'success' : 'error'}
 							size="sm"

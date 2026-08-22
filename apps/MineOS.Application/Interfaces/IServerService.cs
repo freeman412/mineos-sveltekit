@@ -11,6 +11,13 @@ public interface IServerService
     Task<ServerDetailDto> CloneServerAsync(string sourceName, string newName, CancellationToken cancellationToken);
     Task DeleteServerAsync(string name, CancellationToken cancellationToken);
 
+    /// <summary>
+    /// Sets or clears the mutable display label (issue #180). The on-disk name
+    /// never changes; null/empty/whitespace clears the label. Allowed while the
+    /// server is running.
+    /// </summary>
+    Task SetDisplayNameAsync(string name, string? displayName, CancellationToken cancellationToken);
+
     // Lifecycle operations
     Task<ServerHeartbeatDto> GetServerStatusAsync(string name, CancellationToken cancellationToken);
     Task StartServerAsync(string name, CancellationToken cancellationToken);

@@ -12,7 +12,9 @@ public record ServerSummaryDto(
     int? PlayersOnline,
     int? PlayersMax,
     long? MemoryBytes,
-    bool NeedsRestart);
+    bool NeedsRestart,
+    // Mutable display label (issue #180); null means "use Name".
+    string? DisplayName = null);
 
 public record ProfileDto(
     string Id,

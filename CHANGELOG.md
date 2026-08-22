@@ -8,7 +8,12 @@ Pre-releases publish `:preview` Docker images and are not intended for productio
 
 ## [Unreleased]
 
-Nothing yet — the 1.2.0 line below is feature-complete and in testing.
+### Added
+
+- **Server display names.** Rename any server after creation — a mutable label shown
+  across the UI, with the immutable backend name (the on-disk folder and screen
+  session) still shown alongside it so console context is never lost. Renaming works
+  while the server is running, survives config edits, and clones start unlabeled (#180).
 
 ## [1.2.0] — in beta (currently `v1.2.0-beta.6`)
 
