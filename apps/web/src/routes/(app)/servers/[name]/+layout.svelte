@@ -194,12 +194,17 @@
 <div class="server-container">
 	<div class="server-header">
 		<div class="server-info">
-			<a href="/servers" class="breadcrumb">&lt; Back to Servers</a>
+			<a href={isProxy ? '/proxies' : '/servers'} class="breadcrumb">
+				&lt; Back to {isProxy ? 'Proxies' : 'Servers'}
+			</a>
 			<div class="title-row">
 				<h1>{server?.name}</h1>
 				<StatusBadge variant={statusMeta.running ? 'success' : 'warning'} size="lg">
 					{statusMeta.label}
 				</StatusBadge>
+				{#if isProxy}
+					<span class="proxy-chip">Proxy</span>
+				{/if}
 			</div>
 			<div class="server-meta">
 				<div class="meta-chip players">
@@ -322,6 +327,18 @@
 		align-items: center;
 		gap: 14px;
 		flex-wrap: wrap;
+	}
+
+	.proxy-chip {
+		padding: 4px 12px;
+		border-radius: 999px;
+		background: rgba(96, 141, 255, 0.15);
+		border: 1px solid rgba(96, 141, 255, 0.4);
+		color: #a8c2ff;
+		font-size: 11px;
+		font-weight: 700;
+		text-transform: uppercase;
+		letter-spacing: 0.08em;
 	}
 
 	.server-meta {
