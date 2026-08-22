@@ -5,13 +5,15 @@
 	import { browser } from '$app/environment';
 	import * as api from '$lib/api/client';
 	import { formatBytes } from '$lib/utils/formatting';
-	import { overlaySummaries } from '$lib/utils/proxy';
+	import { loadProxyOverviews, overlaySummaries, type ProxyOverview } from '$lib/utils/proxy';
+	import { attachServerToProxy, detachServerFromProxy } from '$lib/utils/proxyAttach';
 	import { createEventStream, type EventStreamHandle } from '$lib/utils/eventStream';
+	import { modal } from '$lib/stores/modal';
 	import ProxyBackendRollup from '$lib/components/ProxyBackendRollup.svelte';
 	import CopyButton from '$lib/components/CopyButton.svelte';
 	import StatusBadge from '$lib/components/StatusBadge.svelte';
 	import type { PageData } from './$types';
-	import type { ServerSummary } from '$lib/api/types';
+	import type { BackendForwarding, ServerSummary } from '$lib/api/types';
 
 	let { data }: { data: PageData } = $props();
 
@@ -27,6 +29,17 @@
 	let liveSummaries = $state<Record<string, ServerSummary>>({});
 	let serversStream: EventStreamHandle | null = null;
 
+	// Backend rollups, seeded from load and refreshed after attach/detach/
+	// fix-forwarding or when a proxy's running state flips.
+	let overviewMap = $state<Record<string, ProxyOverview>>(
+		Object.fromEntries(data.proxies.map((p) => [p.name, p.overview]))
+	);
+	let overviewBusy = $state<Record<string, boolean>>({});
+	/** Backend an attach/detach/fix action is running on, per proxy. */
+	let backendBusy = $state<Record<string, string | null>>({});
+	/** Per-proxy pick in the "Attach a server" dropdown. */
+	let attachPick = $state<Record<string, string>>({});
+
 	// The proxy list itself (which proxies exist) still comes from load;
 	// the stream only refreshes each row's summary.
 	const proxies = $derived(overlaySummaries(data.proxies, liveSummaries));
@@ -39,6 +52,7 @@
 				for (const server of nextServers) next[server.name] = server;
 				liveSummaries = next;
 			},
+			reconnect: {},
 			onClose: () => {
 				serversStream = null;
 			}
@@ -52,6 +66,43 @@
 	function isRunning(proxy: PageData['proxies'][number]): boolean {
 		if (proxy.summary) return proxy.summary.up;
 		return (proxy.detailStatus ?? '').toLowerCase() === 'running';
+	}
+
+	async function refreshOverview(proxyName: string) {
+		if (overviewBusy[proxyName]) return;
+		overviewBusy[proxyName] = true;
+		try {
+			const [overview] = await loadProxyOverviews(fetch, [proxyName]);
+			if (overview) overviewMap[proxyName] = overview;
+		} finally {
+			delete overviewBusy[proxyName];
+			overviewBusy = { ...overviewBusy };
+		}
+	}
+
+	// A restart can change what the proxy reports about its backends, so
+	// re-check them whenever a proxy's running state flips.
+	let prevRunning = new Map<string, boolean>(
+		data.proxies.map((p) => [p.name, isRunning(p)])
+	);
+	$effect(() => {
+		for (const proxy of proxies) {
+			const now = isRunning(proxy);
+			const before = prevRunning.get(proxy.name);
+			prevRunning.set(proxy.name, now);
+			if (before !== undefined && before !== now) void refreshOverview(proxy.name);
+		}
+	});
+
+	function overviewFor(proxy: PageData['proxies'][number]): ProxyOverview {
+		return overviewMap[proxy.name] ?? proxy.overview;
+	}
+
+	function candidateBackends(proxy: PageData['proxies'][number]): string[] {
+		const attached = new Set(
+			(overviewFor(proxy).summary?.backends ?? []).map((b) => b.serverName)
+		);
+		return data.gameServers.filter((name) => !attached.has(name));
 	}
 
 	async function handleAction(name: string, action: 'start' | 'stop' | 'restart') {
@@ -72,6 +123,75 @@
 			await invalidateAll();
 		} finally {
 			actionLoading[name] = false;
+		}
+	}
+
+	async function clearBusy(proxyName: string) {
+		delete backendBusy[proxyName];
+		backendBusy = { ...backendBusy };
+	}
+
+	async function handleAttach(proxyName: string) {
+		const serverName = attachPick[proxyName];
+		if (!serverName || backendBusy[proxyName]) return;
+		actionError[proxyName] = '';
+		backendBusy[proxyName] = serverName;
+		try {
+			const result = await attachServerToProxy(fetch, { serverName, proxyName });
+			if (!result.ok) {
+				actionError[proxyName] = result.error;
+				return;
+			}
+			await refreshOverview(proxyName);
+		} finally {
+			await clearBusy(proxyName);
+		}
+	}
+
+	async function handleDetach(proxyName: string, backend: BackendForwarding) {
+		if (backendBusy[proxyName]) return;
+		const confirmed = await modal.confirm(
+			`Remove ${backend.serverName} from ${proxyName}'s backend list? Players will no longer reach it through ${proxyName}.`,
+			'Detach Server'
+		);
+		if (!confirmed) return;
+		actionError[proxyName] = '';
+		backendBusy[proxyName] = backend.serverName;
+		try {
+			const result = await detachServerFromProxy(fetch, {
+				serverName: backend.serverName,
+				proxyName
+			});
+			if (!result.ok) {
+				actionError[proxyName] = result.error;
+				return;
+			}
+			await refreshOverview(proxyName);
+		} finally {
+			await clearBusy(proxyName);
+		}
+	}
+
+	async function handleRemediate(proxyName: string, backend: BackendForwarding) {
+		if (backendBusy[proxyName] || !backend.remediationAction) return;
+		actionError[proxyName] = '';
+		backendBusy[proxyName] = backend.serverName;
+		try {
+			if (backend.remediationAction === 'install-mod') {
+				const modResult = await api.installForwardingMod(fetch, backend.serverName);
+				if (modResult.error) {
+					actionError[proxyName] = `Installing the forwarding mod failed: ${modResult.error}`;
+					return;
+				}
+			}
+			const secureResult = await api.secureBackend(fetch, backend.serverName);
+			if (secureResult.error) {
+				actionError[proxyName] = `Securing forwarding failed: ${secureResult.error}`;
+				return;
+			}
+			await refreshOverview(proxyName);
+		} finally {
+			await clearBusy(proxyName);
 		}
 	}
 </script>
@@ -104,6 +224,7 @@
 		</div>
 	{:else}
 		{#each proxies as proxy (proxy.name)}
+			{@const overview = overviewFor(proxy)}
 			<section class="card">
 				<div class="proxy-head">
 					<div class="proxy-title">
@@ -174,17 +295,68 @@
 					<div class="fetch-error">{actionError[proxy.name]}</div>
 				{/if}
 
-				{#if proxy.overview.error}
+				{#if overview.error}
 					<div class="fetch-error">
-						Couldn't load backend info: {proxy.overview.error}
+						Couldn't load backend info: {overview.error}
 					</div>
-				{:else if proxy.overview.summary && proxy.overview.summary.backends.length === 0}
+				{:else if overview.summary && overview.summary.backends.length === 0}
 					<p class="no-backends">
 						No backends configured yet — players joining this proxy have nowhere to go. Attach a
-						game server from the create-server wizard, or add one in its properties.
+						game server below, or pick one in the create-server wizard.
 					</p>
+					{#if candidateBackends(proxy).length > 0}
+						<div class="attach-row">
+							<label class="attach-label" for="attach-{proxy.name}">Attach a server:</label>
+							<select
+								id="attach-{proxy.name}"
+								class="attach-select"
+								bind:value={attachPick[proxy.name]}
+							>
+								<option value="" disabled>Choose a server…</option>
+								{#each candidateBackends(proxy) as name (name)}
+									<option value={name}>{name}</option>
+								{/each}
+							</select>
+							<button
+								class="btn-action btn-attach"
+								type="button"
+								disabled={!attachPick[proxy.name] || backendBusy[proxy.name] != null}
+								onclick={() => handleAttach(proxy.name)}
+							>
+								{backendBusy[proxy.name] ? 'Attaching…' : 'Attach'}
+							</button>
+						</div>
+					{/if}
 				{:else}
-					<ProxyBackendRollup summary={proxy.overview.summary} />
+					<ProxyBackendRollup
+						summary={overview.summary}
+						busyBackend={backendBusy[proxy.name] ?? null}
+						onremediate={(backend) => handleRemediate(proxy.name, backend)}
+						ondetach={(backend) => handleDetach(proxy.name, backend)}
+					/>
+					{#if candidateBackends(proxy).length > 0}
+						<div class="attach-row">
+							<label class="attach-label" for="attach-{proxy.name}">Attach another server:</label>
+							<select
+								id="attach-{proxy.name}"
+								class="attach-select"
+								bind:value={attachPick[proxy.name]}
+							>
+								<option value="" disabled>Choose a server…</option>
+								{#each candidateBackends(proxy) as name (name)}
+									<option value={name}>{name}</option>
+								{/each}
+							</select>
+							<button
+								class="btn-action btn-attach"
+								type="button"
+								disabled={!attachPick[proxy.name] || backendBusy[proxy.name] != null}
+								onclick={() => handleAttach(proxy.name)}
+							>
+								{backendBusy[proxy.name] ? 'Attaching…' : 'Attach'}
+							</button>
+						</div>
+					{/if}
 				{/if}
 			</section>
 		{/each}
@@ -386,5 +558,35 @@
 		font-size: 14px;
 		color: #8890b1;
 		font-style: italic;
+	}
+
+	.attach-row {
+		display: flex;
+		align-items: center;
+		gap: 10px;
+		margin-top: 12px;
+		flex-wrap: wrap;
+	}
+
+	.attach-label {
+		font-size: 13px;
+		font-weight: 600;
+		color: #8890b1;
+	}
+
+	.attach-select {
+		padding: 7px 10px;
+		font-size: 13px;
+		font-family: inherit;
+		border-radius: 8px;
+		border: 1px solid var(--border-color, #2a2f47);
+		background: var(--mc-panel-light, #2a2f47);
+		color: #eef0f8;
+	}
+
+	.btn-attach {
+		background: rgba(106, 176, 76, 0.15);
+		border-color: rgba(106, 176, 76, 0.4);
+		color: var(--mc-grass, #6ab04c);
 	}
 </style>

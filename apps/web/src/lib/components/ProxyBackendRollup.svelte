@@ -1,10 +1,21 @@
 <script lang="ts">
-	import type { ProxyBackendSummary, BackendForwarding } from '$lib/api/types';
+	import type { BackendForwarding, ProxyBackendSummary } from '$lib/api/types';
 
-	let { summary }: { summary: ProxyBackendSummary | null } = $props();
+	interface Props {
+		summary: ProxyBackendSummary | null;
+		/** Name of the backend an action is currently running on, if any. */
+		busyBackend?: string | null;
+		/** Offer "Fix forwarding" when a backend advertises a remediation. */
+		onremediate?: (backend: BackendForwarding) => void;
+		/** Offer removing a backend from this proxy's list. */
+		ondetach?: (backend: BackendForwarding) => void;
+	}
+
+	let { summary, busyBackend = null, onremediate, ondetach }: Props = $props();
 
 	let backends = $derived(summary?.backends ?? []);
 	let openCount = $derived(backends.filter((b) => b.isSpoofable).length);
+	let hasRowActions = $derived(Boolean(onremediate || ondetach));
 
 	function label(b: BackendForwarding): string {
 		if (b.isSpoofable) return 'Open to impersonation';
@@ -50,6 +61,9 @@
 						<th>Type</th>
 						<th>Status</th>
 						<th>Reachable from outside</th>
+						{#if hasRowActions}
+							<th>Actions</th>
+						{/if}
 					</tr>
 				</thead>
 				<tbody>
@@ -71,6 +85,35 @@
 									<span class="muted">Unknown</span>
 								{/if}
 							</td>
+							{#if hasRowActions}
+								<td class="row-actions">
+									{#if backend.remediationAction && onremediate}
+										<button
+											class="row-btn fix"
+											type="button"
+											disabled={busyBackend !== null}
+											onclick={() => onremediate(backend)}
+										>
+											{busyBackend === backend.serverName
+												? 'Fixing…'
+												: backend.remediationAction === 'install-mod'
+													? 'Install forwarding mod'
+													: 'Fix forwarding'}
+										</button>
+									{/if}
+									{#if ondetach}
+										<button
+											class="row-btn detach"
+											type="button"
+											disabled={busyBackend !== null}
+											title="Remove {backend.serverName} from this proxy's backend list"
+											onclick={() => ondetach(backend)}
+										>
+											Remove
+										</button>
+									{/if}
+								</td>
+							{/if}
 						</tr>
 					{/each}
 				</tbody>
@@ -78,8 +121,15 @@
 		</div>
 
 		<p class="note">
-			Open a server to secure it. Backends that cannot verify forwarded players — Forge, vanilla,
-			or anything behind BungeeCord — rely entirely on not being reachable from outside.
+			{#if onremediate}
+				Fix forwarding lets the proxy vouch for a backend's players. Backends that cannot verify
+				forwarded players — Forge, vanilla, or anything behind BungeeCord — rely entirely on not
+				being reachable from outside.
+			{:else}
+				Open a server to secure it. Backends that cannot verify forwarded players — Forge,
+				vanilla, or anything behind BungeeCord — rely entirely on not being reachable from
+				outside.
+			{/if}
 		</p>
 	</section>
 {/if}
@@ -158,5 +208,38 @@
 		font-size: 0.8rem;
 		opacity: 0.75;
 		line-height: 1.5;
+	}
+
+	.row-actions {
+		display: flex;
+		gap: 6px;
+	}
+
+	.row-btn {
+		padding: 4px 10px;
+		font-size: 0.78rem;
+		font-weight: 600;
+		font-family: inherit;
+		border-radius: 6px;
+		border: 1px solid var(--border-color, #2a2f47);
+		background: var(--mc-panel-light, #2a2f47);
+		color: #c4cff5;
+		cursor: pointer;
+	}
+
+	.row-btn:disabled {
+		opacity: 0.5;
+		cursor: not-allowed;
+	}
+
+	.row-btn.fix {
+		border-color: rgba(106, 176, 76, 0.4);
+		background: rgba(106, 176, 76, 0.12);
+		color: var(--mc-grass, #6ab04c);
+	}
+
+	.row-btn.detach:hover:not(:disabled) {
+		border-color: rgba(210, 94, 72, 0.5);
+		color: #ffb6a6;
 	}
 </style>

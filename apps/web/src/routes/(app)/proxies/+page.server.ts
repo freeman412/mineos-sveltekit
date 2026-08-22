@@ -19,6 +19,8 @@ export const load: PageServerLoad = async ({ fetch }) => {
 			detailStatus: p.status,
 			summary: summaries.get(p.name) ?? null,
 			overview: overviews.find((o) => o.proxyName === p.name)!
-		}))
+		})),
+		// Candidates for "attach to proxy" — everything that isn't itself a proxy.
+		gameServers: (details.data ?? []).filter((s) => s.serverType !== 'proxy').map((s) => s.name)
 	};
 };
