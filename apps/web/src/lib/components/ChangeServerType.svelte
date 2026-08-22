@@ -19,7 +19,7 @@
 		onComplete: () => void;
 	} = $props();
 
-	type ServerType = 'vanilla' | 'paper' | 'spigot' | 'forge' | 'neoforge' | 'fabric' | 'quilt' | 'velocity' | 'bungeecord';
+	type ServerType = 'vanilla' | 'paper' | 'spigot' | 'bedrock' | 'forge' | 'neoforge' | 'fabric' | 'quilt' | 'velocity' | 'bungeecord';
 
 	const serverTypes: { id: ServerType; name: string; category: string }[] = [
 		{ id: 'vanilla', name: 'Vanilla', category: 'vanilla' },

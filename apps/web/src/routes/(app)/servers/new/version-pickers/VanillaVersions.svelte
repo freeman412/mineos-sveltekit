@@ -4,7 +4,7 @@
 
 	interface Props {
 		profiles: Profile[];
-		implementation: 'vanilla' | 'paper' | 'spigot';
+		implementation: 'vanilla' | 'paper' | 'spigot' | 'craftbukkit';
 		onselect: (profile: Profile) => void;
 		onready?: (fn: (() => void) | null) => void;
 	}
