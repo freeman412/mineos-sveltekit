@@ -38,8 +38,7 @@
 	const navItems = [
 		{ href: '/dashboard', label: 'Dashboard', icon: '[D]' },
 		{ href: '/servers', label: 'Servers', icon: '[S]' },
-		// Only shown while at least one proxy-type server exists (see filter below)
-		{ href: '/networking', label: 'Networking', icon: '[N]', showIfProxy: true },
+		{ href: '/networking', label: 'Networking', icon: '[N]' },
 		{ href: '/profiles', label: 'Profiles', icon: '[P]' },
 		{ href: '/admin/access', label: 'Users', icon: '[U]', requiresAdmin: true },
 		{ href: '/admin/settings', label: 'Settings', icon: '[G]', requiresAdmin: true },
@@ -48,7 +47,6 @@
 
 	function isVisible(item: (typeof navItems)[number]) {
 		if (item.requiresAdmin && data.user?.role !== 'admin') return false;
-		if (item.showIfProxy && !data.servers.some((s) => s.serverType === 'proxy')) return false;
 		return true;
 	}
 

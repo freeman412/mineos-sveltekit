@@ -1,9 +1,15 @@
 <script lang="ts">
 	import { goto, invalidateAll } from '$app/navigation';
+	import { page } from '$app/state';
 	import * as api from '$lib/api/client';
 	import type { PageData } from './$types';
 	import type { ForgeVersion } from '$lib/api/types';
 	import type { NeoForgeVersion } from '$lib/api/types';
+	import {
+		addBackendToBungee,
+		addBackendToVelocity,
+		backendAddress
+	} from '$lib/utils/networking';
 	import CategorySelect, { type ServerCategory } from './steps/CategorySelect.svelte';
 	import ImplementationSelect, { type Implementation } from './steps/ImplementationSelect.svelte';
 	import VersionSelect from './steps/VersionSelect.svelte';
@@ -16,10 +22,27 @@
 	type WizardStep = 'category' | 'implementation' | 'version' | 'name' | 'creating';
 	let step = $state<WizardStep>('category');
 
-	let category = $state<ServerCategory | null>(null);
+	// Deep link support: /servers/new?type=proxy jumps straight to the proxy flow
+	const preselectedType = page.url.searchParams.get('type');
+
+	let category = $state<ServerCategory | null>(
+		preselectedType === 'proxy' ? 'proxy' : null
+	);
 	let implementation = $state<Implementation | 'vanilla' | 'bedrock' | 'template' | null>(null);
 	let serverName = $state('');
 	let createError = $state('');
+
+	// Game servers can join an existing network at creation time
+	if (preselectedType === 'proxy') {
+		step = 'implementation';
+	}
+	let attachProxy = $state('');
+	const availableProxies = $derived(
+		(data.servers.data ?? []).filter((s) => s.serverType === 'proxy').map((s) => s.name)
+	);
+	// Proxies, Bedrock, and clones can't be backends, so only offer attaching
+	// for the categories that can.
+	const attachableCategories: ReadonlySet<string> = new Set(['vanilla', 'plugins', 'mods']);
 
 	// Version selection state
 	let selectedProfileId = $state('');
@@ -43,9 +66,88 @@
 	let simpleProgress = $state(0);
 	let simpleStepText = $state('');
 	let createCompleted = $state(false);
+	let attachNotice = $state<string | null>(null);
+	/** Server awaiting network wiring once its files finish installing */
+	let pendingAttachName = $state('');
+
+	/** Wire the new server into its chosen network, if one was picked. */
+	async function runPendingAttach(serverName: string) {
+		if (!pendingAttachName || pendingAttachName !== serverName) return;
+		pendingAttachName = '';
+		attachNotice = await attachToNetwork(serverName);
+		await invalidateAll();
+	}
+
+	const isProxyImplementation = $derived(
+		implementation === 'velocity' || implementation === 'bungeecord'
+	);
+	// Proxies and network-attached servers belong on the Networking page
+	const landsOnNetworking = $derived(isProxyImplementation || (!isProxyImplementation && !!attachProxy));
+	const viewLabel = $derived(landsOnNetworking ? 'View Network' : 'View Server');
+
+	/**
+	 * Register a freshly created game server with the chosen proxy and hand
+	 * identity verification over to it. Returns null on success, or a warning
+	 * string when something after the initial create failed.
+	 */
+	async function attachToNetwork(serverName: string): Promise<string | null> {
+		const proxyName = attachProxy;
+		simpleStepText = `Attaching to ${proxyName}...`;
+
+		const host = await api.getHostServers(fetch);
+		const summary = (host.data ?? []).find((s) => s.name === serverName);
+		const address = backendAddress(summary?.port);
+		if (!address) {
+			return `Couldn't find an assigned port for ${serverName}, so it wasn't attached. Attach it from Networking.`;
+		}
+
+		// Prefer Velocity's structured config; fall back to BungeeCord's.
+		const velocity = await api.getVelocityConfig(fetch, proxyName);
+		let configError: string | null = null;
+		if (velocity.data?.exists) {
+			const { error } = await api.updateVelocityConfig(
+				fetch,
+				proxyName,
+				addBackendToVelocity(velocity.data, serverName, address)
+			);
+			configError = error;
+		} else {
+			const bungee = await api.getBungeeConfig(fetch, proxyName);
+			if (bungee.data?.exists) {
+				const { error } = await api.updateBungeeConfig(
+					fetch,
+					proxyName,
+					addBackendToBungee(bungee.data, serverName, address)
+				);
+				configError = error;
+			} else {
+				configError = `couldn't load ${proxyName}'s proxy config`;
+			}
+		}
+		if (configError) return `Attached nowhere — updating ${proxyName}'s config failed: ${configError}`;
+
+		// Where the backend supports it, let the proxy vouch for players.
+		simpleStepText = 'Setting up verified forwarding...';
+		const status = await api.getForwardingStatus(fetch, serverName);
+		const remediation = status.data?.remediationAction;
+		if (remediation === 'install-mod') {
+			const modResult = await api.installForwardingMod(fetch, serverName);
+			if (modResult.error) {
+				return `Attached, but installing the forwarding mod failed: ${modResult.error}`;
+			}
+		}
+		if (remediation === 'secure' || remediation === 'install-mod') {
+			const secureResult = await api.secureBackend(fetch, serverName);
+			if (secureResult.error) {
+				return `Attached, but securing forwarding failed: ${secureResult.error}`;
+			}
+		}
+		return null;
+	}
 
 	function selectCategory(cat: ServerCategory) {
 		category = cat;
+		attachProxy = '';
 		// Categories that skip implementation selection
 		if (cat === 'vanilla') {
 			implementation = 'vanilla';
@@ -126,7 +228,7 @@
 		// Create the server first
 		simpleStepText = 'Creating server...';
 		simpleProgress = 5;
-		const isProxy = implementation === 'velocity' || implementation === 'bungeecord';
+		const isProxy = isProxyImplementation;
 		const serverType =
 			implementation === 'bedrock' ? 'bedrock'
 			: isProxy ? 'proxy'
@@ -146,6 +248,12 @@
 			step = 'name';
 			return;
 		}
+
+		// Join an existing network if requested (game servers only). The actual
+		// wiring waits until the server's files are fully installed — running it
+		// earlier would let the install overwrite the secured configs.
+		pendingAttachName =
+			!isProxy && attachProxy && attachableCategories.has(category ?? '') ? name : '';
 
 		// For modloaders, trigger installation
 		if (implementation === 'forge' && selectedForgeVersion) {
@@ -266,13 +374,16 @@
 				return;
 			}
 
+			await runPendingAttach(name);
 			simpleProgress = 100;
 			createCompleted = true;
 			return;
 		}
 
-		// For modloaders, completion is handled by InstallProgress component
+		// For modloaders, completion is handled by InstallProgress component.
+		// Fabric/Quilt resolve inline once their single-JAR download finishes.
 		if (!installStreamUrl) {
+			await runPendingAttach(name);
 			simpleProgress = 100;
 			createCompleted = true;
 		}
@@ -280,6 +391,18 @@
 
 	const stepNumber = $derived(
 		step === 'category' ? 1 : step === 'implementation' ? 2 : step === 'version' ? 2 : step === 'name' ? 3 : 4
+	);
+
+	// Creating a proxy is setting up a network — the whole wizard says so.
+	const proxyMode = $derived(category === 'proxy');
+	const wizardTitle = $derived(proxyMode ? 'Set Up a Network' : 'Create New Server');
+	const wizardSubtitle = $derived(
+		proxyMode
+			? 'Create a proxy players join, then attach your game servers behind it'
+			: 'Set up your perfect Minecraft server in just a few steps'
+	);
+	const stepLabels = $derived(
+		proxyMode ? ['Network', 'Software', 'Name', 'Create'] : ['Server Type', 'Version', 'Name', 'Create']
 	);
 
 	/** Wait for a fast install to complete by watching the SSE stream inline */
@@ -352,6 +475,10 @@
 	}
 
 	function viewServer() {
+		if (landsOnNetworking) {
+			goto('/networking');
+			return;
+		}
 		goto(`/servers/${encodeURIComponent(serverName.trim())}`);
 	}
 </script>
@@ -361,18 +488,18 @@
 </svelte:head>
 
 <div class="page-header">
-	<h1>Create New Server</h1>
-	<p class="subtitle">Set up your perfect Minecraft server in just a few steps</p>
+	<h1>{wizardTitle}</h1>
+	<p class="subtitle">{wizardSubtitle}</p>
 </div>
 
 <div class="wizard">
 	<div class="wizard-container">
 		<nav class="step-indicator">
 			{#each [
-				{ num: 1, label: 'Server Type' },
-				{ num: 2, label: 'Version' },
-				{ num: 3, label: 'Name' },
-				{ num: 4, label: 'Create' }
+				{ num: 1, label: stepLabels[0] },
+				{ num: 2, label: stepLabels[1] },
+				{ num: 3, label: stepLabels[2] },
+				{ num: 4, label: stepLabels[3] }
 			] as s, i}
 				{#if i > 0}
 					<div class="step-line" class:active={stepNumber > s.num - 1}></div>
@@ -383,7 +510,7 @@
 			{/each}
 		</nav>
 		<div class="step-labels">
-			{#each ['Server Type', 'Version', 'Name', 'Create'] as label, i}
+			{#each stepLabels as label, i}
 				<span class:active={stepNumber >= i + 1} class:current={stepNumber === i + 1}>{label}</span>
 			{/each}
 		</div>
@@ -409,6 +536,12 @@
 			<ServerName
 				value={serverName}
 				error={createError}
+				isProxy={proxyMode}
+				proxies={
+					category && attachableCategories.has(category) ? availableProxies : []
+				}
+				{attachProxy}
+				onattachchange={(v) => (attachProxy = v)}
 				onchange={(v) => (serverName = v)}
 				oncreate={createServer}
 				onback={goBackFromName}
@@ -417,11 +550,15 @@
 			<Creating
 				implementation={implementation ?? 'unknown'}
 				serverName={serverName}
+				isProxy={proxyMode}
 				streamUrl={installStreamUrl || undefined}
 				progress={simpleProgress}
 				stepText={simpleStepText}
 				completed={createCompleted}
 				error={createError || undefined}
+				notice={attachNotice ?? undefined}
+				viewLabel={viewLabel}
+				oncomplete={() => runPendingAttach(serverName.trim())}
 				onviewserver={viewServer}
 			/>
 		{/if}

@@ -37,15 +37,8 @@
 			color: '#a855f7',
 			features: ['New blocks', 'Dimensions', 'Total conversions']
 		},
-		{
-			id: 'proxy' as const,
-			name: 'Proxy',
-			description: 'Velocity proxy for routing players across multiple backend servers',
-			icon: '🌐',
-			iconImage: '',
-			color: '#06b6d4',
-			features: ['Multi-server', 'Network', 'No world']
-		},
+		// NOTE: no 'proxy' entry here — networks are created through the
+		// Networking page (/servers/new?type=proxy), never the server wizard.
 		{
 			id: 'bedrock' as const,
 			name: 'Bedrock',

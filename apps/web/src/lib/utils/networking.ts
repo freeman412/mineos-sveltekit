@@ -1,6 +1,6 @@
 import type { Fetcher } from '$lib/api/client';
 import { getProxyBackends } from '$lib/api/client';
-import type { ProxyBackendSummary } from '$lib/api/types';
+import type { BungeeBackend, BungeeConfig, ProxyBackendSummary, VelocityConfig } from '$lib/api/types';
 
 /**
  * One proxy's backend rollup for the networking overview. `summary` is null
@@ -13,23 +13,39 @@ export type ProxyOverview = {
 };
 
 /**
- * Partition servers into proxy-type and game servers by name, preserving
- * each group's original order.
+ * The address a proxy uses to reach a backend server, or null when the
+ * server has no assigned port yet (and therefore cannot be attached).
  */
-export function splitByProxy<T extends { name: string }>(
-	servers: readonly T[],
-	proxyNames: ReadonlySet<string>
-): { proxies: T[]; game: T[] } {
-	const proxies: T[] = [];
-	const game: T[] = [];
-	for (const server of servers) {
-		if (proxyNames.has(server.name)) {
-			proxies.push(server);
-		} else {
-			game.push(server);
-		}
-	}
-	return { proxies, game };
+export function backendAddress(port?: number | null): string | null {
+	if (!port || port <= 0) return null;
+	return `localhost:${port}`;
+}
+
+/**
+ * Register a game server in a Velocity proxy's server map. Returns a new
+ * config; the original is left untouched. Re-attaching an existing name
+ * overwrites its address rather than duplicating it.
+ */
+export function addBackendToVelocity(
+	config: VelocityConfig,
+	name: string,
+	address: string
+): VelocityConfig {
+	return { ...config, servers: { ...config.servers, [name]: address } };
+}
+
+/**
+ * Register a game server in a BungeeCord proxy's server map. New backends are
+ * unrestricted and reuse the name as their MOTD. Returns a new config; the
+ * original is left untouched.
+ */
+export function addBackendToBungee(
+	config: BungeeConfig,
+	name: string,
+	address: string
+): BungeeConfig {
+	const entry: BungeeBackend = { address, motd: name, restricted: false };
+	return { ...config, servers: { ...config.servers, [name]: entry } };
 }
 
 /**

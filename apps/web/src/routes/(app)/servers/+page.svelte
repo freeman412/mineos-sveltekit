@@ -7,7 +7,6 @@
 	import { modal } from '$lib/stores/modal';
 	import { formatBytes, formatDate } from '$lib/utils/formatting';
 	import { createEventStream, type EventStreamHandle } from '$lib/utils/eventStream';
-	import { splitByProxy } from '$lib/utils/networking';
 	import CopyButton from '$lib/components/CopyButton.svelte';
 	import ProgressBar from '$lib/components/ProgressBar.svelte';
 	import StatusBadge from '$lib/components/StatusBadge.svelte';
@@ -30,10 +29,10 @@
 	let importLoading = $state<Record<string, boolean>>({});
 	let servers = $state<ServerSummary[]>(data.servers.data ?? []);
 	let serversError = $state<string | null>(data.servers.error);
-	// Proxy names come from the detailed server list (the SSE summary stream has
-	// no serverType), so they only refresh on load invalidation.
+	// Proxies live on the Networking page, not in this grid. The SSE stream has
+	// no serverType, so proxy names come from load and refresh on invalidation.
 	let proxyNames = $derived(new Set(data.proxyNames ?? []));
-	const { proxies, game } = $derived.by(() => splitByProxy(servers, proxyNames));
+	const visibleServers = $derived(servers.filter((s) => !proxyNames.has(s.name)));
 	let serversStream: EventStreamHandle | null = null;
 	let memoryHistory = $state<Record<string, number[]>>({});
 	let imports = $state<ArchiveEntry[]>(data.imports.data ?? []);
@@ -522,7 +521,7 @@
 	<div class="error-box">
 		<p>Failed to load servers: {serversError}</p>
 	</div>
-{:else if servers.length > 0}
+{:else if visibleServers.length > 0}
 	{#snippet serverCard(server: ServerSummary)}
 		{@const isCreating = creatingServers.has(server.name)}
 		<div
@@ -646,24 +645,15 @@
 		</div>
 	{/snippet}
 
-	{#if proxies.length > 0}
-		<div class="grid-section-label">Proxies</div>
-		<div class="server-grid">
-			{#each proxies as server}
-				{@render serverCard(server)}
-			{/each}
-		</div>
-		<div class="grid-section-label">Game Servers</div>
-	{/if}
 	<div class="server-grid">
-		{#each game as server}
+		{#each visibleServers as server (server.name)}
 			{@render serverCard(server)}
 		{/each}
 	</div>
 {:else}
 	<div class="empty-state">
 		<p class="empty-icon">[]</p>
-		<h2>No servers yet</h2>
+		<h2>No game servers yet</h2>
 		<p>Create your first Minecraft server to get started</p>
 		<a href="/servers/new" class="btn-primary">Create Server</a>
 	</div>
@@ -907,19 +897,6 @@
 		display: grid;
 		grid-template-columns: repeat(auto-fill, minmax(min(350px, 100%), 1fr));
 		gap: 20px;
-	}
-
-	.grid-section-label {
-		margin: 4px 0 14px;
-		font-size: 13px;
-		font-weight: 600;
-		text-transform: uppercase;
-		letter-spacing: 0.08em;
-		color: #8e96bb;
-	}
-
-	.grid-section-label + .server-grid {
-		margin-bottom: 8px;
 	}
 
 	.server-card {

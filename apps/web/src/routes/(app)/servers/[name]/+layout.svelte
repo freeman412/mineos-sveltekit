@@ -59,17 +59,14 @@
 
 	const tabs: Tab[] = $derived.by(() => {
 		const s = server?.name;
-		return [
+		const all: Tab[] = [
 			{ href: `/servers/${s}`, label: 'Dashboard', exact: true },
-			isProxy
-				? {
-						href: `/servers/${s}/proxy-config`,
-						label: 'Properties'
-					}
-				: {
-						href: `/servers/${s}/config`,
-						label: 'Properties'
-					},
+			{
+				href: `/servers/${s}/config`,
+				label: 'Properties',
+				disabled: isProxy,
+				tooltip: isProxy ? 'Proxy properties live on the Networking page' : undefined
+			},
 			{
 				href: `/servers/${s}/advanced`,
 				label: 'Config',
@@ -114,6 +111,7 @@
 			},
 			{ href: `/servers/${s}/cron`, label: 'Cron Jobs' }
 		];
+		return all;
 	});
 
 	function isActiveTab(href: string, exact = false) {
