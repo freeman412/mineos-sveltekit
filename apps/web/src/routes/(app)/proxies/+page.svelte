@@ -108,7 +108,7 @@
 		return data.gameServers.filter((name) => !attached.has(name));
 	}
 
-	async function handleAction(name: string, action: 'start' | 'stop' | 'restart') {
+	async function handleAction(name: string, action: 'start' | 'stop' | 'restart' | 'kill') {
 		if (actionLoading[name]) return;
 		actionLoading[name] = true;
 		actionError[name] = '';
@@ -118,9 +118,36 @@
 					? await api.startServer(fetch, name)
 					: action === 'stop'
 						? await api.stopServer(fetch, name)
-						: await api.restartServer(fetch, name);
+						: action === 'kill'
+							? await api.killServer(fetch, name)
+							: await api.restartServer(fetch, name);
 			if (result.error) {
 				actionError[name] = `${action} failed: ${result.error}`;
+				return;
+			}
+			await invalidateAll();
+		} finally {
+			actionLoading[name] = false;
+		}
+	}
+
+	// The pre-#176 server card could delete a proxy; the proxies card could not,
+	// leaving no way to remove one from the section that owns it.
+	async function handleDelete(name: string) {
+		if (actionLoading[name]) return;
+		const confirmed = await modal.confirm(
+			`Delete proxy "${name}"? Its configuration, plugins and logs are removed permanently. ` +
+				'Game servers behind it are not deleted, but they stop being reachable through it.',
+			'Delete Proxy'
+		);
+		if (!confirmed) return;
+
+		actionLoading[name] = true;
+		actionError[name] = '';
+		try {
+			const result = await api.deleteServer(fetch, name);
+			if (result.error) {
+				actionError[name] = `delete failed: ${result.error}`;
 				return;
 			}
 			await invalidateAll();
@@ -212,8 +239,8 @@
 			<h1>Proxies</h1>
 			<p class="subtitle">
 				Your proxies and the game servers behind them. Players join a proxy's address and hop
-				between its servers — together, that's your network. A proxy is still a server process:
-				console, files, and backups stay on its server page.
+				between its servers — together, that's your network. Open one to reach its console,
+				logs, files and plugins.
 			</p>
 		</div>
 		<a class="btn-setup" href="/servers/new?type=proxy">+ Set up a proxy</a>
@@ -262,7 +289,7 @@
 			<section class="card">
 				<div class="proxy-head">
 					<div class="proxy-title">
-						<h2><a href="/servers/{proxy.name}">{proxy.name}</a></h2>
+						<h2><a href="/proxies/{proxy.name}">{proxy.name}</a></h2>
 						<StatusBadge
 							variant={isRunning(proxy) ? 'success' : 'error'}
 							size="sm"
@@ -272,7 +299,7 @@
 						</StatusBadge>
 					</div>
 					<div class="proxy-actions">
-						<a class="edit-link" href="/proxies/{proxy.name}/proxy-config">Edit properties</a>
+						<a class="edit-link" href="/proxies/{proxy.name}">Manage</a>
 						{#if isRunning(proxy)}
 							<button
 								class="btn-action"
@@ -290,6 +317,15 @@
 							>
 								Stop
 							</button>
+							<button
+								class="btn-action btn-stop"
+								type="button"
+								disabled={actionLoading[proxy.name]}
+								onclick={() => handleAction(proxy.name, 'kill')}
+								title="Force-kill the proxy process"
+							>
+								Kill
+							</button>
 						{:else}
 							<button
 								class="btn-action btn-start"
@@ -300,6 +336,14 @@
 								{actionLoading[proxy.name] ? '…' : 'Start'}
 							</button>
 						{/if}
+						<button
+							class="btn-action btn-delete"
+							type="button"
+							disabled={actionLoading[proxy.name]}
+							onclick={() => handleDelete(proxy.name)}
+						>
+							Delete
+						</button>
 					</div>
 				</div>
 
@@ -444,7 +488,11 @@
 
 	.proxy-title a {
 		color: #eef0f8;
-		text-decoration: none;
+		/* #176 rendered this with no affordance at all, so the only route to a
+		   proxy's console and files looked like plain text. */
+		text-decoration: underline;
+		text-decoration-color: rgba(238, 240, 248, 0.35);
+		text-underline-offset: 4px;
 	}
 
 	.proxy-title a:hover {
@@ -485,6 +533,12 @@
 		background: rgba(210, 94, 72, 0.12);
 		border-color: rgba(210, 94, 72, 0.35);
 		color: #ffb6a6;
+	}
+
+	.btn-delete {
+		border-color: rgba(255, 107, 107, 0.35);
+		background: rgba(255, 107, 107, 0.12);
+		color: #ff8f8f;
 	}
 
 	.edit-link {

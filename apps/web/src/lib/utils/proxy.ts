@@ -148,3 +148,45 @@ export function createClassificationRefresher(
 		if (sawNew) refresh();
 	};
 }
+
+/**
+ * Tabs a proxy keeps, mapped from their /servers path segment to the
+ * /proxies one. Anything absent here has no meaning for a proxy — worlds,
+ * players and mods were already disabled before the move, and archives are
+ * ceremony for a directory whose whole non-jar content is under a megabyte.
+ */
+const PROXY_TAB_PATHS: Readonly<Record<string, string>> = {
+	advanced: 'advanced',
+	backups: 'backups',
+	cron: 'cron',
+	files: 'files',
+	performance: 'performance',
+	plugins: 'plugins',
+	'proxy-config': 'proxy-config',
+	// A game server's Properties is server.properties; a proxy's is its
+	// velocity.toml/config.yml editor.
+	config: 'proxy-config',
+	// The Server/Java/Crash log viewer, which no tab ever linked to.
+	console: 'logs'
+};
+
+/**
+ * Where a /servers/<name>/... URL belongs once <name> is known to be a proxy.
+ *
+ * #176 pulled proxies out of /servers but left this page behind it, so a
+ * proxy's console, files and backups were reachable only by guessing the URL.
+ * Callers redirect to whatever this returns.
+ */
+export function proxyDetailPath(name: string, pathname: string): string {
+	const encoded = encodeURIComponent(name);
+	const base = `/proxies/${encoded}`;
+
+	const prefix = `/servers/${name}`;
+	if (!pathname.startsWith(prefix)) return base;
+
+	const rest = pathname.slice(prefix.length).replace(/^\/+/, '').replace(/\/+$/, '');
+	if (!rest) return base;
+
+	const tab = PROXY_TAB_PATHS[rest.split('/')[0]];
+	return tab ? `${base}/${tab}` : base;
+}
