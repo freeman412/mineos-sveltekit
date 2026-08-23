@@ -4,6 +4,7 @@
 	import StatusBadge from '$lib/components/StatusBadge.svelte';
 	import ServerQuickActions from '$lib/components/ServerQuickActions.svelte';
 	import ServerIconUploader from '$lib/components/ServerIconUploader.svelte';
+	import ServerUpdateBadge from '$lib/components/ServerUpdateBadge.svelte';
 	import type { LayoutData } from './$types';
 	import type { ServerHeartbeat } from '$lib/api/types';
 
@@ -197,6 +198,9 @@
 				</StatusBadge>
 				{#if isProxy}
 					<span class="proxy-chip">Proxy</span>
+				{/if}
+				{#if server?.name}
+					<ServerUpdateBadge serverName={server.name} running={statusMeta.running} />
 				{/if}
 			</div>
 			<div class="server-meta">

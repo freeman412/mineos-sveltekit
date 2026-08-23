@@ -515,6 +515,19 @@ public class ServerService : IServerService
             "crash-reports"
         });
 
+        // Update preferences are per-server (issue #83): a clone starts fresh.
+        // The jar filename still identifies the cloned software for detection.
+        var cloneConfigPath = GetConfigPath(newName);
+        if (File.Exists(cloneConfigPath))
+        {
+            var cloneSections = IniParser.ParseWithSections(
+                await File.ReadAllTextAsync(cloneConfigPath, cancellationToken));
+            if (cloneSections.Remove("updates"))
+            {
+                await File.WriteAllTextAsync(cloneConfigPath, IniParser.WriteWithSections(cloneSections), cancellationToken);
+            }
+        }
+
         var backupPath = GetBackupPath(newName);
         var archivePath = GetArchivePath(newName);
         Directory.CreateDirectory(backupPath);
@@ -1848,8 +1861,20 @@ public class ServerService : IServerService
             }
         };
 
-        var content = IniParser.WriteWithSections(sections);
+        // [updates] is owned by UpdateService and deliberately absent from the
+        // DTO; carry the raw section through so this full-replace write cannot
+        // silently wipe a server's update preferences.
         var configPath = GetConfigPath(name);
+        if (File.Exists(configPath))
+        {
+            var rawSections = IniParser.ParseWithSections(await File.ReadAllTextAsync(configPath, cancellationToken));
+            if (rawSections.TryGetValue("updates", out var updatesSection))
+            {
+                sections["updates"] = updatesSection;
+            }
+        }
+
+        var content = IniParser.WriteWithSections(sections);
         await File.WriteAllTextAsync(configPath, content, cancellationToken);
         await OwnershipHelper.ChangeOwnershipAsync(configPath, _options.RunAsUid, _options.RunAsGid, _logger, cancellationToken);
 

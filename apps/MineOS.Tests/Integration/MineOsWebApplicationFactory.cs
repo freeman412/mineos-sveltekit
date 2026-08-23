@@ -27,6 +27,12 @@ public class MineOsWebApplicationFactory : WebApplicationFactory<Program>
     private readonly string _hostRoot =
         Path.Combine(Path.GetTempPath(), $"mineos-tests-{Guid.NewGuid():N}");
 
+    /// <summary>
+    /// Lets integration tests plant real files (jars, configs) into the same
+    /// throwaway server root the API under test operates on.
+    /// </summary>
+    public string HostRoot => _hostRoot;
+
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.UseEnvironment("Testing");

@@ -472,10 +472,33 @@
 		}
 	}
 
+	// Software-update badges (issue #83): one cheap local GET per card. Only
+	// servers with a pending update stay in the map, so the common case is quiet.
+	let updateBadges = $state<Record<string, boolean>>({});
+
+	async function loadUpdateBadges() {
+		const names = (data.servers.data ?? [])
+			.filter((s) => !(data.proxyNames ?? []).includes(s.name))
+			.map((s) => s.name);
+		const results = await Promise.all(
+			names.map(async (name) => {
+				const result = await api.getServerUpdates(fetch, name);
+				return [name, result.data?.updateAvailable === true] as const;
+			})
+		);
+		const next: Record<string, boolean> = {};
+		for (const [name, available] of results) {
+			if (available) next[name] = true;
+		}
+		updateBadges = next;
+	}
+
 	onMount(() => {
 		updateMemoryHistory(servers);
 		loadActiveTasks();
 		jobsInterval = setInterval(loadActiveTasks, 5000);
+
+		void loadUpdateBadges();
 
 		// Restore active import jobs from previous navigation
 		restoreImportJobsFromStorage();
@@ -580,6 +603,9 @@
 				{/if}
 				{#if server.needsRestart}
 					<span class="badge badge-warning">Restart required</span>
+				{/if}
+				{#if updateBadges[server.name]}
+					<span class="badge badge-update">Update available</span>
 				{/if}
 			</div>
 			<div class="card-metrics">
@@ -1010,6 +1036,12 @@
 		background: rgba(255, 200, 87, 0.15);
 		color: #f4c08e;
 		border-color: rgba(255, 200, 87, 0.35);
+	}
+
+	.badge-update {
+		background: rgba(230, 170, 60, 0.15);
+		color: #ffd9a0;
+		border-color: rgba(230, 170, 60, 0.4);
 	}
 
 	.card-metrics {
