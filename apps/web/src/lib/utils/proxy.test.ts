@@ -7,6 +7,7 @@ import {
 	loadProxyOverviews,
 	overlaySummaries,
 	removeBackendFromBungee,
+	proxyDetailPath,
 	removeBackendFromVelocity
 } from './proxy';
 import {
@@ -270,5 +271,48 @@ describe('createClassificationRefresher', () => {
 		onRows([{ name: 'hub' }, { name: 'creative' }]);
 
 		expect(refreshes).toBe(2);
+	});
+});
+
+/**
+ * #176 moved proxies out of /servers but left their detail page behind, so
+ * console/files/backups became unreachable. Every /servers/<proxy>/... URL
+ * now maps onto the proxy section instead.
+ */
+describe('proxyDetailPath', () => {
+	it('sends the server root to the proxy overview', () => {
+		expect(proxyDetailPath('hub', '/servers/hub')).toBe('/proxies/hub');
+	});
+
+	it('carries tabs a proxy still has across', () => {
+		expect(proxyDetailPath('hub', '/servers/hub/files')).toBe('/proxies/hub/files');
+		expect(proxyDetailPath('hub', '/servers/hub/backups')).toBe('/proxies/hub/backups');
+		expect(proxyDetailPath('hub', '/servers/hub/plugins')).toBe('/proxies/hub/plugins');
+		expect(proxyDetailPath('hub', '/servers/hub/cron')).toBe('/proxies/hub/cron');
+		expect(proxyDetailPath('hub', '/servers/hub/performance')).toBe('/proxies/hub/performance');
+		expect(proxyDetailPath('hub', '/servers/hub/advanced')).toBe('/proxies/hub/advanced');
+	});
+
+	it('routes the game-server Properties tab to the proxy config editor', () => {
+		expect(proxyDetailPath('hub', '/servers/hub/config')).toBe('/proxies/hub/proxy-config');
+		expect(proxyDetailPath('hub', '/servers/hub/proxy-config')).toBe('/proxies/hub/proxy-config');
+	});
+
+	// The log viewer was never linked from any tab; it becomes Logs.
+	it('routes the orphaned console page to Logs', () => {
+		expect(proxyDetailPath('hub', '/servers/hub/console')).toBe('/proxies/hub/logs');
+	});
+
+	// Tabs a proxy never had, plus Archives which we dropped: fall back to the
+	// overview rather than 404 on a route the proxy section does not define.
+	it('falls back to the overview for tabs a proxy has no use for', () => {
+		expect(proxyDetailPath('hub', '/servers/hub/worlds')).toBe('/proxies/hub');
+		expect(proxyDetailPath('hub', '/servers/hub/players')).toBe('/proxies/hub');
+		expect(proxyDetailPath('hub', '/servers/hub/mods')).toBe('/proxies/hub');
+		expect(proxyDetailPath('hub', '/servers/hub/archives')).toBe('/proxies/hub');
+	});
+
+	it('encodes names that need it', () => {
+		expect(proxyDetailPath('my hub', '/servers/my hub/files')).toBe('/proxies/my%20hub/files');
 	});
 });
