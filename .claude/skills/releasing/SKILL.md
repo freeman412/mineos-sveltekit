@@ -52,7 +52,16 @@ Semver `MAJOR.MINOR.PATCH` with dotted pre-release suffixes:
 5. **Create an annotated tag whose message is the changelog** (this repo puts release notes in the tag message, not the GitHub release body). See below.
 6. **Show your partner the tag + push command and get approval**, then push. `git push origin <tag>`.
 7. **Watch the two workflows.** `gh run list --limit 4`; `gh run watch <id>`.
-8. **Verify the channel.** For a prerelease, confirm `:latest` did **not** move: `docker buildx imagetools inspect ghcr.io/freeman412/mineos-api:latest` digest should be unchanged. For a stable, confirm it did. Check `gh release view <tag> --json isPrerelease,assets` (expect 8 assets: 2 bundles + 6 CLI zips).
+8. **Verify the channel.** For a prerelease, confirm `:latest` did **not** move: `docker buildx imagetools inspect ghcr.io/freeman412/mineos-api:latest` digest should be unchanged — record it *before* pushing so you have something to compare against. For a stable, confirm it did. Check `gh release view <tag> --json isPrerelease,assets` (expect **9** assets: 2 bundles + 6 CLI zips + `checksums.txt`).
+
+9. **Publish the release notes — the workflow does not.** `publish-install-bundle.yml` creates the GitHub Release with an **empty body**; the notes live only in the tag message. This is why v1.2.0-beta.4, beta.5 and beta.7 all shipped with blank release pages. Copy the tag message over once the workflow finishes:
+
+   ```bash
+   git tag -l --format='%(contents)' <tag> > /tmp/notes.md
+   gh release edit <tag> --notes-file /tmp/notes.md
+   ```
+
+   Fixing the workflow to do this itself would retire the step; until then it is manual and easy to forget.
 
 ## Annotated tag = changelog
 
@@ -75,7 +84,7 @@ Read `git tag -l --format='%(contents)' v1.1.0` for the house style (title line,
 ## What the tag triggers (reference)
 
 - **publish-images.yml** — builds multi-arch (amd64+arm64) `ghcr.io/freeman412/mineos-api` and `mineos-web`. Channel tag (`:latest` vs `:preview`) per the hyphen rule; also tags `:vX.Y.Z…` and `:sha-…`. Injects the tag as `MINEOS_IMAGE_TAG` (api) / `PUBLIC_BUILD_ID` (web About page).
-- **publish-install-bundle.yml** — builds `mineos-cli` for 6 OS/arch targets, packages the install bundle, creates the GitHub Release. `prerelease: true` iff the tag contains `-beta`/`-alpha`/`-rc`.
+- **publish-install-bundle.yml** — builds `mineos-cli` for 6 OS/arch targets, packages the install bundle, creates the GitHub Release with 9 assets (2 bundles, 6 CLI zips, `checksums.txt`). `prerelease: true` iff the tag contains `-beta`/`-alpha`/`-rc`. It does **not** write a release body — see checklist step 9.
 - **Not triggered:** the TrueNAS catalog under `deployments/truenas/` is published by `scripts/publish-truenas-catalog.sh` separately — only run it if that directory changed.
 
 ## Common Mistakes
