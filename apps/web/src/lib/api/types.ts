@@ -139,6 +139,15 @@ export type BungeeConfig = {
 	servers: Record<string, BungeeBackend>;
 };
 
+/** A Java runtime installed on the host, as offered in the Java Binary field. */
+export type JavaRuntime = {
+	path: string;
+	major: number | null;
+	version: string;
+	label: string;
+	isDefault: boolean;
+};
+
 export type JavaConfig = {
 	javaBinary: string;
 	javaXmx: number;

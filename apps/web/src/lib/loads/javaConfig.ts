@@ -1,4 +1,9 @@
-import { getHostProfiles, getServerConfig, updateServerConfig } from '$lib/api/client';
+import {
+	getHostJavaRuntimes,
+	getHostProfiles,
+	getServerConfig,
+	updateServerConfig
+} from '$lib/api/client';
 import { fail } from '@sveltejs/kit';
 
 type LoadEvent = { params: { name: string }; fetch: typeof globalThis.fetch };
@@ -12,6 +17,9 @@ type ActionEvent = LoadEvent & { request: Request };
 export async function loadJavaConfig({ params, fetch }: LoadEvent) {
 	const config = await getServerConfig(fetch, params.name);
 	const profiles = await getHostProfiles(fetch);
+	// Offered as suggestions in the Java Binary field. Read from the host rather than
+	// hardcoded, so newly installed runtimes show up and removed ones stop being offered.
+	const javaRuntimes = await getHostJavaRuntimes(fetch);
 	let jarFiles: string[] = [];
 	let forgeArgFiles: string[] = [];
 	let jarFilesError: string | null = null;
@@ -58,6 +66,7 @@ export async function loadJavaConfig({ params, fetch }: LoadEvent) {
 	return {
 		config,
 		profiles,
+		javaRuntimes,
 		serverName: params.name,
 		jarFiles: {
 			data: jarFiles,

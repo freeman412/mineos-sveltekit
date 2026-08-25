@@ -396,6 +396,9 @@ public static class HostEndpoints
         host.MapGet("/groups", async (IHostService hostService, CancellationToken cancellationToken) =>
             Results.Ok(await hostService.GetGroupsAsync(cancellationToken)));
 
+        host.MapGet("/java-runtimes", async (IHostService hostService, CancellationToken cancellationToken) =>
+            Results.Ok(await hostService.GetJavaRuntimesAsync(cancellationToken)));
+
         return api;
     }
 

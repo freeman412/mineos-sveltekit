@@ -54,6 +54,16 @@
 
 	let loading = $state(false);
 	let selectedProfile = $state(config.minecraft.profile ?? '');
+
+	// Suggestions for the Java Binary field, read from the host at load time. Empty if
+	// the lookup failed - the field stays free text, so a blank list is not an error.
+	const javaRuntimes = $derived(data.javaRuntimes?.data ?? []);
+	const javaRuntimeLabels = $derived(
+		javaRuntimes
+			.filter((runtime) => !runtime.isDefault)
+			.map((runtime) => runtime.label)
+			.join(', ')
+	);
 	let lastServerName = data.serverName;
 
 	const javaTweaksPresets = [
@@ -214,13 +224,14 @@
 								list="java-binary-options"
 							/>
 							<datalist id="java-binary-options">
-								<option value="java"></option>
-								<option value="/usr/lib/jvm/temurin-8-jre/bin/java"></option>
-								<option value="/usr/lib/jvm/java-17-openjdk-amd64/bin/java"></option>
-								<option value="/usr/lib/jvm/temurin-21-jre/bin/java"></option>
+								{#each javaRuntimes as runtime (runtime.path)}
+									<option value={runtime.path} label={runtime.label}></option>
+								{/each}
 							</datalist>
 							<p class="field-hint">
-								Use <code>java</code> for the default runtime or set a full path to target Java 8/17/21.
+								Leave blank to let MineOS pick a runtime that matches the jar. Set a full path
+								only to override it.{#if javaRuntimeLabels}
+									Installed: {javaRuntimeLabels}.{/if}
 							</p>
 						</div>
 
