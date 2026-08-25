@@ -462,20 +462,26 @@ public class ServerService : IServerService
             await File.WriteAllTextAsync(configPath, IniParser.WriteWithSections(proxyConfig), cancellationToken);
 
             var proxyKind = NormalizeProxyKind(request.ProxyKind);
-            var backends = await DiscoverJavaBackendsAsync(request.Name, cancellationToken);
 
             if (proxyKind == "velocity")
             {
-                // Pre-populate velocity.toml with sibling Java backends so the proxy
-                // does something out of the box. The user can edit/reorder them via
-                // the Properties tab.
+                // A new proxy starts with no backends. Registering every sibling server
+                // automatically looked helpful and was not: attaching a backend is a
+                // security operation - attachServerToProxy installs the forwarding mod
+                // and secures identity - and writing names straight into the config does
+                // none of that, so the proxy came up fronting servers that cannot verify
+                // who a forwarded player claims to be. MineOS then reported those very
+                // backends as Unverifiable in its own exposure table.
+                //
+                // It also guessed which one players land on (the alphabetically first),
+                // and on a host running several Minecraft versions most of the routes it
+                // wrote could never work for a given client. Attach is a deliberate,
+                // one-at-a-time action from the proxies page; leave it to that.
                 var initialConfig = VelocityConfigDefaults(exists: true) with
                 {
                     Bind = $"0.0.0.0:{defaultPort}",
-                    Servers = backends,
-                    Try = backends.Count > 0
-                        ? new List<string> { backends.Keys.First() }
-                        : new List<string>()
+                    Servers = new Dictionary<string, string>(),
+                    Try = new List<string>()
                 };
                 var tomlPath = Path.Combine(serverPath, "velocity.toml");
                 await WriteVelocityTomlAsync(tomlPath, initialConfig, cancellationToken);
@@ -484,17 +490,14 @@ public class ServerService : IServerService
             {
                 // BungeeCord — bootstrap config.yml in its YAML schema.
                 // BungeeCord refuses to start with an empty servers: map
-                // ("IllegalArgumentException: No servers defined"), so when no
-                // sibling Java backends exist we seed the same placeholder
-                // BungeeCord itself ships in its default config.yml.
-                var bungeeBackends = backends.Count > 0
-                    ? backends.ToDictionary(
-                        kv => kv.Key,
-                        kv => new BungeeBackendDto(kv.Value, "&1Backend server", false))
-                    : new Dictionary<string, BungeeBackendDto>
-                    {
-                        ["lobby"] = new("127.0.0.1:25565", "&1Just another BungeeCord - Forced Host", false)
-                    };
+                // ("IllegalArgumentException: No servers defined"), so it gets the same
+                // placeholder BungeeCord itself ships in its default config.yml. This is
+                // a stub to satisfy the parser, not a real backend: attaching one is a
+                // deliberate action from the proxies page. See the Velocity branch above.
+                var bungeeBackends = new Dictionary<string, BungeeBackendDto>
+                {
+                    ["lobby"] = new("127.0.0.1:25565", "&1Just another BungeeCord - Forced Host", false)
+                };
                 var initialConfig = BungeeConfigDefaults(exists: true) with
                 {
                     Host = $"0.0.0.0:{defaultPort}",
@@ -1466,60 +1469,6 @@ public class ServerService : IServerService
             if (value is string s)
                 result[key] = s;
         }
-        return result;
-    }
-
-    private async Task<Dictionary<string, string>> DiscoverJavaBackendsAsync(
-        string excludeName, CancellationToken cancellationToken)
-    {
-        var result = new Dictionary<string, string>();
-        var serversPath = Path.Combine(_options.BaseDirectory, _options.ServersPathSegment);
-        if (!Directory.Exists(serversPath))
-        {
-            return result;
-        }
-
-        foreach (var dir in Directory.EnumerateDirectories(serversPath).OrderBy(d => Path.GetFileName(d), StringComparer.OrdinalIgnoreCase))
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            var serverName = Path.GetFileName(dir);
-            if (string.IsNullOrWhiteSpace(serverName) ||
-                serverName.Equals(excludeName, StringComparison.OrdinalIgnoreCase))
-            {
-                continue;
-            }
-
-            // Skip non-Java backends. Bedrock (UDP, different protocol) and proxies
-            // (a proxy fronting another proxy is not a sensible default).
-            var typeFile = Path.Combine(dir, ServerTypeFile);
-            if (File.Exists(typeFile))
-            {
-                var marker = (await File.ReadAllTextAsync(typeFile, cancellationToken)).Trim();
-                if (marker.Equals("bedrock", StringComparison.OrdinalIgnoreCase) ||
-                    marker.Equals("proxy", StringComparison.OrdinalIgnoreCase))
-                {
-                    continue;
-                }
-            }
-
-            var propertiesPath = Path.Combine(dir, "server.properties");
-            if (!File.Exists(propertiesPath))
-            {
-                continue;
-            }
-
-            var content = await File.ReadAllTextAsync(propertiesPath, cancellationToken);
-            var props = IniParser.ParseSimple(content);
-            if (!props.TryGetValue("server-port", out var portValue) ||
-                !int.TryParse(portValue, out var port) ||
-                port < 1 || port > 65535)
-            {
-                continue;
-            }
-
-            result[serverName] = $"127.0.0.1:{port}";
-        }
-
         return result;
     }
 
@@ -2599,19 +2548,16 @@ public class ServerService : IServerService
                     cancellationToken);
             }
 
-            var backends = await DiscoverJavaBackendsAsync(name, cancellationToken);
-
             if (kind == "velocity")
             {
                 var tomlPath = GetVelocityTomlPath(name);
                 if (!File.Exists(tomlPath))
                 {
+                    // No backends by default — see CreateServerAsync for why.
                     var initialConfig = VelocityConfigDefaults(exists: true) with
                     {
-                        Servers = backends,
-                        Try = backends.Count > 0
-                            ? new List<string> { backends.Keys.First() }
-                            : new List<string>()
+                        Servers = new Dictionary<string, string>(),
+                        Try = new List<string>()
                     };
                     await WriteVelocityTomlAsync(tomlPath, initialConfig, cancellationToken);
                 }
@@ -2622,15 +2568,12 @@ public class ServerService : IServerService
                 if (!File.Exists(yamlPath))
                 {
                     // See CreateServerAsync — BungeeCord requires at least one
-                    // entry in servers: or it fails to start.
-                    var bungeeBackends = backends.Count > 0
-                        ? backends.ToDictionary(
-                            kv => kv.Key,
-                            kv => new BungeeBackendDto(kv.Value, "&1Backend server", false))
-                        : new Dictionary<string, BungeeBackendDto>
-                        {
-                            ["lobby"] = new("127.0.0.1:25565", "&1Just another BungeeCord - Forced Host", false)
-                        };
+                    // entry in servers: or it fails to start, so this placeholder is a
+                    // parser stub rather than a real backend.
+                    var bungeeBackends = new Dictionary<string, BungeeBackendDto>
+                    {
+                        ["lobby"] = new("127.0.0.1:25565", "&1Just another BungeeCord - Forced Host", false)
+                    };
                     var initialConfig = BungeeConfigDefaults(exists: true) with
                     {
                         Servers = bungeeBackends,
