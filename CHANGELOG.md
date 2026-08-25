@@ -15,7 +15,27 @@ Pre-releases publish `:preview` Docker images and are not intended for productio
   session) still shown alongside it so console context is never lost. Renaming works
   while the server is running, survives config edits, and clones start unlabeled (#180).
 
-## [1.2.0] — in beta (currently `v1.2.0-beta.6`)
+### Fixed
+
+- **Proxies pick a Java runtime that can actually load their jar.** Proxies were pinned to
+  Java 21, which was right when Velocity's floor was 21 and wrong once Velocity 4.x shipped
+  Java 25 bytecode: a 4.x proxy died before `main()` with `UnsupportedClassVersionError`
+  (class file 69 vs 65) in a restart loop. MineOS now reads the required version off the
+  jar's own `Main-Class` bytecode, so it tracks upstream automatically — Velocity 3.4.0
+  targets Java 17, 3.5.1 targets 21, 4.x targets 25. Game servers keep using the Minecraft
+  version, whose bootstrap launchers (paperclip, the Fabric installer) deliberately report
+  an ancient target and cannot be read this way.
+- **Java version tiers accept newer runtimes.** Each tier now falls forward when its exact
+  match is not installed, instead of resolving to whatever `java` happened to be on `PATH`.
+  Below Java 17 the exact match is still required, since legacy Minecraft genuinely breaks
+  on modern JVMs.
+
+### Changed
+
+- **The Java Binary field lists the runtimes the host actually has**, via a new
+  `GET /api/v1/host/java-runtimes`. It previously offered four hardcoded paths that named
+  amd64 and JRE directories on an image shipping arm64 JDKs, so every explicit choice
+  pointed at a binary that did not exist.## [1.2.0] — in beta (currently `v1.2.0-beta.6`)
 
 The proxy release. MineOS goes from "one server at a time" to running a network:
 a proxy players connect to, with game servers behind it whose identities the proxy

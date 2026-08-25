@@ -4,6 +4,7 @@ import type {
 	ServerSummary,
 	Profile,
 	ArchiveEntry,
+	JavaRuntime,
 	MineOSMeta,
 	CurseForgeSearchResult,
 	CurseForgeMod
@@ -97,6 +98,10 @@ export function getHostServers(fetcher: Fetcher) {
 
 export function getHostProfiles(fetcher: Fetcher) {
 	return apiFetch<Profile[]>(fetcher, '/api/host/profiles');
+}
+
+export function getHostJavaRuntimes(fetcher: Fetcher) {
+	return apiFetch<JavaRuntime[]>(fetcher, '/api/host/java-runtimes');
 }
 
 export function getHostImports(fetcher: Fetcher) {
