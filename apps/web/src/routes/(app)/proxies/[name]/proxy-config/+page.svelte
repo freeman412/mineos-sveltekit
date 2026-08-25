@@ -65,6 +65,33 @@
 		}
 	});
 
+	// Backend names defined above, for the try-order and forced-host pickers. Derived so
+	// renaming a backend immediately re-offers it under its new name.
+	const backendNames = $derived(
+		serverEntries.map((e) => e.name.trim()).filter((n) => n.length > 0)
+	);
+
+	/**
+	 * Options for a picker whose current value may not (yet) be a defined backend —
+	 * a name typed before the backend existed, or one whose backend was renamed. Keeping
+	 * the stale value as an option means opening the page cannot silently rewrite config
+	 * that is already on disk.
+	 */
+	function optionsFor(current: string): string[] {
+		const value = current.trim();
+		return value.length > 0 && !backendNames.includes(value)
+			? [value, ...backendNames]
+			: backendNames;
+	}
+
+	/** Forced hosts are stored as a comma-separated string; the picker works in names. */
+	function splitServers(value: string): string[] {
+		return value
+			.split(',')
+			.map((s) => s.trim())
+			.filter((s) => s.length > 0);
+	}
+
 	function buildForcedHostsObject(): Record<string, string[]> {
 		const result: Record<string, string[]> = {};
 		for (const e of forcedHostEntries) {
@@ -196,7 +223,10 @@
 		use:enhance={() => {
 			saving = true;
 			return async ({ update }) => {
-				await update();
+				// reset: false — the default resets the form element, which blanks every
+				// dynamically rendered backend/try/forced-host row on a successful save.
+				// The values were written; the editor just erased itself in front of you.
+				await update({ reset: false });
 				await invalidateAll();
 				saving = false;
 				initial = JSON.parse(JSON.stringify(buildSubmitConfig()));
@@ -330,8 +360,7 @@
 				<button class="btn btn-secondary" type="button" onclick={addTry}>+ Add</button>
 			</div>
 			<p class="card-description">
-				Server names to try in order when a player joins or gets kicked from a backend. Names must
-				match entries above.
+				Backends to try in order when a player joins or gets kicked from a backend.
 			</p>
 			{#if tryList.length === 0}
 				<p class="empty">No try list configured.</p>
@@ -339,7 +368,12 @@
 				<div class="try-rows">
 					{#each tryList as name, i}
 						<div class="try-row">
-							<input type="text" placeholder="Backend name" bind:value={tryList[i]} />
+							<select bind:value={tryList[i]}>
+								<option value="">Select a backend…</option>
+								{#each optionsFor(name) as backend (backend)}
+									<option value={backend}>{backend}</option>
+								{/each}
+							</select>
 							<button
 								class="btn btn-icon"
 								type="button"
@@ -359,7 +393,7 @@
 			</div>
 			<p class="card-description">
 				Route players to specific backends based on the hostname they connect with.
-				Servers is a comma-separated list of backend names from above (tried in order).
+				Select one or more backends from above; they are tried in order.
 			</p>
 			{#if forcedHostEntries.length === 0}
 				<p class="empty">No forced hosts configured.</p>
@@ -372,11 +406,22 @@
 								placeholder="hostname (e.g. lobby.example.com)"
 								bind:value={entry.hostname}
 							/>
-							<input
-								type="text"
-								placeholder="servers (e.g. lobby, fallback)"
-								bind:value={entry.servers}
-							/>
+							<select
+								multiple
+								size={Math.min(Math.max(backendNames.length, 2), 5)}
+								value={splitServers(entry.servers)}
+								onchange={(event) => {
+									entry.servers = [...event.currentTarget.selectedOptions]
+										.map((option) => option.value)
+										.join(', ');
+								}}
+							>
+								{#each optionsFor(splitServers(entry.servers)[0] ?? '') as backend (backend)}
+									<option value={backend} selected={splitServers(entry.servers).includes(backend)}>
+										{backend}
+									</option>
+								{/each}
+							</select>
 							<button
 								class="btn btn-icon"
 								type="button"
@@ -587,7 +632,8 @@
 	}
 
 	.server-row input,
-	.try-row input {
+	.server-row select,
+	.try-row select {
 		padding: 0.35rem 0.55rem;
 		background: var(--input-bg, #1f2937);
 		border: 1px solid var(--border-color, #374151);
