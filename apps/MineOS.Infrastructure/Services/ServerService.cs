@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.IO.Compression;
 using System.Security;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -52,8 +53,9 @@ public class ServerService : IServerService
 
     /// <summary>
     /// Returns the Java binary path appropriate for the given Minecraft version.
-    /// MC 1.26+ requires Java 25, 1.21-1.25 requires Java 21,
-    /// 1.17-1.20 requires Java 17 (falls back to 21), older requires Java 8.
+    /// MC 1.26+ needs Java 25, 1.21-1.25 needs 21, 1.17-1.20 needs 17, older needs 8.
+    /// Each tier accepts newer runtimes when its exact match is not installed, so a jar
+    /// that raises its floor keeps starting instead of failing to load.
     /// </summary>
     public static string ResolveJavaBinary(string? minecraftVersion)
     {
@@ -67,13 +69,17 @@ public class ServerService : IServerService
 
         // New versioning: 26.x+ (Minecraft dropped the "1." prefix)
         if (major >= 26)
-            return FindJavaBinary(25, 21);
+            return FindJavaBinary(JavaFallbackOrder(25));
 
         // Old versioning: 1.x.y
         if (major == 1 && parts.Length >= 2 && int.TryParse(parts[1], out var minor))
         {
-            if (minor >= 21) return FindJavaBinary(21);
-            if (minor >= 17) return FindJavaBinary(21, 17); // 17 preferred, 21 fallback
+            if (minor >= 21) return FindJavaBinary(JavaFallbackOrder(21));
+            if (minor >= 17) return FindJavaBinary(JavaFallbackOrder(17));
+
+            // No upward fallback below 17: legacy Minecraft genuinely breaks on modern
+            // JVMs (removed internals, stricter reflection), so a newer runtime is not a
+            // safe substitute the way it is for 17+.
             return FindJavaBinary(8);
         }
 
@@ -102,6 +108,120 @@ public class ServerService : IServerService
         }
 
         return "java"; // Fallback to PATH default
+    }
+
+    // Java majors we know how to look for on disk, ascending.
+    private static readonly int[] KnownJavaMajors = { 8, 11, 17, 21, 25 };
+
+    /// <summary>
+    /// Candidate Java majors for a jar needing <paramref name="required"/>: the exact
+    /// match first, then progressively newer runtimes, since a jar always loads on a
+    /// newer JVM than it was compiled for.
+    /// </summary>
+    private static int[] JavaFallbackOrder(int required) =>
+        new[] { required }
+            .Concat(KnownJavaMajors.Where(v => v > required))
+            .Distinct()
+            .ToArray();
+
+    /// <summary>
+    /// Reads the class file version of a jar's Main-Class and converts it to the minimum
+    /// Java major version needed to load it (class file 61 = Java 17, 65 = 21, 69 = 25).
+    /// Returns null when the jar cannot be inspected, so callers can fall back to a
+    /// version heuristic.
+    /// </summary>
+    public static int? DetectRequiredJavaFromJar(string jarPath)
+    {
+        try
+        {
+            if (!File.Exists(jarPath))
+                return null;
+
+            using var archive = ZipFile.OpenRead(jarPath);
+
+            var manifestEntry = archive.GetEntry("META-INF/MANIFEST.MF");
+            if (manifestEntry is null)
+                return null;
+
+            string manifest;
+            using (var reader = new StreamReader(manifestEntry.Open()))
+                manifest = reader.ReadToEnd();
+
+            // Manifest values wrap at 72 bytes and continue on a line starting with a
+            // single space; unfold before matching or Main-Class comes back truncated.
+            manifest = manifest.Replace("\r\n ", "").Replace("\n ", "").Replace("\r ", "");
+
+            var match = System.Text.RegularExpressions.Regex.Match(manifest, @"Main-Class:\s*(\S+)");
+            if (!match.Success)
+                return null;
+
+            var classEntry = archive.GetEntry(match.Groups[1].Value.Replace('.', '/') + ".class");
+            if (classEntry is null)
+                return null;
+
+            using var stream = classEntry.Open();
+            var header = new byte[8];
+            var read = 0;
+            while (read < header.Length)
+            {
+                var n = stream.Read(header, read, header.Length - read);
+                if (n <= 0)
+                    return null;
+                read += n;
+            }
+
+            // u4 magic 0xCAFEBABE, u2 minor_version, u2 major_version
+            if (header[0] != 0xCA || header[1] != 0xFE || header[2] != 0xBA || header[3] != 0xBE)
+                return null;
+
+            var classFileVersion = (header[6] << 8) | header[7];
+            if (classFileVersion < 45)
+                return null;
+
+            return classFileVersion - 44;
+        }
+        catch
+        {
+            // Unreadable, truncated, or not a zip - let the caller fall back.
+            return null;
+        }
+    }
+
+    // Velocity has required at least Java 17 since 3.0.0, so never resolve below it.
+    private const int ProxyJavaFloor = 17;
+
+    /// <summary>
+    /// Resolves a Java binary from the jar's own bytecode target, tracking upstream
+    /// automatically when a jar bumps its requirement. Returns null when the jar cannot
+    /// be inspected.
+    /// </summary>
+    /// <remarks>
+    /// PROXIES ONLY. This reads the class file version of the jar's Main-Class, which is
+    /// only meaningful when Main-Class is the real entry point - true for Velocity and
+    /// BungeeCord. Paper and Fabric server jars are bootstrap launchers whose Main-Class
+    /// (io.papermc.paperclip.Main, net.fabricmc.installer.ServerLauncher) is deliberately
+    /// compiled to an ancient target so it can print a friendly error on old JVMs: Paper
+    /// 1.21.11 reports class file 50 (Java 6) and Fabric reports 52 (Java 8), nowhere near
+    /// what the server actually needs. Java servers keep using the MC-version heuristic.
+    /// </remarks>
+    private string? ResolveJavaBinaryFromJar(string serverPath, string? jarFile, string serverName)
+    {
+        // Forge @argfile syntax points at argument files, not a jar we can read.
+        if (string.IsNullOrWhiteSpace(jarFile) || jarFile.TrimStart().StartsWith("@"))
+            return null;
+
+        var detected = DetectRequiredJavaFromJar(Path.Combine(serverPath, jarFile));
+        if (detected is null)
+            return null;
+
+        // Guard against a future bootstrap-style Main-Class dragging the choice down.
+        var required = Math.Max(detected.Value, ProxyJavaFloor);
+
+        var javaBinary = FindJavaBinary(JavaFallbackOrder(required));
+        _logger.LogInformation(
+            "Resolved Java binary for proxy {Server} from {JarFile} bytecode (needs Java {Required}): {JavaBinary}",
+            serverName, jarFile, required, javaBinary);
+        return javaBinary;
     }
 
     private string GetPropertiesPath(string name) =>
@@ -710,18 +830,28 @@ public class ServerService : IServerService
 
             // Read server config to build start arguments
             var config = await GetServerConfigAsync(name, cancellationToken);
-            var javaBinary = config.Java.JavaBinary;
+            string? javaBinary = config.Java.JavaBinary;
+            var jarFile = config.Java.JarFile;
             if (string.IsNullOrEmpty(javaBinary) || javaBinary == "java")
             {
                 if (isProxy)
                 {
-                    // Velocity requires Java 21+. The auto-detector keys off MC version,
-                    // but proxy jars have no MC version — pin to Java 21.
-                    javaBinary = ResolveJavaBinary("1.21");
-                    _logger.LogInformation("Resolved Java 21 binary for proxy {Server}: {JavaBinary}",
+                    // Proxy jars carry no MC version, so read the requirement off the jar
+                    // itself. Velocity's Main-Class IS the proxy, and its bytecode target
+                    // moves between releases: 3.4.0 targets Java 17, 3.5.1 targets 21,
+                    // 4.x targets 25. Anything pinned to one number breaks the others.
+                    javaBinary = ResolveJavaBinaryFromJar(serverPath, jarFile, name);
+                }
+
+                if (string.IsNullOrEmpty(javaBinary) && isProxy)
+                {
+                    // Unreadable jar: Java 21 has been the Velocity floor since 3.5.0,
+                    // and newer runtimes are accepted when 21 is absent.
+                    javaBinary = FindJavaBinary(JavaFallbackOrder(21));
+                    _logger.LogInformation("Fell back to Java 21+ binary for proxy {Server}: {JavaBinary}",
                         name, javaBinary);
                 }
-                else
+                else if (string.IsNullOrEmpty(javaBinary))
                 {
                     // Auto-detect Java version from the server's Minecraft version
                     string? mcVersion = null;
@@ -745,7 +875,6 @@ public class ServerService : IServerService
                         name, mcVersion ?? "unknown", javaBinary);
                 }
             }
-            var jarFile = config.Java.JarFile;
 
             _logger.LogInformation(
                 "Server config for {ServerName}: javaBinary={JavaBinary} jarFile={JarFile} xmx={Xmx} xms={Xms}",
