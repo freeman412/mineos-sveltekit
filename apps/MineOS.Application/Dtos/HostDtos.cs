@@ -59,4 +59,10 @@ public record IncrementEntryDto(DateTimeOffset Time, string Step, long? Size, lo
 
 public record HostUserDto(string Username, int Uid, int Gid, string Home);
 
+/// <summary>
+/// A Java runtime installed on the host, as offered in the server config UI.
+/// <paramref name="Major"/> is null when the version could not be determined.
+/// </summary>
+public record JavaRuntimeDto(string Path, int? Major, string Version, string Label, bool IsDefault);
+
 public record HostGroupDto(string GroupName, int Gid);
