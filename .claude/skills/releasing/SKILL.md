@@ -17,7 +17,7 @@ Releases are **100% tag-driven**. Pushing a `v*` git tag is the entire release a
    - `vX.Y.Z-beta.N` / `-rc.N` / `-alpha.N` (has hyphen) → moves `:preview`, marked prerelease. Default installs are untouched.
    - A typo like `v1.2.0.beta.3` (dot, not hyphen) reads as **stable** and hijacks `:latest`. Type the tag exactly; re-read it before pushing.
 3. **Tag the branch the version train lives on — not reflexively `master`.** History: `-beta`/`-rc` tags are cut on the **`vibing`** branch; the `vX.Y.Z` stable tag is cut on `master` after merging `vibing → master`. Confirm with `git branch -r --contains <last-tag>` before assuming.
-4. **CI does not run the .NET tests.** Since #178 `node.js.yml` runs `npm ci`, `npm run test:unit`, `npm run check` and `npm run build`, so the **frontend** is covered. The xUnit suite (159 tests) still never runs in CI, so **run it locally before every tag** or you ship untested backend code.
+4. **CI does not run the .NET tests.** Since #178 `node.js.yml` runs `npm ci`, `npm run test:unit`, `npm run check` and `npm run build`, so the **frontend** is covered. The xUnit suite still never runs in CI, so **run it locally before every tag** or you ship untested backend code.
 5. **The tag push requires human approval** (release-guard hook). Prepare the tag, show your partner the exact command and version, and let them approve the push. Never work around the guard.
 
 ## Version scheme
@@ -38,7 +38,7 @@ Semver `MAJOR.MINOR.PATCH` with dotted pre-release suffixes:
 
 1. **Confirm the merge landed.** `gh pr view <N> --json state,mergeCommit`; `git fetch origin --tags`; `git log --oneline <last-tag>..origin/<branch>` to see exactly what's shipping.
 2. **Check for branch divergence.** `git log --oneline origin/master..origin/vibing` and the reverse. If the preview line (`vibing`) has commits master doesn't (or vice-versa), tagging naively **regresses** the other channel. Reconcile (merge) first — see Common Mistakes.
-3. **Run the tests CI skips.** `dotnet test mineos-sveltkit.sln` — expect **159 passing**. Note the `.sln` filename is misspelled `sveltkit`; that's correct. The frontend (`test:unit`, `check`, `build`) is already covered by CI since #178, so you only need it locally if you're tagging without a green CI run on the branch tip.
+3. **Run the tests CI skips.** `dotnet test mineos-sveltkit.sln` — expect **all green** (181 as of 2026-08-24). Judge on failures, not on the number: the count grows with every PR, so a mismatch means the suite moved on, while a red test means you are about to ship a regression. Run the **solution**, not just `apps/MineOS.Tests` — `test/MineOS.Tests` is a second project the solution picks up and a bare project path silently skips. Note the `.sln` filename is misspelled `sveltkit`; that's correct. The frontend (`test:unit`, `check`, `build`) is already covered by CI since #178, so you only need it locally if you're tagging without a green CI run on the branch tip.
 
    **No local `dotnet`?** It is not installed on every dev machine. Run the suite in the SDK container instead:
 
@@ -46,7 +46,7 @@ Semver `MAJOR.MINOR.PATCH` with dotted pre-release suffixes:
    docker run --rm -v "$PWD":/src -w /src \
      -e DOTNET_CLI_TELEMETRY_OPTOUT=1 -e DOTNET_NOLOGO=1 \
      mcr.microsoft.com/dotnet/sdk:8.0 \
-     dotnet test apps/MineOS.Tests/MineOS.Tests.csproj
+     dotnet test mineos-sveltkit.sln
    ```
 4. **Pick the version** per the table above; decide beta vs rc vs stable by soak time.
 5. **Create an annotated tag whose message is the changelog** (this repo puts release notes in the tag message, not the GitHub release body). See below.
@@ -95,7 +95,7 @@ Read `git tag -l --format='%(contents)' v1.1.0` for the house style (title line,
 | Tag `master` while `vibing` is ahead | Beta regresses — preview users lose commits only on `vibing` | Reconcile branches first (merge `master`→`vibing` or vice-versa), re-test, then tag |
 | Bare `vX.Y.Z` for freshly-merged feature | Ships unsoaked code straight to every stable user via `:latest` | Cut `-beta.N` first; promote to stable after soak |
 | Hyphen typo (`v1.2.0.beta.3`) | Reads as stable, hijacks `:latest` | Re-read the exact tag string before pushing |
-| Skip local `dotnet test` | Ship backend code CI never tested | Run the 159 tests locally every time (SDK container if no local `dotnet`) |
+| Skip local `dotnet test` | Ship backend code CI never tested | Run the full solution locally every time (SDK container if no local `dotnet`) |
 | Bump versions in `package.json`/source | Pointless churn; ignored | Version comes only from the tag |
 
 ## Red Flags — STOP
