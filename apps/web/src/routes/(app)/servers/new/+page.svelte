@@ -74,6 +74,8 @@
 	let attachNotice = $state<string | null>(null);
 	/** Server awaiting network wiring once its files finish installing */
 	let pendingAttachName = $state('');
+	/** Directory name the API assigned, which is not what the user typed. */
+	let createdServerName = $state('');
 	/** Attach is in flight; the completion button waits rather than racing it. */
 	let attaching = $state(false);
 	/** The attach ran and failed, so the server is not on the Proxies page. */
@@ -245,11 +247,16 @@
 			return;
 		}
 
+		// The directory the API actually created. It is a slug derived from the label,
+		// not the label itself, so every follow-up call has to use this and not `name`.
+		const createdName = createResult.data?.name ?? name;
+		createdServerName = createdName;
+
 		// Join an existing network if requested (game servers only). The actual
 		// wiring waits until the server's files are fully installed — running it
 		// earlier would let the install overwrite the secured configs.
 		pendingAttachName =
-			!isProxy && attachProxy && attachableCategories.has(category ?? '') ? name : '';
+			!isProxy && attachProxy && attachableCategories.has(category ?? '') ? createdName : '';
 
 		// A proxy has no installer step, so anything picked to sit behind it can be
 		// wired straight away. Failures are reported but do not fail the create — the
@@ -273,7 +280,7 @@
 				fetch,
 				selectedMcVersion,
 				selectedForgeVersion.forgeVersion,
-				name
+				createdName
 			);
 			if (result.error) {
 				createError = result.error;
@@ -288,7 +295,7 @@
 				fetch,
 				selectedMcVersion,
 				selectedNeoForgeVersion.neoForgeVersion,
-				name
+				createdName
 			);
 			if (result.error) {
 				createError = result.error;
@@ -305,7 +312,7 @@
 				fetch,
 				selectedMcVersion,
 				selectedLoaderVersion,
-				name
+				createdName
 			);
 			if (result.error) {
 				createError = result.error;
@@ -324,7 +331,7 @@
 				fetch,
 				selectedMcVersion,
 				selectedLoaderVersion,
-				name
+				createdName
 			);
 			if (result.error) {
 				createError = result.error;
@@ -379,14 +386,14 @@
 			simpleProgress = 60;
 			simpleStepText = 'Copying server files...';
 
-			const copyResult = await api.copyProfileToServer(fetch, selectedProfileId, name);
+			const copyResult = await api.copyProfileToServer(fetch, selectedProfileId, createdName);
 			if (copyResult.error) {
 				createError = copyResult.error;
 				step = 'name';
 				return;
 			}
 
-			await runPendingAttach(name);
+			await runPendingAttach(createdName);
 			simpleProgress = 100;
 			createCompleted = true;
 			return;
@@ -395,7 +402,7 @@
 		// For modloaders, completion is handled by InstallProgress component.
 		// Fabric/Quilt resolve inline once their single-JAR download finishes.
 		if (!installStreamUrl) {
-			await runPendingAttach(name);
+			await runPendingAttach(createdName);
 			simpleProgress = 100;
 			createCompleted = true;
 		}
@@ -491,7 +498,7 @@
 			goto('/proxies');
 			return;
 		}
-		goto(`/servers/${encodeURIComponent(serverName.trim())}`);
+		goto(`/servers/${encodeURIComponent(createdServerName || serverName.trim())}`);
 	}
 </script>
 

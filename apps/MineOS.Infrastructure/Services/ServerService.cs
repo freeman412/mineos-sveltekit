@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Text;
 using System.Diagnostics;
 using System.IO.Compression;
 using System.Security;
@@ -306,6 +307,56 @@ public class ServerService : IServerService
         @"^[a-zA-Z0-9][a-zA-Z0-9 _\-\.]{0,63}$",
         System.Text.RegularExpressions.RegexOptions.Compiled);
 
+    /// <summary>
+    /// Directory name for a newly created server: a slug of the label the user typed,
+    /// plus a short random suffix.
+    /// </summary>
+    /// <remarks>
+    /// The typed name used to become the directory name verbatim, permanently — so a
+    /// server called "Server Loco" lived at "servers/Server Loco" forever, and every
+    /// consumer of that path had to cope with whatever characters a label may contain.
+    /// Spaces alone broke screen-session detection. Since a server now carries a mutable
+    /// display name (issue #180), the on-disk identity no longer has to be the label.
+    ///
+    /// A readable slug rather than a bare GUID: these paths get typed into shells, read
+    /// in logs and grepped for, and "server-loco-7f3a" survives that where a UUID does
+    /// not. The suffix is unconditional, not collision-triggered — it keeps the shape
+    /// predictable and avoids a check-then-create race between two simultaneous creates.
+    ///
+    /// Existing servers keep their directories. This applies to new ones only.
+    /// </remarks>
+    public static string GenerateServerDirectoryName(string displayName)
+    {
+        var slug = Slugify(displayName);
+        var suffix = Guid.NewGuid().ToString("N")[..4];
+        return slug.Length == 0 ? $"server-{suffix}" : $"{slug}-{suffix}";
+    }
+
+    /// <summary>
+    /// Lowercases and reduces a label to [a-z0-9-]: runs of anything else collapse to a
+    /// single hyphen. Returns an empty string when the label has nothing usable in it
+    /// (e.g. all non-Latin characters), which the caller substitutes for.
+    /// </summary>
+    public static string Slugify(string value)
+    {
+        var builder = new StringBuilder();
+        foreach (var ch in (value ?? string.Empty).Trim().ToLowerInvariant())
+        {
+            if ((ch >= 'a' && ch <= 'z') || (ch >= '0' && ch <= '9'))
+            {
+                builder.Append(ch);
+            }
+            else if (builder.Length > 0 && builder[^1] != '-')
+            {
+                builder.Append('-');
+            }
+        }
+
+        var slug = builder.ToString().Trim('-');
+        // Leave room for the suffix inside a sane path length.
+        return slug.Length > 40 ? slug[..40].TrimEnd('-') : slug;
+    }
+
     public async Task<ServerDetailDto> CreateServerAsync(
         CreateServerRequest request,
         string username,
@@ -327,9 +378,11 @@ public class ServerService : IServerService
         if (string.Equals(request.ServerType, "proxy", StringComparison.OrdinalIgnoreCase))
             NormalizeProxyKind(request.ProxyKind);
 
-        var serverPath = GetServerPath(request.Name);
-        var backupPath = GetBackupPath(request.Name);
-        var archivePath = GetArchivePath(request.Name);
+        // What the user typed is the label; the directory is a slug derived from it.
+        var directoryName = GenerateServerDirectoryName(request.Name);
+        var serverPath = GetServerPath(directoryName);
+        var backupPath = GetBackupPath(directoryName);
+        var archivePath = GetArchivePath(directoryName);
 
         if (Directory.Exists(serverPath))
         {
@@ -347,8 +400,8 @@ public class ServerService : IServerService
             Path.Combine(serverPath, ServerTypeFile), serverType, cancellationToken);
 
         // Create default files
-        var propertiesPath = GetPropertiesPath(request.Name);
-        var configPath = GetConfigPath(request.Name);
+        var propertiesPath = GetPropertiesPath(directoryName);
+        var configPath = GetConfigPath(directoryName);
 
         var usedPorts = await GetUsedPortsAsync(excludeName: null, cancellationToken);
 
@@ -402,6 +455,10 @@ public class ServerService : IServerService
             // Bedrock server.config (minimal - no Java section needed for operation, but kept for compatibility)
             var bedrockConfig = new Dictionary<string, Dictionary<string, string>>
             {
+                ["display"] = new()
+                {
+                    ["name"] = request.Name
+                },
                 ["bedrock"] = new()
                 {
                     ["binary"] = "./bedrock_server"
@@ -434,6 +491,10 @@ public class ServerService : IServerService
 
             var proxyConfig = new Dictionary<string, Dictionary<string, string>>
             {
+                ["display"] = new()
+                {
+                    ["name"] = request.Name
+                },
                 ["java"] = new()
                 {
                     ["java_binary"] = "",
@@ -561,6 +622,10 @@ public class ServerService : IServerService
             // Write default server.config
             var defaultConfig = new Dictionary<string, Dictionary<string, string>>
             {
+                ["display"] = new()
+                {
+                    ["name"] = request.Name
+                },
                 ["java"] = new()
                 {
                     ["java_binary"] = "",
@@ -591,7 +656,7 @@ public class ServerService : IServerService
         OwnershipHelper.TrySetOwnership(backupPath, _options.RunAsUid, _options.RunAsGid, _logger, recursive: true);
         OwnershipHelper.TrySetOwnership(archivePath, _options.RunAsUid, _options.RunAsGid, _logger, recursive: true);
 
-        _logger.LogInformation("Created server {ServerName} at {ServerPath}", request.Name, serverPath);
+        _logger.LogInformation("Created server {ServerName} ({DisplayName}) at {ServerPath}", directoryName, request.Name, serverPath);
         try
         {
             await _telemetryService.ReportLifecycleEventAsync("server_created", null, cancellationToken);
@@ -602,7 +667,7 @@ public class ServerService : IServerService
         }
         _telemetryReportTrigger.RequestImmediateReport();
 
-        return await GetServerAsync(request.Name, cancellationToken);
+        return await GetServerAsync(directoryName, cancellationToken);
     }
 
     public async Task<ServerDetailDto> CloneServerAsync(
