@@ -36,6 +36,15 @@
 	const availableProxies = $derived(
 		(data.servers.data ?? []).filter((s) => s.serverType === 'proxy').map((s) => s.name)
 	);
+
+	// Game servers that can go behind a new proxy. Bedrock cannot sit behind a Java
+	// proxy, and a proxy fronting a proxy is not a sensible default.
+	const attachableBackends = $derived(
+		(data.servers.data ?? [])
+			.filter((s) => s.serverType !== 'proxy' && s.serverType !== 'bedrock')
+			.map((s) => s.name)
+	);
+	let selectedBackends = $state<string[]>([]);
 	// Proxies, Bedrock, and clones can't be backends, so only offer attaching
 	// for the categories that can.
 	const attachableCategories: ReadonlySet<string> = new Set(['vanilla', 'plugins', 'mods']);
@@ -104,6 +113,26 @@
 			onStep: (label) => (simpleStepText = label)
 		});
 		return result.ok ? null : result.error;
+	}
+
+	/**
+	 * Register the chosen game servers behind a freshly created proxy, reusing the
+	 * same attach path the Proxies page uses so each one gets verified forwarding
+	 * rather than just a name written into the config. Returns a warning per server
+	 * that could not be attached; the proxy itself is already created either way.
+	 */
+	async function attachChosenBackends(proxyName: string): Promise<string[]> {
+		const failures: string[] = [];
+		for (const backend of selectedBackends) {
+			simpleStepText = `Attaching ${backend}...`;
+			const result = await attachServerToProxy(fetch, {
+				serverName: backend,
+				proxyName,
+				onStep: (label) => (simpleStepText = label)
+			});
+			if (!result.ok) failures.push(`${backend}: ${result.error}`);
+		}
+		return failures;
 	}
 
 	function selectCategory(cat: ServerCategory) {
@@ -221,6 +250,22 @@
 		// earlier would let the install overwrite the secured configs.
 		pendingAttachName =
 			!isProxy && attachProxy && attachableCategories.has(category ?? '') ? name : '';
+
+		// A proxy has no installer step, so anything picked to sit behind it can be
+		// wired straight away. Failures are reported but do not fail the create — the
+		// proxy exists, and the servers can be attached from the Proxies page instead.
+		if (isProxy && selectedBackends.length > 0) {
+			attaching = true;
+			try {
+				const failures = await attachChosenBackends(name);
+				if (failures.length > 0) {
+					attachNotice = `Proxy created, but some servers could not be attached — ${failures.join('; ')}`;
+				}
+				await invalidateAll();
+			} finally {
+				attaching = false;
+			}
+		}
 
 		// For modloaders, trigger installation
 		if (implementation === 'forge' && selectedForgeVersion) {
@@ -509,6 +554,9 @@
 				}
 				{attachProxy}
 				onattachchange={(v) => (attachProxy = v)}
+				backends={proxyMode ? attachableBackends : []}
+				{selectedBackends}
+				onbackendschange={(v) => (selectedBackends = v)}
 				onchange={(v) => (serverName = v)}
 				oncreate={createServer}
 				onback={goBackFromName}

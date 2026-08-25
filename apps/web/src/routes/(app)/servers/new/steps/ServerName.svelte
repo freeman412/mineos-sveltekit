@@ -6,12 +6,35 @@
 		proxies?: string[];
 		attachProxy?: string;
 		onattachchange?: (proxyName: string) => void;
+		/** Game servers that can be put behind this proxy (proxy flow only). */
+		backends?: string[];
+		selectedBackends?: string[];
+		onbackendschange?: (names: string[]) => void;
 		onchange: (name: string) => void;
 		oncreate: () => void;
 		onback: () => void;
 	}
 
-	let { value, error, isProxy = false, proxies = [], attachProxy = '', onattachchange, onchange, oncreate, onback }: Props = $props();
+	let {
+		value,
+		error,
+		isProxy = false,
+		proxies = [],
+		attachProxy = '',
+		onattachchange,
+		backends = [],
+		selectedBackends = [],
+		onbackendschange,
+		onchange,
+		oncreate,
+		onback
+	}: Props = $props();
+
+	function toggleBackend(name: string, checked: boolean) {
+		onbackendschange?.(
+			checked ? [...selectedBackends, name] : selectedBackends.filter((n) => n !== name)
+		);
+	}
 
 	const namePattern = /^[a-zA-Z0-9][a-zA-Z0-9 _\-\.]{0,63}$/;
 	const isValid = $derived(namePattern.test(value.trim()) && !value.includes('..'));
@@ -42,6 +65,29 @@
 		{/if}
 	</div>
 
+	{#if isProxy && backends.length > 0}
+		<div class="attach-group">
+			<span class="attach-label">Put servers behind it?</span>
+			<div class="backend-list">
+				{#each backends as backendName (backendName)}
+					<label class="backend-option">
+						<input
+							type="checkbox"
+							checked={selectedBackends.includes(backendName)}
+							onchange={(e) => toggleBackend(backendName, e.currentTarget.checked)}
+						/>
+						<span>{backendName}</span>
+					</label>
+				{/each}
+			</div>
+			<p class="attach-hint">
+				Each server you pick is registered with the proxy and set up for verified forwarding,
+				exactly as attaching it later would. Leave them all unchecked to attach servers yourself
+				from the Proxies page.
+			</p>
+		</div>
+	{/if}
+
 	{#if proxies.length > 0}
 		<div class="attach-group">
 			<label class="attach-label" for="attach-proxy">Behind a proxy?</label>
@@ -66,6 +112,32 @@
 </div>
 
 <style>
+	.backend-list {
+		display: flex;
+		flex-direction: column;
+		gap: 6px;
+		max-height: 220px;
+		overflow-y: auto;
+	}
+	.backend-option {
+		display: flex;
+		align-items: center;
+		gap: 10px;
+		padding: 8px 12px;
+		border-radius: 10px;
+		border: 1px solid rgba(62, 69, 100, 0.6);
+		background: rgba(19, 24, 40, 0.7);
+		cursor: pointer;
+		font-size: 14px;
+	}
+	.backend-option:hover {
+		border-color: rgba(106, 176, 76, 0.5);
+	}
+	.backend-option input {
+		accent-color: var(--mc-grass);
+		cursor: pointer;
+	}
+
 	.step {
 		display: flex;
 		flex-direction: column;
