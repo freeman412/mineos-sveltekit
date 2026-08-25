@@ -43,24 +43,34 @@ public class ServerDisplayNameTests : IClassFixture<MineOsWebApplicationFactory>
         using var request = AuthRequest(HttpMethod.Post, "/api/v1/servers", token, content);
         var response = await _client.SendAsync(request);
         Assert.Equal(HttpStatusCode.Created, response.StatusCode);
-        return name;
+        // The directory is a slug derived from the label, not the label itself, so every
+        // later call has to address the server by what the API actually created.
+        var created = await response.Content.ReadFromJsonAsync<JsonElement>();
+        return created.GetProperty("name").GetString()!;
     }
 
     [Fact]
-    public async Task Fresh_Server_Has_Null_Display_Name()
+    public async Task Fresh_Server_Keeps_The_Label_It_Was_Created_With()
     {
-        // Legacy compatibility: servers that predate the feature (and fresh ones)
-        // must report displayName null and render exactly as before.
+        // This used to assert displayName was null on a fresh server, because the
+        // directory WAS the label and repeating it would have been redundant.
+        // The directory is now a slug ("my-server-7f3a"), so the label has nowhere else
+        // to live: a new server must carry it or the UI can only show the slug.
+        //
+        // Legacy servers are unaffected and still report null — nothing backfills them,
+        // and null continues to mean "show the backend name".
         var token = await GetTokenAsync();
-        var name = await CreateServerAsync(token, UniqueName("dn-legacy"));
+        var label = UniqueName("dn-legacy");
+        var name = await CreateServerAsync(token, label);
+
+        Assert.NotEqual(label, name);
 
         using var request = AuthRequest(HttpMethod.Get, $"/api/v1/servers/{name}", token);
         var response = await _client.SendAsync(request);
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         var json = await response.Content.ReadFromJsonAsync<JsonElement>();
-        Assert.True(json.TryGetProperty("displayName", out var displayName));
-        Assert.Equal(JsonValueKind.Null, displayName.ValueKind);
+        Assert.Equal(label, json.GetProperty("displayName").GetString());
     }
 
     [Fact]

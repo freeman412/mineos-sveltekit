@@ -22,13 +22,64 @@ export interface ProxyLinkOptions {
 	onStep?: (label: string) => void;
 }
 
-async function findBackendAddress(
+/**
+ * The name a backend is registered under in a proxy's config.
+ *
+ * This is player-facing — it is what someone types in Velocity's `/server <name>` — so
+ * it comes from the display label rather than the directory. Directories are slugs with
+ * a random suffix now, and `/server server-loco-7f3a` is not something to ask a player
+ * to type. Falls back to the directory name when a label has nothing usable in it.
+ */
+function backendKeyFor(serverName: string, displayName: string | null | undefined): string {
+	const slug = (displayName ?? '')
+		.trim()
+		.toLowerCase()
+		.replace(/[^a-z0-9]+/g, '-')
+		.replace(/^-+|-+$/g, '');
+	return slug.length > 0 ? slug : serverName;
+}
+
+/**
+ * A key that does not collide with an existing entry pointing somewhere else. Two
+ * servers can carry the same label — it is only a label — but two backends cannot share
+ * a key.
+ */
+function uniqueBackendKey(desired: string, taken: Record<string, string>, address: string): string {
+	if (!(desired in taken) || taken[desired] === address) return desired;
+	for (let n = 2; ; n++) {
+		const candidate = `${desired}-${n}`;
+		if (!(candidate in taken) || taken[candidate] === address) return candidate;
+	}
+}
+
+/**
+ * The key an already-attached server sits under. Matched by address rather than by name:
+ * the key is derived from a label that can change after attaching, so re-deriving it
+ * would miss a renamed server. Falls back to the directory name for entries written
+ * before keys were labels.
+ */
+function existingBackendKey(
+	servers: Record<string, string>,
+	address: string | null,
+	serverName: string
+): string | null {
+	if (address) {
+		const byAddress = Object.keys(servers).find((key) => servers[key] === address);
+		if (byAddress) return byAddress;
+	}
+	return serverName in servers ? serverName : null;
+}
+
+async function findBackend(
 	fetcher: Fetcher,
 	serverName: string
-): Promise<string | null> {
+): Promise<{ address: string | null; displayName: string | null }> {
 	const host = await api.getHostServers(fetcher);
 	const summaryRow = (host.data ?? []).find((s) => s.name === serverName);
-	return backendAddress(summaryRow?.port);
+	return {
+		address: backendAddress(summaryRow?.port),
+		displayName: summaryRow?.displayName ?? null
+	};
 }
 
 /**
@@ -44,7 +95,7 @@ export async function attachServerToProxy(
 	const { serverName, proxyName, onStep } = options;
 	onStep?.(`Attaching ${serverName} to ${proxyName}...`);
 
-	const address = await findBackendAddress(fetcher, serverName);
+	const { address, displayName } = await findBackend(fetcher, serverName);
 	if (!address) {
 		return { ok: false, error: `Couldn't find an assigned port for ${serverName}, so it wasn't attached.` };
 	}
@@ -59,7 +110,11 @@ export async function attachServerToProxy(
 		const { error } = await api.updateVelocityConfig(
 			fetcher,
 			proxyName,
-			addBackendToVelocity(velocity.data, serverName, address)
+			addBackendToVelocity(
+				velocity.data,
+				uniqueBackendKey(backendKeyFor(serverName, displayName), velocity.data.servers, address),
+				address
+			)
 		);
 		configError = error;
 	} else {
@@ -120,13 +175,20 @@ export async function detachServerFromProxy(
 
 	const velocity = await api.getVelocityConfig(fetcher, proxyName);
 	if (velocity.data?.exists) {
-		if (!(serverName in velocity.data.servers)) {
+		// Fast path: entries written before keys were labels sit under the directory
+		// name, and cost no extra request to find.
+		let key: string | null = serverName in velocity.data.servers ? serverName : null;
+		if (key === null) {
+			const { address } = await findBackend(fetcher, serverName);
+			key = existingBackendKey(velocity.data.servers, address, serverName);
+		}
+		if (key === null) {
 			return { ok: false, error: `${serverName} isn't attached to ${proxyName}.` };
 		}
 		const { error } = await api.updateVelocityConfig(
 			fetcher,
 			proxyName,
-			removeBackendFromVelocity(velocity.data, serverName)
+			removeBackendFromVelocity(velocity.data, key)
 		);
 		if (error) return { ok: false, error: `Couldn't update ${proxyName}'s config: ${error}` };
 		return { ok: true };

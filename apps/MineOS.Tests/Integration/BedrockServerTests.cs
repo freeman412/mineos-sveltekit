@@ -45,6 +45,8 @@ public class BedrockServerTests : IClassFixture<MineOsWebApplicationFactory>
         Assert.Equal(HttpStatusCode.Created, response.StatusCode);
 
         var json = await response.Content.ReadFromJsonAsync<JsonElement>();
+        // Created under a slug, not the label that was posted.
+        Assert.NotEqual(name, json.GetProperty("name").GetString());
         Assert.Equal("bedrock", json.GetProperty("serverType").GetString());
         Assert.True(json.GetProperty("eulaAccepted").GetBoolean());
     }
@@ -57,9 +59,12 @@ public class BedrockServerTests : IClassFixture<MineOsWebApplicationFactory>
         var content = JsonContent.Create(new { name, serverType = "bedrock" });
 
         using var createRequest = AuthRequest(HttpMethod.Post, "/api/v1/servers", token, content);
-        await _client.SendAsync(createRequest);
+        var createResponse = await _client.SendAsync(createRequest);
+        var created = await createResponse.Content.ReadFromJsonAsync<JsonElement>();
+        // Address it by the slug the API assigned, not the label that was posted.
+        var serverName = created.GetProperty("name").GetString();
 
-        using var getRequest = AuthRequest(HttpMethod.Get, $"/api/v1/servers/{name}", token);
+        using var getRequest = AuthRequest(HttpMethod.Get, $"/api/v1/servers/{serverName}", token);
         var response = await _client.SendAsync(getRequest);
         var json = await response.Content.ReadFromJsonAsync<JsonElement>();
 
@@ -98,9 +103,11 @@ public class BedrockServerTests : IClassFixture<MineOsWebApplicationFactory>
         var content = JsonContent.Create(new { name, serverType = "bedrock" });
 
         using var createRequest = AuthRequest(HttpMethod.Post, "/api/v1/servers", token, content);
-        await _client.SendAsync(createRequest);
+        var createResponse = await _client.SendAsync(createRequest);
+        var created = await createResponse.Content.ReadFromJsonAsync<JsonElement>();
+        var serverName = created.GetProperty("name").GetString();
 
-        using var startRequest = AuthRequest(HttpMethod.Post, $"/api/v1/servers/{name}/actions/start", token);
+        using var startRequest = AuthRequest(HttpMethod.Post, $"/api/v1/servers/{serverName}/actions/start", token);
         var response = await _client.SendAsync(startRequest);
 
         // Should fail — either missing screen (test host) or missing bedrock binary (container)

@@ -38,8 +38,12 @@ function forwarding(remediationAction: BackendForwarding['remediationAction']): 
 	};
 }
 
-function hostList(...entries: { name: string; port: number | null }[]) {
-	return entries.map((e) => ({ name: e.name, port: e.port })) as ServerSummary[];
+function hostList(...entries: { name: string; port: number | null; displayName?: string }[]) {
+	return entries.map((e) => ({
+		name: e.name,
+		port: e.port,
+		displayName: e.displayName ?? null
+	})) as ServerSummary[];
 }
 
 describe('attachServerToProxy', () => {
@@ -198,6 +202,29 @@ describe('attachServerToProxy', () => {
 });
 
 describe('detachServerFromProxy', () => {
+	it('finds a backend registered under its label, not its directory', async () => {
+		// Directories are slugs with a random suffix; the config key is the label, so
+		// detach cannot re-derive it — a rename would move it. It matches by address.
+		const config: VelocityConfig = velocityFixture();
+		config.servers = { 'server loco': 'localhost:25566' };
+		const { fetcher, calls } = recordingFetcher({
+			'GET /api/servers/hub/velocity-config': { body: config },
+			'GET /api/host/servers': {
+				body: hostList({ name: 'server-loco-7f3a', port: 25566, displayName: 'Server Loco' })
+			},
+			'PUT /api/servers/hub/velocity-config': { body: { ok: true } }
+		});
+
+		const result = await detachServerFromProxy(fetcher, {
+			serverName: 'server-loco-7f3a',
+			proxyName: 'hub'
+		});
+
+		expect(result).toEqual({ ok: true });
+		const putBody = calls[2].body as { servers: Record<string, string> };
+		expect(putBody.servers).toEqual({});
+	});
+
 	it('removes the server from the velocity config', async () => {
 		const config: VelocityConfig = velocityFixture();
 		const { fetcher, calls } = recordingFetcher({
@@ -217,7 +244,8 @@ describe('detachServerFromProxy', () => {
 
 	it('refuses without a write when the server is not attached', async () => {
 		const { fetcher, calls } = recordingFetcher({
-			'GET /api/servers/hub/velocity-config': { body: velocityFixture() }
+			'GET /api/servers/hub/velocity-config': { body: velocityFixture() },
+			'GET /api/host/servers': { body: hostList({ name: 'creative', port: 25567 }) }
 		});
 
 		const result = await detachServerFromProxy(fetcher, {
@@ -227,7 +255,9 @@ describe('detachServerFromProxy', () => {
 
 		expect(result.ok).toBe(false);
 		if (!result.ok) expect(result.error).toContain("isn't attached");
-		expect(calls).toHaveLength(1);
+		// The point is that nothing was written. Reads may legitimately vary: a miss on
+		// the direct key now costs one extra lookup to check for a label-derived key.
+		expect(calls.filter((c) => c.method !== 'GET')).toEqual([]);
 	});
 
 	it('removes via the bungee config when velocity is absent', async () => {
