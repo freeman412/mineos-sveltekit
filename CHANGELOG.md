@@ -10,6 +10,17 @@ Pre-releases publish `:preview` Docker images and are not intended for productio
 
 ### Added
 
+- **Servers pick their backends when a proxy is set up.** Creating a proxy used to
+  register every Java server on the host automatically, unsecured, and land players on
+  whichever sorted first. The setup flow now lists eligible servers and attaches only
+  the ones chosen, through the same path the Proxies page uses — so a backend attached
+  at setup is secured exactly like one attached later. An empty proxy is now a
+  legitimate choice, and the UI says what it means instead of showing blank space.
+- **New servers get a slug directory, separate from their label.** A server's folder
+  was whatever was typed at creation, permanently, so labels became paths that every
+  consumer had to survive. New servers are created at e.g. `servers/server-loco-7f3a`
+  and carry "Server Loco" as their display name; Velocity keys backends by the label,
+  so players still type `/server serverloco`. Existing servers are untouched.
 - **Server display names.** Rename any server after creation — a mutable label shown
   across the UI, with the immutable backend name (the on-disk folder and screen
   session) still shown alongside it so console context is never lost. Renaming works
@@ -17,6 +28,24 @@ Pre-releases publish `:preview` Docker images and are not intended for productio
 
 ### Fixed
 
+- **Securing a Paper backend no longer leaves `config/` unwritable.** The directory was
+  created as root and only the file inside it was chowned, so a brand-new server behind a
+  proxy could not write `paper-global.yml` or `paper-world-defaults.yml`. It died with
+  `AccessDeniedException`, then died differently on the half-created world left behind.
+  Existing installs repair themselves the next time forwarding is written.
+- **Concurrent start requests no longer launch a server more than once.** The "already
+  running" check was a check-then-act with nothing serializing it, so the start endpoint,
+  watchdog, startup service and cron scheduler could race. Four concurrent requests
+  produced four JVMs — on a proxy the loser died with `EADDRINUSE`, on a game server it
+  meant two JVMs writing one world directory.
+- **Server names containing a space no longer break process detection.** The screen
+  session name was parsed from a re-joined command line and truncated at the first space,
+  so "Server Loco" was filed under "Server" — MineOS reported such servers stopped while
+  they ran, and stop/kill looked for a PID under a server that does not exist.
+- **The proxy config editor no longer wipes itself on save.** Backends, try order and
+  forced hosts are dynamically rendered rows, and the save handler let SvelteKit reset the
+  form, blanking every one of them. The values were written correctly; the editor erased
+  itself in front of you. Backend selection is now a picker rather than free text.
 - **Proxies pick a Java runtime that can actually load their jar.** Proxies were pinned to
   Java 21, which was right when Velocity's floor was 21 and wrong once Velocity 4.x shipped
   Java 25 bytecode: a 4.x proxy died before `main()` with `UnsupportedClassVersionError`
@@ -35,7 +64,7 @@ Pre-releases publish `:preview` Docker images and are not intended for productio
 - **The Java Binary field lists the runtimes the host actually has**, via a new
   `GET /api/v1/host/java-runtimes`. It previously offered four hardcoded paths that named
   amd64 and JRE directories on an image shipping arm64 JDKs, so every explicit choice
-  pointed at a binary that did not exist.## [1.2.0] — in beta (currently `v1.2.0-beta.6`)
+  pointed at a binary that did not exist.## [1.2.0] — in beta
 
 The proxy release. MineOS goes from "one server at a time" to running a network:
 a proxy players connect to, with game servers behind it whose identities the proxy
