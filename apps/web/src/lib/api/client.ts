@@ -157,6 +157,19 @@ export async function cloneServer(
 	return apiPost(fetcher, `/api/servers/${name}/clone`, request);
 }
 
+// Sets or clears the mutable display label (issue #180). Null clears it.
+export async function setDisplayName(
+	fetcher: Fetcher,
+	name: string,
+	displayName: string | null
+): Promise<ApiResult<void>> {
+	return apiFetch(fetcher, `/api/servers/${name}/display-name`, {
+		method: 'PUT',
+		headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify({ displayName })
+	});
+}
+
 export async function deleteServer(fetcher: Fetcher, name: string): Promise<ApiResult<void>> {
 	return apiDelete(fetcher, `/api/servers/${name}`);
 }

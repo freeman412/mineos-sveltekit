@@ -8,6 +8,13 @@ Pre-releases publish `:preview` Docker images and are not intended for productio
 
 ## [Unreleased]
 
+### Added
+
+- **Server display names.** Rename any server after creation — a mutable label shown
+  across the UI, with the immutable backend name (the on-disk folder and screen
+  session) still shown alongside it so console context is never lost. Renaming works
+  while the server is running, survives config edits, and clones start unlabeled (#180).
+
 ### Fixed
 
 - **Proxies pick a Java runtime that can actually load their jar.** Proxies were pinned to
@@ -28,9 +35,7 @@ Pre-releases publish `:preview` Docker images and are not intended for productio
 - **The Java Binary field lists the runtimes the host actually has**, via a new
   `GET /api/v1/host/java-runtimes`. It previously offered four hardcoded paths that named
   amd64 and JRE directories on an image shipping arm64 JDKs, so every explicit choice
-  pointed at a binary that did not exist.
-
-## [1.2.0] — in beta (currently `v1.2.0-beta.6`)
+  pointed at a binary that did not exist.## [1.2.0] — in beta (currently `v1.2.0-beta.6`)
 
 The proxy release. MineOS goes from "one server at a time" to running a network:
 a proxy players connect to, with game servers behind it whose identities the proxy
