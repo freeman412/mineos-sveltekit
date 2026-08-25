@@ -132,8 +132,25 @@
 			{/if}
 		</p>
 	</section>
+{:else if summary}
+	<!--
+		A proxy with no backends is not idle: Velocity disconnects every player with
+		"no available servers". Rendering nothing here made a freshly created proxy look
+		finished when it cannot serve anyone, which is the failure mode that used to be
+		papered over by registering every server on the host automatically.
+	-->
+	<section class="rollup empty">
+		<div class="head">
+			<h2>Backend security</h2>
+			<span class="chip warn">No backends</span>
+		</div>
+		<p class="empty-copy">
+			Nothing is behind this proxy yet, so anyone joining is disconnected with
+			<code>no available servers</code>. Attach a game server to route players to it.
+		</p>
+		<a class="empty-action" href="/proxies">Attach a server</a>
+	</section>
 {/if}
-
 <style>
 	.rollup {
 		background: var(--mc-panel, rgba(22, 27, 46, 0.95));
@@ -241,5 +258,41 @@
 	.row-btn.detach:hover:not(:disabled) {
 		border-color: rgba(210, 94, 72, 0.5);
 		color: #ffb6a6;
+	}
+
+	.rollup.empty {
+		border-style: dashed;
+	}
+	.chip.warn {
+		background: rgba(226, 179, 65, 0.14);
+		border-color: rgba(226, 179, 65, 0.45);
+		color: #e2b341;
+	}
+	.empty-copy {
+		margin: 0 0 0.9rem;
+		font-size: 0.85rem;
+		line-height: 1.55;
+		color: var(--mc-text-dim, #8890b1);
+	}
+	.empty-copy code {
+		padding: 1px 6px;
+		border-radius: 5px;
+		font-size: 0.8rem;
+		background: rgba(19, 24, 40, 0.8);
+		border: 1px solid rgba(62, 69, 100, 0.6);
+	}
+	.empty-action {
+		display: inline-block;
+		padding: 0.45rem 0.9rem;
+		border-radius: 0.5rem;
+		border: 1px solid rgba(106, 176, 76, 0.45);
+		background: rgba(106, 176, 76, 0.12);
+		color: var(--mc-grass, #6ab04c);
+		font-size: 0.82rem;
+		font-weight: 600;
+		text-decoration: none;
+	}
+	.empty-action:hover {
+		background: rgba(106, 176, 76, 0.2);
 	}
 </style>
