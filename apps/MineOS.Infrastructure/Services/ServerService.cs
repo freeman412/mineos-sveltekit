@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.IO.Compression;
 using System.Security;
@@ -770,7 +771,53 @@ public class ServerService : IServerService
         );
     }
 
+    /// <summary>
+    /// Serializes starts per server. Entries are keyed by server name and never removed:
+    /// a SemaphoreSlim is a few dozen bytes and the set is bounded by how many servers
+    /// have ever been started, which is far cheaper than the alternative of disposing a
+    /// gate somebody is currently holding.
+    /// </summary>
+    /// <remarks>
+    /// Static on purpose. IServerService is registered scoped, so every caller that can
+    /// race here - the start endpoint, WatchdogService, StartupServerService and
+    /// CronSchedulerService - resolves its own ServerService instance. A per-instance
+    /// gate would be uncontended and would serialize nothing.
+    /// </remarks>
+    private static readonly ConcurrentDictionary<string, SemaphoreSlim> StartGates =
+        new(StringComparer.Ordinal);
+
+    /// <summary>
+    /// Starts a server, refusing if it is already running.
+    /// </summary>
+    /// <remarks>
+    /// The whole body runs under a per-server gate because the "already running" check is
+    /// a check-then-act. A freshly launched screen session does not appear in the process
+    /// table instantly, and the work between the check and the launch is not trivial - it
+    /// reads server.config, resolves a Java binary (which opens and inspects the jar) and
+    /// chowns the log directory. Two callers arriving inside that window both saw "not
+    /// running" and both launched. On a proxy the loser dies with EADDRINUSE, which is
+    /// noisy but harmless; on a game server it means two JVMs writing one world directory,
+    /// which is how region files get corrupted.
+    ///
+    /// The gate is held through VerifyServerStartedAsync, not just the launch, so it is
+    /// released only once the process is actually observable. Releasing at the screen call
+    /// would reopen the same window a few hundred milliseconds later.
+    /// </remarks>
     public async Task StartServerAsync(string name, CancellationToken cancellationToken)
+    {
+        var gate = StartGates.GetOrAdd(name, _ => new SemaphoreSlim(1, 1));
+        await gate.WaitAsync(cancellationToken);
+        try
+        {
+            await StartServerCoreAsync(name, cancellationToken);
+        }
+        finally
+        {
+            gate.Release();
+        }
+    }
+
+    private async Task StartServerCoreAsync(string name, CancellationToken cancellationToken)
     {
         _logger.LogInformation("StartServerAsync requested for {ServerName}", name);
         var isRunning = await _processManager.IsServerRunningAsync(name, cancellationToken);
@@ -1033,6 +1080,14 @@ public class ServerService : IServerService
         throw new TimeoutException($"Server '{name}' did not stop within {timeoutSeconds} seconds");
     }
 
+    /// <summary>
+    /// Stops a server and starts it again.
+    /// </summary>
+    /// <remarks>
+    /// Must not take the start gate itself. It composes StartServerAsync, which takes the
+    /// gate, and SemaphoreSlim is not reentrant - holding it here would deadlock against
+    /// the call below.
+    /// </remarks>
     public async Task RestartServerAsync(string name, CancellationToken cancellationToken)
     {
         await StopServerAsync(name, 300, cancellationToken);
