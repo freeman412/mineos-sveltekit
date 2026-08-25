@@ -81,7 +81,11 @@ public sealed class ImportService : IImportService
             throw new FileNotFoundException($"Import file '{filename}' not found");
         }
 
-        var serverPath = Path.Combine(GetServersPath(), serverName);
+        // The requested name is the label; the directory is a slug of it, matching how
+        // servers are created and cloned. Without this an import could still put a space
+        // on disk and break the guarantee everywhere else upholds.
+        var directoryName = ServerService.GenerateServerDirectoryName(serverName);
+        var serverPath = Path.Combine(GetServersPath(), directoryName);
         if (Directory.Exists(serverPath))
         {
             throw new InvalidOperationException($"Server '{serverName}' already exists");
@@ -144,6 +148,19 @@ public sealed class ImportService : IImportService
                 }
             }
 
+            // Give the import the label that was asked for. Its directory is a slug, so
+            // without this the UI could only ever show "my-import-7f3a". Any display name
+            // carried inside the archive is overwritten: the importer named this copy.
+            var importedConfigPath = Path.Combine(serverPath, "server.config");
+            if (File.Exists(importedConfigPath))
+            {
+                var sections = IniParser.ParseWithSections(
+                    await File.ReadAllTextAsync(importedConfigPath, cancellationToken));
+                sections["display"] = new Dictionary<string, string> { ["name"] = serverName };
+                await File.WriteAllTextAsync(
+                    importedConfigPath, IniParser.WriteWithSections(sections), cancellationToken);
+            }
+
             OwnershipHelper.TrySetOwnership(
                 serverPath,
                 _options.RunAsUid,
@@ -151,7 +168,9 @@ public sealed class ImportService : IImportService
                 _logger,
                 recursive: true);
 
-            _logger.LogInformation("Imported server {ServerName} from {Filename}", serverName, filename);
+            _logger.LogInformation(
+                "Imported server {ServerName} ({DisplayName}) from {Filename}",
+                directoryName, serverName, filename);
             return serverPath;
         }
         catch

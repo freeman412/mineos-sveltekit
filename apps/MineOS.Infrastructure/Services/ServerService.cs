@@ -686,7 +686,11 @@ public class ServerService : IServerService
             throw new DirectoryNotFoundException($"Server '{sourceName}' not found");
         }
 
-        var targetPath = GetServerPath(newName);
+        // Same rule as creating one: what the user typed is the label, the directory is
+        // a slug. Without this a clone could still put a space (or worse) on disk, which
+        // would quietly make the "new directories are slugs" guarantee untrue.
+        var targetDirectory = GenerateServerDirectoryName(newName);
+        var targetPath = GetServerPath(targetDirectory);
         if (Directory.Exists(targetPath))
         {
             throw new InvalidOperationException($"Server '{newName}' already exists");
@@ -705,38 +709,39 @@ public class ServerService : IServerService
             "crash-reports"
         });
 
-        var backupPath = GetBackupPath(newName);
-        var archivePath = GetArchivePath(newName);
+        var backupPath = GetBackupPath(targetDirectory);
+        var archivePath = GetArchivePath(targetDirectory);
         Directory.CreateDirectory(backupPath);
         Directory.CreateDirectory(archivePath);
 
-        var propertiesPath = GetPropertiesPath(newName);
+        var propertiesPath = GetPropertiesPath(targetDirectory);
         if (File.Exists(propertiesPath))
         {
-            var properties = await GetServerPropertiesAsync(newName, cancellationToken);
+            var properties = await GetServerPropertiesAsync(targetDirectory, cancellationToken);
             var usedPorts = await GetUsedPortsAsync(excludeName: null, cancellationToken);
             var defaultPort = GetNextAvailablePort(usedPorts, 25565);
             properties["server-port"] = defaultPort.ToString();
-            await UpdateServerPropertiesAsync(newName, properties, cancellationToken);
+            await UpdateServerPropertiesAsync(targetDirectory, properties, cancellationToken);
         }
 
         // A clone is its own identity — don't carry over the source's label (issue #180).
-        var cloneConfigPath = GetConfigPath(newName);
+        var cloneConfigPath = GetConfigPath(targetDirectory);
         if (File.Exists(cloneConfigPath))
         {
             var cloneContent = await File.ReadAllTextAsync(cloneConfigPath, cancellationToken);
             var cloneSections = IniParser.ParseWithSections(cloneContent);
-            if (cloneSections.Remove("display"))
-            {
-                await File.WriteAllTextAsync(cloneConfigPath, IniParser.WriteWithSections(cloneSections), cancellationToken);
-            }
+            // A clone must never claim to be its source (issue #180), but it does need a
+            // label of its own — its directory is a slug, so without one the UI could
+            // only show "my-clone-7f3a". The name typed for the copy is that label.
+            cloneSections["display"] = new Dictionary<string, string> { ["name"] = newName };
+            await File.WriteAllTextAsync(cloneConfigPath, IniParser.WriteWithSections(cloneSections), cancellationToken);
         }
 
         OwnershipHelper.TrySetOwnership(targetPath, _options.RunAsUid, _options.RunAsGid, _logger, recursive: true);
         OwnershipHelper.TrySetOwnership(backupPath, _options.RunAsUid, _options.RunAsGid, _logger, recursive: true);
         OwnershipHelper.TrySetOwnership(archivePath, _options.RunAsUid, _options.RunAsGid, _logger, recursive: true);
 
-        _logger.LogInformation("Cloned server {SourceServer} to {TargetServer}", sourceName, newName);
+        _logger.LogInformation("Cloned server {SourceServer} to {TargetServer} ({DisplayName})", sourceName, targetDirectory, newName);
         try
         {
             await _telemetryService.ReportLifecycleEventAsync("server_created", new { clone = true }, cancellationToken);
@@ -747,7 +752,7 @@ public class ServerService : IServerService
         }
         _telemetryReportTrigger.RequestImmediateReport();
 
-        return await GetServerAsync(newName, cancellationToken);
+        return await GetServerAsync(targetDirectory, cancellationToken);
     }
 
     public async Task DeleteServerAsync(string name, CancellationToken cancellationToken)
