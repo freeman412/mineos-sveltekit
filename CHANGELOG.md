@@ -28,6 +28,41 @@ Pre-releases publish `:preview` Docker images and are not intended for productio
 
 ### Fixed
 
+- **Pages behind a reverse proxy no longer return 502.** SvelteKit mirrors every preload
+  `<link>` into a `Link:` response header; on MineOS pages that one header ran to ~3.9 KB,
+  and the whole header block measured 4090 bytes against the 4 KB `proxy_buffer_size` that
+  nginx, Apache and Traefik use by default. The proxy could not buffer it, logged
+  "upstream sent too big header", and served a 502 instead of the page. Only full page
+  loads were affected — a click-through navigation fetches `__data.json`, which carries no
+  such header — so the same page worked when reached by clicking and failed when reached
+  by hitting refresh. The preloads are now emitted as tags in the page head, where they
+  still do their job, and the header block is 191 bytes.
+- **Live streams survive a reverse proxy's read timeout.** The console, jobs and
+  notifications streams only write when their subject changes, so an idle server sent
+  nothing at all and nginx closed a connection that had been quiet for 60 seconds — the
+  default in nginx, Apache and Traefik alike. `EventSource` reconnects silently, so
+  nothing looked broken while the console and live status dropped and re-established every
+  minute; one deployment logged 325 such timeouts. Streams now carry a keep-alive comment
+  every 20 seconds. This also removes the SQLite connection errors those cancellations
+  produced mid-query.
+- **Forced hosts are picked from the backends you defined.** The row was a native
+  `<select multiple>`, which needs cmd/ctrl-click to choose more than one — a plain click
+  replaced the selection — and reported its choice in DOM order, so a hostname routed to
+  `survival, lobby` was silently rewritten to `lobby, survival` the first time the row was
+  touched. That order is the routing priority Velocity uses. It is now a list of toggles
+  numbered with their try order, and a name routed there but no longer defined is kept
+  rather than dropped.
+- **Form controls follow the theme.** `--input-bg` was read by seven components and
+  defined by none, so every input fell back to a hardcoded slate that belongs to no theme —
+  including the light one. The proxy config page was also the only place in the app
+  with a cyan primary button.
+- **A stop, kill or restart can no longer race a start.** Gating starts alone closed half
+  the window: stop sends its command and then polls for the process to exit, and neither
+  stop nor kill took the gate, so a start could run against a server midway through
+  shutting down and a stop could be sent to a JVM still coming up. A restart released the
+  gate between its two halves, letting another caller start the server in the gap and
+  leaving the restart to fail with "already running". The gate now covers the whole
+  lifecycle, and a restart holds it once across both halves.
 - **Securing a Paper backend no longer leaves `config/` unwritable.** The directory was
   created as root and only the file inside it was chowned, so a brand-new server behind a
   proxy could not write `paper-global.yml` or `paper-world-defaults.yml`. It died with
@@ -64,7 +99,9 @@ Pre-releases publish `:preview` Docker images and are not intended for productio
 - **The Java Binary field lists the runtimes the host actually has**, via a new
   `GET /api/v1/host/java-runtimes`. It previously offered four hardcoded paths that named
   amd64 and JRE directories on an image shipping arm64 JDKs, so every explicit choice
-  pointed at a binary that did not exist.## [1.2.0] — in beta
+  pointed at a binary that did not exist.
+
+## [1.2.0] — in beta
 
 The proxy release. MineOS goes from "one server at a time" to running a network:
 a proxy players connect to, with game servers behind it whose identities the proxy
