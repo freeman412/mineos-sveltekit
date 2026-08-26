@@ -107,6 +107,52 @@ export function removeBackendFromBungee(config: BungeeConfig, name: string): Bun
 }
 
 /**
+ * A forced host's backends are stored in velocity.toml as an ordered list —
+ * Velocity tries them in that order. The editor keeps them as one comma-separated
+ * string per row, so both directions go through here.
+ */
+export function splitBackendList(value: string): string[] {
+	return value
+		.split(',')
+		.map((s) => s.trim())
+		.filter((s) => s.length > 0);
+}
+
+/**
+ * Backends to offer for one forced host: every name already routed here that is
+ * no longer a defined backend, followed by the defined ones.
+ *
+ * The stale names come first and are never dropped. A picker that offered only
+ * defined backends would silently delete a hostname's existing routing the first
+ * time someone opened the row — including config MineOS never wrote.
+ */
+export function forcedHostOptions(
+	chosen: readonly string[],
+	backendNames: readonly string[]
+): string[] {
+	const stale = chosen.filter((n) => !backendNames.includes(n));
+	return [...stale, ...backendNames];
+}
+
+/**
+ * Add or remove one backend from a forced host, preserving the order of the rest.
+ * A newly ticked backend goes last, because that is the lowest routing priority
+ * and the least surprising place for it.
+ *
+ * Order is the whole point: the <select multiple> this replaced reported its
+ * selection in DOM order, so touching a row whose config listed `survival, lobby`
+ * rewrote it to `lobby, survival` and changed where players landed.
+ */
+export function toggleForcedHostBackend(
+	current: readonly string[],
+	name: string,
+	checked: boolean
+): string[] {
+	if (!checked) return current.filter((n) => n !== name);
+	return current.includes(name) ? [...current] : [...current, name];
+}
+
+/**
  * Fetch the backend summary for every proxy in parallel. A proxy whose fetch
  * fails degrades to an error entry instead of failing the whole overview.
  */

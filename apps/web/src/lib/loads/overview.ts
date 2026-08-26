@@ -14,17 +14,25 @@ type LoadEvent = { params: { name: string }; fetch: typeof globalThis.fetch };
  * a proxy's overview whether its backends can be impersonated.
  */
 export async function loadOverview({ params, fetch }: LoadEvent) {
-	const heartbeat = await getServerStatus(fetch, params.name);
-	const watchdog = await getServerWatchdogStatus(fetch, params.name);
-	// Derived fresh on every load rather than cached: a hand-edited
-	// server.properties must be reflected the next time the page is opened.
-	const forwarding = await getForwardingStatus(fetch, params.name);
+	// In parallel, not in series: these four are independent, and a full page
+	// load blocks on all of them before a single byte is sent. Serially they
+	// stack up into a request slow enough for a reverse proxy in front of
+	// MineOS to time out on.
+	//
+	// Forwarding is derived fresh on every load rather than cached: a
+	// hand-edited server.properties must be reflected the next time the page
+	// is opened.
+	const [heartbeat, watchdog, forwarding, detail] = await Promise.all([
+		getServerStatus(fetch, params.name),
+		getServerWatchdogStatus(fetch, params.name),
+		getForwardingStatus(fetch, params.name),
+		getServer(fetch, params.name)
+	]);
 
 	// A proxy's overview leads with which servers sit behind it and whether
 	// they can be impersonated — the one view that is about being a proxy
 	// rather than about being a process.
 	let proxyOverview: ProxyOverview | null = null;
-	const detail = await getServer(fetch, params.name);
 	if (detail.data?.serverType === 'proxy') {
 		const [overview] = await loadProxyOverviews(fetch, [params.name]);
 		proxyOverview = overview ?? null;

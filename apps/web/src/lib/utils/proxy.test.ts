@@ -8,7 +8,10 @@ import {
 	overlaySummaries,
 	removeBackendFromBungee,
 	proxyDetailPath,
-	removeBackendFromVelocity
+	removeBackendFromVelocity,
+	splitBackendList,
+	forcedHostOptions,
+	toggleForcedHostBackend
 } from './proxy';
 import {
 	bungeeFixture,
@@ -314,5 +317,61 @@ describe('proxyDetailPath', () => {
 
 	it('encodes names that need it', () => {
 		expect(proxyDetailPath('my hub', '/servers/my hub/files')).toBe('/proxies/my%20hub/files');
+	});
+});
+
+describe('forced host backend lists', () => {
+	it('splits a stored list and drops blanks and padding', () => {
+		expect(splitBackendList(' lobby ,, survival,')).toEqual(['lobby', 'survival']);
+	});
+
+	it('offers the defined backends', () => {
+		expect(forcedHostOptions([], ['lobby', 'survival'])).toEqual(['lobby', 'survival']);
+	});
+
+	it('keeps every routed name that is no longer a defined backend', () => {
+		// The old picker offered only the first of these, so opening a row with two
+		// stale names and touching it deleted the second one.
+		expect(forcedHostOptions(['gone', 'also-gone'], ['lobby'])).toEqual([
+			'gone',
+			'also-gone',
+			'lobby'
+		]);
+	});
+
+	it('does not offer a routed backend twice', () => {
+		expect(forcedHostOptions(['lobby'], ['lobby', 'survival'])).toEqual(['lobby', 'survival']);
+	});
+
+	it('appends a newly ticked backend last', () => {
+		expect(toggleForcedHostBackend(['lobby'], 'survival', true)).toEqual(['lobby', 'survival']);
+	});
+
+	it('leaves the existing order alone when ticking', () => {
+		// Velocity tries these in order. The <select multiple> this replaced reported
+		// its selection in DOM order, so ticking a third backend here silently
+		// rewrote survival/lobby priority and changed where players landed.
+		expect(toggleForcedHostBackend(['survival', 'lobby'], 'creative', true)).toEqual([
+			'survival',
+			'lobby',
+			'creative'
+		]);
+	});
+
+	it('is a no-op when ticking something already routed', () => {
+		expect(toggleForcedHostBackend(['survival', 'lobby'], 'lobby', true)).toEqual([
+			'survival',
+			'lobby'
+		]);
+	});
+
+	it('removes without disturbing the rest of the order', () => {
+		expect(toggleForcedHostBackend(['a', 'b', 'c'], 'b', false)).toEqual(['a', 'c']);
+	});
+
+	it('does not mutate the list it is given', () => {
+		const current = ['lobby'];
+		toggleForcedHostBackend(current, 'survival', true);
+		expect(current).toEqual(['lobby']);
 	});
 });
