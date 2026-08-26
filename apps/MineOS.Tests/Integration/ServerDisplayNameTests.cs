@@ -239,10 +239,23 @@ public class ServerDisplayNameTests : IClassFixture<MineOsWebApplicationFactory>
         var cloneName = UniqueName("dn-clone");
         using var cloneRequest = AuthRequest(HttpMethod.Post, $"/api/v1/servers/{source}/clone", token,
             JsonContent.Create(new { newName = cloneName }));
-        Assert.Equal(HttpStatusCode.OK, (await _client.SendAsync(cloneRequest)).StatusCode);
+        var cloneResponse = await _client.SendAsync(cloneRequest);
+        Assert.Equal(HttpStatusCode.OK, cloneResponse.StatusCode);
 
-        using var getRequest = AuthRequest(HttpMethod.Get, $"/api/v1/servers/{cloneName}", token);
+        // The clone lives under a slug of the name it was given, like any new server.
+        var clone = await cloneResponse.Content.ReadFromJsonAsync<JsonElement>();
+        var cloneDirectory = clone.GetProperty("name").GetString()!;
+        Assert.NotEqual(cloneName, cloneDirectory);
+
+        using var getRequest = AuthRequest(HttpMethod.Get, $"/api/v1/servers/{cloneDirectory}", token);
         var json = await (await _client.SendAsync(getRequest)).Content.ReadFromJsonAsync<JsonElement>();
-        Assert.Equal(JsonValueKind.Null, json.GetProperty("displayName").ValueKind);
+
+        // The point of this test: a copy must never claim to be its source. It used to
+        // assert null, which was right when a clone's directory was its name and needed
+        // no label. With a slug directory it needs one, so it takes the name it was
+        // created with — its own, never "Original Label".
+        var displayName = json.GetProperty("displayName").GetString();
+        Assert.Equal(cloneName, displayName);
+        Assert.NotEqual("Original Label", displayName);
     }
 }
