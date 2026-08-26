@@ -22,7 +22,7 @@ public interface IServerService
     Task<ServerHeartbeatDto> GetServerStatusAsync(string name, CancellationToken cancellationToken);
     Task StartServerAsync(string name, CancellationToken cancellationToken);
     Task StopServerAsync(string name, int timeoutSeconds, CancellationToken cancellationToken);
-    Task RestartServerAsync(string name, CancellationToken cancellationToken);
+    Task RestartServerAsync(string name, int timeoutSeconds, CancellationToken cancellationToken);
     Task KillServerAsync(string name, CancellationToken cancellationToken);
 
     // Configuration management

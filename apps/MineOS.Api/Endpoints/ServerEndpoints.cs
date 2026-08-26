@@ -266,11 +266,12 @@ public static class ServerEndpoints
                         await serverService.StopServerAsync(name, timeout, cancellationToken);
                         return Results.Ok(new { message = $"Server '{name}' stopped" });
 
+                    // One gated operation, not a stop and a start with a gap between
+                    // them: another caller could win that gap, start the server, and
+                    // leave this restart failing with "already running".
                     case "restart":
                         var restartTimeout = await ResolveShutdownTimeoutAsync(settingsService, null, cancellationToken);
-                        await serverService.StopServerAsync(name, restartTimeout, cancellationToken);
-                        await Task.Delay(1000, cancellationToken);
-                        await serverService.StartServerAsync(name, cancellationToken);
+                        await serverService.RestartServerAsync(name, restartTimeout, cancellationToken);
                         return Results.Ok(new { message = $"Server '{name}' restarted" });
 
                     case "kill":

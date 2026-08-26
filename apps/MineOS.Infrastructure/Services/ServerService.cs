@@ -845,19 +845,65 @@ public class ServerService : IServerService
     }
 
     /// <summary>
-    /// Serializes starts per server. Entries are keyed by server name and never removed:
-    /// a SemaphoreSlim is a few dozen bytes and the set is bounded by how many servers
-    /// have ever been started, which is far cheaper than the alternative of disposing a
-    /// gate somebody is currently holding.
+    /// Serializes the whole lifecycle - start, stop, kill and restart - per server.
+    /// Entries are keyed by server name and never removed: a SemaphoreSlim is a few
+    /// dozen bytes and the set is bounded by how many servers have ever been touched,
+    /// which is far cheaper than the alternative of disposing a gate somebody is
+    /// currently holding.
     /// </summary>
     /// <remarks>
     /// Static on purpose. IServerService is registered scoped, so every caller that can
-    /// race here - the start endpoint, WatchdogService, StartupServerService and
+    /// race here - the action endpoint, WatchdogService, StartupServerService and
     /// CronSchedulerService - resolves its own ServerService instance. A per-instance
     /// gate would be uncontended and would serialize nothing.
+    ///
+    /// Gating starts alone only closed half the window. Stop sends its command and then
+    /// polls for the process to disappear, and neither it nor kill took the gate, so a
+    /// start could run against a server in the middle of shutting down - and a stop
+    /// could be sent to a JVM that was still coming up. Both operate on the same world
+    /// directory, which is the thing that must never have two writers.
     /// </remarks>
-    private static readonly ConcurrentDictionary<string, SemaphoreSlim> StartGates =
+    private static readonly ConcurrentDictionary<string, SemaphoreSlim> LifecycleGates =
         new(StringComparer.Ordinal);
+
+    /// <summary>
+    /// How long a lifecycle call waits for one already in flight before giving up.
+    /// </summary>
+    /// <remarks>
+    /// Bounded rather than infinite because a stop legitimately holds the gate for its
+    /// whole shutdown timeout - up to five minutes. Blocking a start behind that would
+    /// park an HTTP request until a proxy in front of MineOS gave up on it, so the
+    /// caller is told the server is busy instead. Every caller already handles the
+    /// InvalidOperationException this shares with "already running", which the action
+    /// endpoint turns into a 409.
+    /// </remarks>
+    private static readonly TimeSpan LifecycleWait = TimeSpan.FromSeconds(5);
+
+    /// <summary>
+    /// Takes the lifecycle gate for one server, or throws if another operation holds it.
+    /// </summary>
+    private static async Task<IDisposable> EnterLifecycleAsync(
+        string name, CancellationToken cancellationToken)
+    {
+        var gate = LifecycleGates.GetOrAdd(name, _ => new SemaphoreSlim(1, 1));
+        if (!await gate.WaitAsync(LifecycleWait, cancellationToken))
+        {
+            throw new InvalidOperationException(
+                $"Server '{name}' is busy: another start, stop or restart is already in progress");
+        }
+
+        return new LifecycleLease(gate);
+    }
+
+    /// <summary>Releases the lifecycle gate exactly once, however the caller unwinds.</summary>
+    private sealed class LifecycleLease : IDisposable
+    {
+        private SemaphoreSlim? _gate;
+
+        public LifecycleLease(SemaphoreSlim gate) => _gate = gate;
+
+        public void Dispose() => Interlocked.Exchange(ref _gate, null)?.Release();
+    }
 
     /// <summary>
     /// Starts a server, refusing if it is already running.
@@ -878,16 +924,8 @@ public class ServerService : IServerService
     /// </remarks>
     public async Task StartServerAsync(string name, CancellationToken cancellationToken)
     {
-        var gate = StartGates.GetOrAdd(name, _ => new SemaphoreSlim(1, 1));
-        await gate.WaitAsync(cancellationToken);
-        try
-        {
-            await StartServerCoreAsync(name, cancellationToken);
-        }
-        finally
-        {
-            gate.Release();
-        }
+        using var _ = await EnterLifecycleAsync(name, cancellationToken);
+        await StartServerCoreAsync(name, cancellationToken);
     }
 
     private async Task StartServerCoreAsync(string name, CancellationToken cancellationToken)
@@ -1120,6 +1158,12 @@ public class ServerService : IServerService
 
     public async Task StopServerAsync(string name, int timeoutSeconds, CancellationToken cancellationToken)
     {
+        using var _ = await EnterLifecycleAsync(name, cancellationToken);
+        await StopServerCoreAsync(name, timeoutSeconds, cancellationToken);
+    }
+
+    private async Task StopServerCoreAsync(string name, int timeoutSeconds, CancellationToken cancellationToken)
+    {
         var isRunning = await _processManager.IsServerRunningAsync(name, cancellationToken);
         if (!isRunning)
         {
@@ -1154,23 +1198,35 @@ public class ServerService : IServerService
     }
 
     /// <summary>
-    /// Stops a server and starts it again.
+    /// Stops a server and starts it again, as one operation.
     /// </summary>
     /// <remarks>
-    /// Must not take the start gate itself. It composes StartServerAsync, which takes the
-    /// gate, and SemaphoreSlim is not reentrant - holding it here would deadlock against
-    /// the call below.
+    /// Holds the lifecycle gate across both halves and calls the core methods, which do
+    /// not take it - SemaphoreSlim is not reentrant, so calling the public StopServerAsync
+    /// and StartServerAsync from in here would deadlock against itself.
+    ///
+    /// Taking it once is the point: a restart that released between the stop and the
+    /// start let another caller win the gate in the gap and start the server, after which
+    /// this one failed with "already running" on a server that was, confusingly, running.
     /// </remarks>
-    public async Task RestartServerAsync(string name, CancellationToken cancellationToken)
+    public async Task RestartServerAsync(string name, int timeoutSeconds, CancellationToken cancellationToken)
     {
-        await StopServerAsync(name, 300, cancellationToken);
+        using var _ = await EnterLifecycleAsync(name, cancellationToken);
+
+        await StopServerCoreAsync(name, timeoutSeconds, cancellationToken);
         await Task.Delay(1000, cancellationToken); // Brief pause between stop and start
-        await StartServerAsync(name, cancellationToken);
+        await StartServerCoreAsync(name, cancellationToken);
 
         _logger.LogInformation("Restarted server {ServerName}", name);
     }
 
     public async Task KillServerAsync(string name, CancellationToken cancellationToken)
+    {
+        using var _ = await EnterLifecycleAsync(name, cancellationToken);
+        await KillServerCoreAsync(name, cancellationToken);
+    }
+
+    private async Task KillServerCoreAsync(string name, CancellationToken cancellationToken)
     {
         var processInfo = _processManager.GetServerProcess(name);
         if (processInfo?.JavaPid == null)

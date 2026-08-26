@@ -20,6 +20,11 @@ namespace MineOS.Tests.Unit;
 /// Velocity instance dying with EADDRINUSE on a port its own twin had taken. On a
 /// game server the same race puts two JVMs on one world directory.
 ///
+/// The same gate now covers stop and kill. Gating starts alone closed only half the
+/// window: stop sends its command and then polls for the process to disappear, and
+/// took no gate, so a start could run against a server midway through shutting down
+/// and a stop could be sent to a JVM still coming up. Both touch one world directory.
+///
 /// These tests assert on the ordering of the running-check itself rather than on a
 /// launch, so they do not need `screen` on PATH: both calls fail after the check, and
 /// what matters is that the second never enters while the first is still inside.
@@ -102,6 +107,85 @@ public class ServerStartConcurrencyTests
 
         release.SetResult();
         await Task.WhenAll(slow, other);
+    }
+
+    [Fact]
+    public async Task StopWaitsForAStartThatIsStillInFlight()
+    {
+        // The window this closes: a stop command reaching a JVM that is still starting.
+        var startEntered = new TaskCompletionSource();
+        var release = new TaskCompletionSource();
+        var order = new List<string>();
+
+        var processManager = new Mock<IProcessManager>();
+        processManager
+            .Setup(m => m.IsServerRunningAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .Returns(async () =>
+            {
+                lock (order) order.Add("check");
+                if (order.Count == 1)
+                {
+                    startEntered.SetResult();
+                    await release.Task;
+                }
+                return false;
+            });
+
+        var service = CreateService(processManager.Object);
+        const string name = "gate-test-stop-waits";
+
+        var start = Swallow(service.StartServerAsync(name, CancellationToken.None));
+        await startEntered.Task;
+
+        var stop = Swallow(service.StopServerAsync(name, 1, CancellationToken.None));
+
+        await Task.Delay(100);
+        lock (order) Assert.Single(order);
+
+        release.SetResult();
+        await Task.WhenAll(start, stop);
+    }
+
+    [Fact]
+    public async Task StartIsRefusedWhileAnotherOperationHoldsTheGate()
+    {
+        // Bounded wait, not an infinite one: a stop can legitimately hold the gate for
+        // its whole shutdown timeout, and parking an HTTP request behind that is how a
+        // proxy in front of MineOS ends up timing the request out.
+        var startEntered = new TaskCompletionSource();
+        var release = new TaskCompletionSource();
+
+        var processManager = new Mock<IProcessManager>();
+        processManager
+            .Setup(m => m.IsServerRunningAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .Returns(async () =>
+            {
+                if (!startEntered.Task.IsCompleted)
+                {
+                    startEntered.SetResult();
+                    await release.Task;
+                }
+                return false;
+            });
+
+        var service = CreateService(processManager.Object);
+        const string name = "gate-test-busy";
+
+        var held = Swallow(service.StartServerAsync(name, CancellationToken.None));
+        await startEntered.Task;
+
+        // Deliberately waits out the gate's own timeout rather than cancelling the
+        // token, which would raise OperationCanceledException and prove nothing about
+        // the busy path. Costs a few seconds; this is the behaviour the action endpoint
+        // turns into a 409.
+        var busy = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => service.StopServerAsync(name, 1, CancellationToken.None)
+                .WaitAsync(TimeSpan.FromSeconds(30)));
+
+        Assert.Contains("busy", busy.Message, StringComparison.OrdinalIgnoreCase);
+
+        release.SetResult();
+        await held;
     }
 
     /// <summary>
