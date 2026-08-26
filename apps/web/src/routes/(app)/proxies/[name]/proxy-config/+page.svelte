@@ -5,6 +5,11 @@
 	import type { VelocityConfig } from '$lib/api/types';
 	import BungeeConfigEditor from './BungeeConfigEditor.svelte';
 	import ProxyBackendRollup from '$lib/components/ProxyBackendRollup.svelte';
+	import {
+		splitBackendList,
+		forcedHostOptions as computeForcedHostOptions,
+		toggleForcedHostBackend as toggleBackendInList
+	} from '$lib/utils/proxy';
 
 	let { data, form }: { data: PageData; form: ActionData } = $props();
 
@@ -85,11 +90,17 @@
 	}
 
 	/** Forced hosts are stored as a comma-separated string; the picker works in names. */
-	function splitServers(value: string): string[] {
-		return value
-			.split(',')
-			.map((s) => s.trim())
-			.filter((s) => s.length > 0);
+	const splitServers = splitBackendList;
+
+	/** The options one forced-host row offers, against the backends defined above. */
+	function forcedHostOptions(servers: string): string[] {
+		return computeForcedHostOptions(splitServers(servers), backendNames);
+	}
+
+	function toggleForcedHostBackend(idx: number, name: string, checked: boolean) {
+		const entry = forcedHostEntries[idx];
+		if (!entry) return;
+		entry.servers = toggleBackendInList(splitServers(entry.servers), name, checked).join(', ');
 	}
 
 	function buildForcedHostsObject(): Record<string, string[]> {
@@ -392,42 +403,52 @@
 				<button class="btn btn-secondary" type="button" onclick={addForcedHost}>+ Add</button>
 			</div>
 			<p class="card-description">
-				Route players to specific backends based on the hostname they connect with.
-				Select one or more backends from above; they are tried in order.
+				Route players to specific backends based on the hostname they connect with. Tick one or
+				more of the backends defined above; the number shows the order they are tried in.
 			</p>
 			{#if forcedHostEntries.length === 0}
 				<p class="empty">No forced hosts configured.</p>
 			{:else}
-				<div class="server-rows">
+				<div class="forced-rows">
 					{#each forcedHostEntries as entry, i}
-						<div class="server-row">
-							<input
-								type="text"
-								placeholder="hostname (e.g. lobby.example.com)"
-								bind:value={entry.hostname}
-							/>
-							<select
-								multiple
-								size={Math.min(Math.max(backendNames.length, 2), 5)}
-								value={splitServers(entry.servers)}
-								onchange={(event) => {
-									entry.servers = [...event.currentTarget.selectedOptions]
-										.map((option) => option.value)
-										.join(', ');
-								}}
-							>
-								{#each optionsFor(splitServers(entry.servers)[0] ?? '') as backend (backend)}
-									<option value={backend} selected={splitServers(entry.servers).includes(backend)}>
-										{backend}
-									</option>
-								{/each}
-							</select>
-							<button
-								class="btn btn-icon"
-								type="button"
-								title="Remove"
-								onclick={() => removeForcedHost(i)}>×</button
-							>
+						{@const chosen = splitServers(entry.servers)}
+						<div class="forced-row">
+							<div class="forced-head">
+								<input
+									type="text"
+									placeholder="hostname (e.g. lobby.example.com)"
+									bind:value={entry.hostname}
+								/>
+								<button
+									class="btn btn-icon"
+									type="button"
+									title="Remove"
+									onclick={() => removeForcedHost(i)}>×</button
+								>
+							</div>
+							{#if forcedHostOptions(entry.servers).length === 0}
+								<p class="empty">
+									Add a backend server above to route this hostname to it.
+								</p>
+							{:else}
+								<div class="backend-list">
+									{#each forcedHostOptions(entry.servers) as backend (backend)}
+										{@const order = chosen.indexOf(backend)}
+										<label class="backend-option" class:selected={order >= 0}>
+											<input
+												type="checkbox"
+												checked={order >= 0}
+												onchange={(event) =>
+													toggleForcedHostBackend(i, backend, event.currentTarget.checked)}
+											/>
+											<span class="backend-name">{backend}</span>
+											{#if order >= 0}
+												<span class="backend-order">{order + 1}</span>
+											{/if}
+										</label>
+									{/each}
+								</div>
+							{/if}
 						</div>
 					{/each}
 				</div>
@@ -466,14 +487,14 @@
 
 	.subtitle {
 		margin: 0;
-		color: var(--mc-text-muted, #9aa2c5);
+		color: var(--mc-text-muted);
 		font-size: 0.9rem;
 	}
 
 	.subtitle code,
 	.help code,
 	.card-description code {
-		background: rgba(255, 255, 255, 0.08);
+		background: var(--mc-panel-light);
 		padding: 0.05rem 0.3rem;
 		border-radius: 0.2rem;
 		font-size: 0.85em;
@@ -482,27 +503,27 @@
 	.hint {
 		padding: 0.6rem 0.9rem;
 		font-size: 0.85rem;
-		color: var(--mc-text-secondary, #c4cff5);
-		background: rgba(6, 182, 212, 0.08);
-		border: 1px solid rgba(6, 182, 212, 0.25);
+		color: var(--color-info-light);
+		background: var(--color-info-bg);
+		border: 1px solid var(--color-info-border);
 		border-radius: 0.5rem;
 	}
 
 	.error {
 		padding: 0.6rem 0.9rem;
 		font-size: 0.9rem;
-		color: #fecaca;
-		background: rgba(239, 68, 68, 0.12);
-		border: 1px solid rgba(239, 68, 68, 0.3);
+		color: var(--color-error-light);
+		background: var(--color-error-bg);
+		border: 1px solid var(--color-error-border);
 		border-radius: 0.5rem;
 	}
 
 	.success {
 		padding: 0.6rem 0.9rem;
 		font-size: 0.9rem;
-		color: #bbf7d0;
-		background: rgba(34, 197, 94, 0.12);
-		border: 1px solid rgba(34, 197, 94, 0.3);
+		color: var(--color-success-light);
+		background: var(--color-success-bg);
+		border: 1px solid var(--color-success-border);
 		border-radius: 0.5rem;
 	}
 
@@ -513,8 +534,8 @@
 	}
 
 	.card {
-		background: var(--mc-panel, rgba(22, 27, 46, 0.95));
-		border: 1px solid var(--border-color, #2a2f47);
+		background: var(--mc-panel);
+		border: 1px solid var(--border-color);
 		border-radius: 0.75rem;
 		padding: 1.25rem;
 	}
@@ -539,13 +560,13 @@
 	.card-description {
 		margin: 0 0 0.75rem;
 		font-size: 0.85rem;
-		color: var(--mc-text-muted, #9aa2c5);
+		color: var(--mc-text-muted);
 	}
 
 	.empty {
 		margin: 0.5rem 0 0;
 		font-size: 0.85rem;
-		color: var(--mc-text-muted, #9aa2c5);
+		color: var(--mc-text-muted);
 		font-style: italic;
 	}
 
@@ -570,15 +591,15 @@
 	.field .label {
 		font-size: 0.85rem;
 		font-weight: 500;
-		color: var(--mc-text-secondary, #c4cff5);
+		color: var(--mc-text-secondary);
 	}
 
 	.field input[type='text'],
 	.field input[type='number'],
 	.field select {
 		padding: 0.4rem 0.6rem;
-		background: var(--input-bg, #1f2937);
-		border: 1px solid var(--border-color, #374151);
+		background: var(--input-bg);
+		border: 1px solid var(--border-color);
 		border-radius: 0.375rem;
 		color: inherit;
 		font-size: 0.9rem;
@@ -609,14 +630,80 @@
 
 	.help {
 		font-size: 0.75rem;
-		color: var(--mc-text-muted, #9aa2c5);
+		color: var(--mc-text-muted);
 	}
 
 	.server-rows,
-	.try-rows {
+	.try-rows,
+	.forced-rows {
 		display: flex;
 		flex-direction: column;
 		gap: 0.4rem;
+	}
+
+	.forced-rows {
+		gap: 0.6rem;
+	}
+
+	.forced-row {
+		display: flex;
+		flex-direction: column;
+		gap: 0.5rem;
+		padding: 0.6rem;
+		border: 1px solid var(--border-color);
+		border-radius: 0.5rem;
+		background: var(--mc-panel-dark);
+	}
+
+	.forced-head {
+		display: grid;
+		grid-template-columns: 1fr auto;
+		gap: 0.5rem;
+	}
+
+	.backend-list {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.4rem;
+	}
+
+	.backend-option {
+		display: flex;
+		align-items: center;
+		gap: 0.45rem;
+		padding: 0.3rem 0.6rem;
+		border: 1px solid var(--border-color);
+		border-radius: 999px;
+		background: var(--input-bg);
+		font-size: 0.85rem;
+		cursor: pointer;
+	}
+
+	.backend-option:hover {
+		border-color: var(--mc-grass);
+	}
+
+	.backend-option.selected {
+		border-color: var(--mc-grass);
+		color: var(--mc-text);
+	}
+
+	.backend-option input[type='checkbox'] {
+		accent-color: var(--mc-grass);
+		width: 0.9rem;
+		height: 0.9rem;
+		cursor: pointer;
+	}
+
+	.backend-order {
+		min-width: 1.2rem;
+		padding: 0 0.3rem;
+		border-radius: 999px;
+		background: var(--mc-grass);
+		color: var(--mc-panel-darkest);
+		font-size: 0.7rem;
+		font-weight: 700;
+		text-align: center;
 	}
 
 	.server-row {
@@ -633,10 +720,11 @@
 
 	.server-row input,
 	.server-row select,
-	.try-row select {
+	.try-row select,
+	.forced-head input {
 		padding: 0.35rem 0.55rem;
-		background: var(--input-bg, #1f2937);
-		border: 1px solid var(--border-color, #374151);
+		background: var(--input-bg);
+		border: 1px solid var(--border-color);
 		border-radius: 0.35rem;
 		color: inherit;
 		font-size: 0.85rem;
@@ -654,8 +742,8 @@
 	}
 
 	.btn-primary {
-		background: #06b6d4;
-		color: #0b1220;
+		background: var(--mc-grass);
+		color: #fff;
 	}
 
 	.btn-primary:hover:not(:disabled) {
@@ -668,12 +756,12 @@
 	}
 
 	.btn-secondary {
-		background: var(--mc-panel-light, #2a2f47);
-		color: var(--mc-text-secondary, #c4cff5);
+		background: var(--mc-panel-light);
+		color: var(--mc-text-secondary);
 	}
 
 	.btn-secondary:hover:not(:disabled) {
-		background: var(--mc-panel-lighter, #3a3f5a);
+		background: var(--mc-panel-lighter);
 	}
 
 	.btn-secondary:disabled {
@@ -683,16 +771,16 @@
 
 	.btn-icon {
 		background: transparent;
-		color: var(--mc-text-muted, #9aa2c5);
-		border: 1px solid var(--border-color, #374151);
+		color: var(--mc-text-muted);
+		border: 1px solid var(--border-color);
 		padding: 0.2rem 0.55rem;
 		font-size: 1rem;
 		line-height: 1;
 	}
 
 	.btn-icon:hover {
-		color: #fecaca;
-		border-color: rgba(239, 68, 68, 0.4);
+		color: var(--color-error-light);
+		border-color: var(--color-error-border);
 	}
 
 	.actions {
