@@ -177,8 +177,54 @@
 		}
 	}
 
+	// Asks the server what this install would actually pull in. Returns null when
+	// the plan cannot be fetched, in which case we install anyway — the backend
+	// resolves dependencies regardless, so a failed preview should not block the
+	// user, only leave them less informed.
+	async function fetchPlan(versionId: string) {
+		try {
+			const res = await fetch(
+				`/api/servers/${encodeURIComponent(serverName)}/mods/modrinth/install/plan?versionId=${encodeURIComponent(versionId)}`
+			);
+			return res.ok ? await res.json() : null;
+		} catch {
+			return null;
+		}
+	}
+
 	async function installVersion(versionId: string) {
 		if (!versionId) return;
+
+		const plan = await fetchPlan(versionId);
+
+		// Only interrupt when there is something to say. A mod with no extra
+		// dependencies installs on one click, as it always did.
+		if (plan && (plan.required?.length || plan.optional?.length || plan.problems?.length)) {
+			if (plan.problems?.length) {
+				await modal.error(
+					`${plan.name} cannot be installed on this server:\n\n` +
+						plan.problems.join('\n') +
+						'\n\nNothing was installed.'
+				);
+				return;
+			}
+
+			const lines = [`Installing ${plan.name} will also install:`, ''];
+			for (const dep of plan.required) lines.push(`  • ${dep.name} (required)`);
+			if (plan.alreadyInstalled?.length) {
+				lines.push('', 'Already installed:');
+				for (const dep of plan.alreadyInstalled) lines.push(`  • ${dep.name}`);
+			}
+			if (plan.optional?.length) {
+				lines.push('', 'Optional add-ons this mod supports (not installed):');
+				for (const dep of plan.optional) lines.push(`  • ${dep.name}`);
+			}
+
+			if (!(await modal.confirm(lines.join('\n'), 'Install with dependencies'))) {
+				return;
+			}
+		}
+
 		installingVersionId = versionId;
 		try {
 			const res = await fetch(`/api/servers/${encodeURIComponent(serverName)}/mods/modrinth/install`, {
@@ -193,7 +239,13 @@
 				return;
 			}
 
-			await modal.success('Mod downloaded. Restart the server to apply changes.');
+			const result = await res.json().catch(() => null);
+			const count = result?.installedFiles?.length ?? 1;
+			await modal.success(
+				count > 1
+					? `${count} files downloaded (mod plus dependencies). Restart the server to apply changes.`
+					: 'Mod downloaded. Restart the server to apply changes.'
+			);
 			detailOpen = false;
 			onInstallComplete?.();
 		} catch (err) {

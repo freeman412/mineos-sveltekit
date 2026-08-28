@@ -52,6 +52,8 @@ func (m TuiModel) View() string {
 		rightLines = m.RenderServiceLogsMain(rightWidth, contentHeight)
 	case ViewSettings:
 		rightLines = m.RenderSettingsMain(rightWidth, contentHeight)
+	case ViewHealth:
+		rightLines = m.RenderHealthMain(rightWidth, contentHeight)
 	case ViewOutput:
 		rightLines = m.RenderOutputMain(rightWidth, contentHeight)
 	default:
@@ -61,6 +63,11 @@ func (m TuiModel) View() string {
 	// Overlay confirm dialog if active
 	if m.Mode == ModeConfirm {
 		rightLines = m.RenderConfirmDialog(rightWidth, contentHeight)
+	}
+
+	// Overlay help if toggled
+	if m.ShowHelp {
+		rightLines = m.RenderHelpOverlay(rightWidth, contentHeight)
 	}
 
 	// Overlay search input if active
@@ -189,7 +196,7 @@ func (m TuiModel) RenderOutputMain(width, height int) []string {
 
 	if len(m.OutputLines) == 0 {
 		if m.StreamingRunning {
-			lines = append(lines, StyleStatus.Render("  Streaming output..."))
+			lines = append(lines, "  "+m.Spinner.View()+StyleStatus.Render(" Streaming output..."))
 			lines = append(lines, "")
 			lines = append(lines, StyleSubtle.Render("  Waiting for command output..."))
 		} else if m.InteractiveRunning {
@@ -254,8 +261,14 @@ func (m TuiModel) RenderConfirmDialog(width, height int) []string {
 	lines = append(lines, StyleError.Render("  │"+strings.Repeat(" ", boxWidth)+"│"))
 
 	// Action name
+	actionLabel := ""
 	if m.ConfirmAction != nil {
-		actionLine := centerText(m.ConfirmAction.Label, boxWidth)
+		actionLabel = m.ConfirmAction.Label
+	} else if m.ConfirmServerAction != "" {
+		actionLabel = m.ConfirmServerAction + " " + m.ConfirmServerName
+	}
+	if actionLabel != "" {
+		actionLine := centerText(actionLabel, boxWidth)
 		lines = append(lines, StyleError.Render("  │")+StyleSelected.Render(actionLine)+StyleError.Render("│"))
 	}
 

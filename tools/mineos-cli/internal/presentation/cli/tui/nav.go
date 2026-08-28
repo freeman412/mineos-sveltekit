@@ -9,6 +9,7 @@ func BuildNavItems() []NavItem {
 		{Label: "VIEWS", ItemType: NavHeader},
 		{Label: "Dashboard", ItemType: NavView, View: ViewDashboard},
 		{Label: "Minecraft Servers", ItemType: NavView, View: ViewServers},
+		{Label: "Health & Alerts", ItemType: NavView, View: ViewHealth},
 		{Label: "Service Logs", ItemType: NavView, View: ViewServiceLogs},
 		{Label: "Settings", ItemType: NavView, View: ViewSettings},
 
@@ -16,10 +17,10 @@ func BuildNavItems() []NavItem {
 
 		// Docker services (containers)
 		{Label: "DOCKER", ItemType: NavHeader},
-		{Label: "Start Containers", ItemType: NavAction, Action: &MenuItem{Label: "Start Containers", Args: []string{"stack", "up"}, Streaming: true}},
-		{Label: "Stop Containers", ItemType: NavAction, Action: &MenuItem{Label: "Stop Containers", Args: []string{"stack", "stop"}, Streaming: true}},
-		{Label: "Restart Containers", ItemType: NavAction, Action: &MenuItem{Label: "Restart Containers", Args: []string{"stack", "restart"}, Streaming: true}},
-		{Label: "Remove Containers", ItemType: NavAction, Action: &MenuItem{Label: "Remove Containers", Args: []string{"stack", "down"}, Destructive: true, Streaming: true}, Destructive: true},
+		{Label: "Start Containers", ItemType: NavAction, Action: &MenuItem{Label: "Start Containers", Args: []string{"stack", "up"}, Streaming: true, Effect: EffectStartsContainers}},
+		{Label: "Stop Containers", ItemType: NavAction, Action: &MenuItem{Label: "Stop Containers", Args: []string{"stack", "stop"}, Streaming: true, Effect: EffectStopsContainers}},
+		{Label: "Restart Containers", ItemType: NavAction, Action: &MenuItem{Label: "Restart Containers", Args: []string{"stack", "restart"}, Streaming: true, Effect: EffectStartsContainers}},
+		{Label: "Remove Containers", ItemType: NavAction, Action: &MenuItem{Label: "Remove Containers", Args: []string{"stack", "down"}, Destructive: true, Streaming: true, Effect: EffectStopsContainers}, Destructive: true},
 		{Label: "Update Images", ItemType: NavAction, Action: &MenuItem{Label: "Update Images", Args: []string{"stack", "update"}, Streaming: true}},
 	}
 

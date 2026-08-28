@@ -38,9 +38,12 @@ public class ModEndpointTests : IClassFixture<MineOsWebApplicationFactory>
 
         using var createReq = AuthRequest(HttpMethod.Post, "/api/v1/servers", token,
             JsonContent.Create(new { name }));
-        await _client.SendAsync(createReq);
+        var createRes = await _client.SendAsync(createReq);
+        var created = await createRes.Content.ReadFromJsonAsync<JsonElement>();
+        // The directory is a slug of the label, so address the server by what was created.
+        var serverName = created.GetProperty("name").GetString();
 
-        using var loaderReq = AuthRequest(HttpMethod.Get, $"/api/v1/servers/{name}/loader", token);
+        using var loaderReq = AuthRequest(HttpMethod.Get, $"/api/v1/servers/{serverName}/loader", token);
         var response = await _client.SendAsync(loaderReq);
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);

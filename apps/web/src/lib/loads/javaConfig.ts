@@ -1,0 +1,103 @@
+import {
+	getHostJavaRuntimes,
+	getHostProfiles,
+	getServerConfig,
+	updateServerConfig
+} from '$lib/api/client';
+import { fail } from '@sveltejs/kit';
+
+type LoadEvent = { params: { name: string }; fetch: typeof globalThis.fetch };
+type ActionEvent = LoadEvent & { request: Request };
+
+/**
+ * Java/runtime settings for a server's Config tab. Shared by /servers/[name]
+ * and /proxies/[name]: a proxy is a JVM like any other server, so Xmx/Xms,
+ * the java binary and the jar selection all apply to it unchanged.
+ */
+export async function loadJavaConfig({ params, fetch }: LoadEvent) {
+	const config = await getServerConfig(fetch, params.name);
+	const profiles = await getHostProfiles(fetch);
+	// Offered as suggestions in the Java Binary field. Read from the host rather than
+	// hardcoded, so newly installed runtimes show up and removed ones stop being offered.
+	const javaRuntimes = await getHostJavaRuntimes(fetch);
+	let jarFiles: string[] = [];
+	let forgeArgFiles: string[] = [];
+	let jarFilesError: string | null = null;
+
+	try {
+		const rootRes = await fetch(`/api/servers/${encodeURIComponent(params.name)}/files`);
+		if (rootRes.ok) {
+			const root = await rootRes.json();
+			const entries = root.entries ?? [];
+			jarFiles = entries
+				.filter((entry: { name: string; isDirectory: boolean }) => !entry.isDirectory)
+				.map((entry: { name: string }) => entry.name)
+				.filter(
+					(name: string) =>
+						name.toLowerCase().endsWith('.jar') || name.toLowerCase().endsWith('.jar.disabled')
+				)
+				.sort((a: string, b: string) => a.localeCompare(b));
+		} else {
+			jarFilesError = `Failed to load server files (${rootRes.status})`;
+		}
+	} catch {
+		jarFilesError = 'Failed to load server files';
+	}
+
+	try {
+		const forgeRes = await fetch(
+			`/api/servers/${encodeURIComponent(params.name)}/files/libraries/net/minecraftforge/forge`
+		);
+		if (forgeRes.ok) {
+			const forge = await forgeRes.json();
+			const entries = forge.entries ?? [];
+			forgeArgFiles = entries
+				.filter((entry: { name: string; isDirectory: boolean }) => entry.isDirectory)
+				.map(
+					(entry: { name: string }) =>
+						`@user_jvm_args.txt @libraries/net/minecraftforge/forge/${entry.name}/unix_args.txt`
+				)
+				.sort((a: string, b: string) => a.localeCompare(b));
+		}
+	} catch {
+		forgeArgFiles = [];
+	}
+
+	return {
+		config,
+		profiles,
+		javaRuntimes,
+		serverName: params.name,
+		jarFiles: {
+			data: jarFiles,
+			error: jarFilesError
+		},
+		forgeArgFiles: {
+			data: forgeArgFiles,
+			error: null
+		}
+	};
+}
+
+/** The Config tab's save action, shared by both sections. */
+export async function saveJavaConfig({ request, params, fetch }: ActionEvent) {
+	const data = await request.formData();
+	const configJson = data.get('config')?.toString();
+
+	if (!configJson) {
+		return fail(400, { error: 'Config data is required' });
+	}
+
+	try {
+		const config = JSON.parse(configJson);
+		const result = await updateServerConfig(fetch, params.name, config);
+
+		if (result.error) {
+			return fail(500, { error: result.error });
+		}
+
+		return { success: true };
+	} catch {
+		return fail(500, { error: 'Failed to update config' });
+	}
+}

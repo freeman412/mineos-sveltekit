@@ -182,10 +182,19 @@ builder.Services.AddSingleton<TelemetryReporterService>();
 builder.Services.AddSingleton<ITelemetryReportTrigger>(sp => sp.GetRequiredService<TelemetryReporterService>());
 builder.Services.AddHostedService(sp => sp.GetRequiredService<TelemetryReporterService>());
 builder.Services.AddHostedService<ApplicationLifetimeService>();
+builder.Services.AddScoped<IModDependencyService, ModDependencyService>();
+builder.Services.AddSingleton<IContainerPortInspector, DockerPortInspector>();
+builder.Services.AddScoped<IProxyForwardingService, ProxyForwardingService>();
 builder.Services.AddSingleton<WatchdogService>();
 builder.Services.AddSingleton<IWatchdogService>(sp => sp.GetRequiredService<WatchdogService>());
 builder.Services.AddHostedService(sp => sp.GetRequiredService<WatchdogService>());
-builder.Services.AddHttpClient<IProfileService, ProfileService>();
+builder.Services.AddHttpClient<IProfileService, ProfileService>(client =>
+{
+    // hub.spigotmc.org (BungeeCord/BuildTools) is behind Cloudflare and rejects
+    // requests with no User-Agent. Other upstreams (Mojang, PaperMC, minecraft.net)
+    // are fine with this UA so we set it as the default.
+    client.DefaultRequestHeaders.UserAgent.ParseAdd("Mozilla/5.0 (compatible; MineOS/1.0)");
+});
 builder.Services.AddHttpClient<IModService, ModService>(client =>
 {
     client.Timeout = Timeout.InfiniteTimeSpan;

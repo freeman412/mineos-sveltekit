@@ -12,4 +12,5 @@ public interface IHostService
     Task<IReadOnlyList<string>> GetLocalesAsync(CancellationToken cancellationToken);
     Task<IReadOnlyList<HostUserDto>> GetUsersAsync(CancellationToken cancellationToken);
     Task<IReadOnlyList<HostGroupDto>> GetGroupsAsync(CancellationToken cancellationToken);
+    Task<IReadOnlyList<JavaRuntimeDto>> GetJavaRuntimesAsync(CancellationToken cancellationToken);
 }

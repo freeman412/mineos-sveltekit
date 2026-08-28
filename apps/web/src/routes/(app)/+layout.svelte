@@ -38,11 +38,17 @@
 	const navItems = [
 		{ href: '/dashboard', label: 'Dashboard', icon: '[D]' },
 		{ href: '/servers', label: 'Servers', icon: '[S]' },
+		{ href: '/proxies', label: 'Proxies', icon: '[X]' },
 		{ href: '/profiles', label: 'Profiles', icon: '[P]' },
 		{ href: '/admin/access', label: 'Users', icon: '[U]', requiresAdmin: true },
 		{ href: '/admin/settings', label: 'Settings', icon: '[G]', requiresAdmin: true },
 		{ href: '/admin/shell', label: 'Admin Shell', icon: '[T]', requiresAdmin: true }
 	];
+
+	function isVisible(item: (typeof navItems)[number]) {
+		if (item.requiresAdmin && data.user?.role !== 'admin') return false;
+		return true;
+	}
 
 	function isActive(href: string) {
 		return $page.url.pathname === href || $page.url.pathname.startsWith(href + '/');
@@ -118,7 +124,7 @@
 		</div>
 
 		<ul class="nav-list">
-			{#each navItems.filter((item) => !item.requiresAdmin || data.user?.role === 'admin') as item}
+			{#each navItems.filter(isVisible) as item}
 				<li>
 					<a href={item.href} class:active={isActive(item.href)}>
 						<span class="icon">{item.icon}</span>
@@ -220,6 +226,8 @@
 
 		/* Border colors */
 		--border-color: #2a2f47;
+		/* Form control background. Every input/select in the app reads this. */
+		--input-bg: #141827;
 		--border-color-light: rgba(42, 47, 71, 0.5);
 
 		/* Focus states */
@@ -283,6 +291,8 @@
 
 		/* Borders — smoldering red */
 		--border-color: #4d2525;
+		/* Form control background. Every input/select in the app reads this. */
+		--input-bg: #1a0808;
 		--border-color-light: rgba(77, 37, 37, 0.6);
 
 		/* Focus — lava glow */
@@ -1232,6 +1242,8 @@
 
 		/* Borders — obsidian purple */
 		--border-color: #321f5e;
+		/* Form control background. Every input/select in the app reads this. */
+		--input-bg: #0d0620;
 		--border-color-light: rgba(50, 31, 94, 0.6);
 
 		/* Focus — ender purple glow */
@@ -1873,6 +1885,8 @@
 
 		/* Borders — light gray */
 		--border-color: #dddddd;
+		/* Form control background. Every input/select in the app reads this. */
+		--input-bg: #f9f9f9;
 		--border-color-light: rgba(221, 221, 221, 0.6);
 
 		/* Focus */
