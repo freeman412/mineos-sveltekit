@@ -460,7 +460,13 @@ func NewStackLogsCommand(loadConfig *usecases.LoadConfigUseCase) *cobra.Command 
 	return cmd
 }
 
-func gracefulStop(ctx context.Context, loadConfig *usecases.LoadConfigUseCase, compose composeRunner, cfg config.Config, timeoutSeconds int, force bool, out io.Writer) error {
+// stackRunner is the seam gracefulStop needs from docker compose — satisfied
+// by composeRunner in production and by fakes in tests.
+type stackRunner interface {
+	run(args []string) error
+}
+
+func gracefulStop(ctx context.Context, loadConfig *usecases.LoadConfigUseCase, compose stackRunner, cfg config.Config, timeoutSeconds int, force bool, out io.Writer) error {
 	if force {
 		fmt.Fprintln(out, "Force stop enabled; killing servers and stopping containers immediately.")
 		if err := stopMinecraftServers(ctx, loadConfig, out, true, timeoutSeconds); err != nil {

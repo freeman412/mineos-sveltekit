@@ -2,7 +2,6 @@ package env
 
 import (
 	"context"
-	"os"
 
 	"github.com/joho/godotenv"
 
@@ -22,9 +21,6 @@ func (r *DotenvRepository) Load(_ context.Context) (config.Config, error) {
 
 	values, err := godotenv.Read(r.path)
 	if err != nil {
-		if os.IsNotExist(err) {
-			return cfg, err
-		}
 		return cfg, err
 	}
 

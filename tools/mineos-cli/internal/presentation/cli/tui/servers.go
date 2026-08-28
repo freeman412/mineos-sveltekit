@@ -54,7 +54,21 @@ func (m TuiModel) RenderServersTable(width, height int) []string {
 	}
 
 	if len(m.Servers) == 0 {
-		lines = append(lines, TrimToWidth(StyleSubtle.Render(" No servers found."), width))
+		// Distinguish loading / unreachable / genuinely empty.
+		var state string
+		switch {
+		case m.ContainersStopped:
+			state = StyleSubtle.Render(" Containers are stopped.")
+		case !m.ConfigReady:
+			state = m.Spinner.View() + StyleSubtle.Render(" Connecting to API...")
+		case m.ErrMsg != "":
+			state = StyleSubtle.Render(" Server list unavailable.")
+		case !m.ServersLoadedOnce:
+			state = m.Spinner.View() + StyleSubtle.Render(" Loading servers...")
+		default:
+			state = StyleSubtle.Render(" No servers found.")
+		}
+		lines = append(lines, TrimToWidth(" "+state, width))
 		return PadLines(lines, height)
 	}
 
@@ -123,7 +137,38 @@ func (m TuiModel) renderMetricsLines() []string {
 	}
 	lines = append(lines, fmt.Sprintf("  TPS: %s   CPU: %.0f%%   RAM: %d/%d MB   Players: %d",
 		tpsStyle.Render(tps), p.CpuPercent, p.RamUsedMb, p.RamTotalMb, p.PlayerCount))
+	lines = append(lines, m.renderSparklines()...)
 	return append(lines, "")
+}
+
+// renderSparklines renders TPS and CPU history strips from the sample buffer
+// (history-endpoint backfill + live samples).
+func (m TuiModel) renderSparklines() []string {
+	if len(m.PerfHistory) < 2 {
+		return nil
+	}
+	var tpsSeries, cpuSeries []float64
+	for _, s := range m.PerfHistory {
+		if s.Tps != nil {
+			tpsSeries = append(tpsSeries, *s.Tps)
+		}
+		cpuSeries = append(cpuSeries, s.CpuPercent)
+	}
+
+	var lines []string
+	if len(tpsSeries) >= 2 {
+		lo, avg, hi := SeriesStats(tpsSeries)
+		lines = append(lines, fmt.Sprintf("  TPS %s %s",
+			StyleStatus.Render(Sparkline(tpsSeries, SparklineWidth)),
+			StyleSubtle.Render(fmt.Sprintf("min %.1f  avg %.1f  max %.1f", lo, avg, hi))))
+	}
+	if len(cpuSeries) >= 2 {
+		lo, avg, hi := SeriesStats(cpuSeries)
+		lines = append(lines, fmt.Sprintf("  CPU %s %s",
+			StyleStatus.Render(Sparkline(cpuSeries, SparklineWidth)),
+			StyleSubtle.Render(fmt.Sprintf("min %.0f%%  avg %.0f%%  max %.0f%%  (last %dm)", lo, avg, hi, PerfHistoryMinutes))))
+	}
+	return lines
 }
 
 // RenderMinecraftLogs renders Minecraft server logs for the selected server

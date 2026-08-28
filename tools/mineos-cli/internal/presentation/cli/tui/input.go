@@ -9,6 +9,22 @@ import (
 
 // HandleKey processes key input in normal mode
 func (m TuiModel) HandleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// While the help overlay is open, any key closes it (except quit keys).
+	if m.ShowHelp {
+		switch msg.String() {
+		case "ctrl+c", "q":
+			m.Quitting = true
+			m.StopLogs()
+			return m, tea.Quit
+		}
+		m.ShowHelp = false
+		return m, nil
+	}
+	if msg.String() == "?" {
+		m.ShowHelp = true
+		return m, nil
+	}
+
 	switch msg.Type {
 	case tea.KeyCtrlC:
 		m.Quitting = true
@@ -232,7 +248,7 @@ func (m TuiModel) navSelect() (tea.Model, tea.Cmd) {
 	if m.CurrentView == ViewServers && len(m.Servers) > 0 {
 		m.ServerActions = true
 		m.ActionIndex = 0
-		return m, m.StartPerfStreamCmd()
+		return m, tea.Batch(m.StartPerfStreamCmd(), m.LoadPerfHistoryCmd())
 	}
 
 	if m.NavIndex < 0 || m.NavIndex >= len(m.NavItems) {
@@ -275,7 +291,7 @@ func (m TuiModel) navSelect() (tea.Model, tea.Cmd) {
 		}
 
 		// Handle special actions
-		if item.Action.Args[0] == "console" {
+		if item.Action.Console {
 			if m.SelectedServer() == "" {
 				m.ErrMsg = "Select a server first (go to Servers view)"
 				return m, nil
@@ -327,30 +343,20 @@ func (m TuiModel) executeServerAction() (tea.Model, tea.Cmd) {
 		return m, textinput.Blink
 	}
 
-	// Handle destructive actions
+	// Destructive server actions confirm first, then run in-process.
 	if action.Destructive {
-		menuItem := &MenuItem{
-			Label:       action.Label,
-			Args:        []string{"servers", serverName, action.Action},
-			Destructive: true,
-		}
-		m.ConfirmAction = menuItem
+		m.ConfirmServerName = serverName
+		m.ConfirmServerAction = action.Action
+		m.ConfirmAction = nil
 		m.ConfirmMessage = "This action may cause data loss. Continue?"
 		m.Mode = ModeConfirm
 		return m, nil
 	}
 
-	// Execute the server action
-	m.PreviousView = m.CurrentView
-	m.CurrentView = ViewOutput
-	m.OutputTitle = action.Label + ": " + serverName
-	m.OutputLines = []string{"Executing " + action.Label + " on " + serverName + "..."}
-
-	menuItem := MenuItem{
-		Label: action.Label,
-		Args:  []string{"servers", serverName, action.Action},
-	}
-	return m, m.ExecMenuItem(menuItem)
+	// Server actions run in-process through the API — no subprocess, no
+	// output-view detour. The status line and server list reflect the result.
+	m.StatusMsg = action.Label + ": " + serverName + "..."
+	return m, m.ServerActionCmd(serverName, action.Action)
 }
 
 // navBack handles Esc key - goes back to previous view or exits
@@ -470,55 +476,59 @@ func (m TuiModel) HandleInteractiveInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 func (m TuiModel) HandleConfirmInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.Type {
 	case tea.KeyEsc:
-		m.Mode = ModeNormal
-		m.ConfirmAction = nil
-		m.ConfirmMessage = ""
-		return m, nil
-
+		return m.confirmCancel()
 	case tea.KeyEnter:
-		if m.ConfirmAction != nil {
-			action := m.ConfirmAction
-			m.Mode = ModeNormal
-			m.ConfirmAction = nil
-			m.ConfirmMessage = ""
-
-			// Switch to output view for all commands
-			m.PreviousView = m.CurrentView
-			m.CurrentView = ViewOutput
-			m.OutputTitle = action.Label
-			m.OutputLines = []string{"Executing " + action.Label + "..."}
-
-			return m, m.ExecMenuItem(*action)
-		}
-		m.Mode = ModeNormal
-		return m, nil
+		return m.confirmAccept()
 	}
 
 	switch msg.String() {
 	case "y", "Y":
-		if m.ConfirmAction != nil {
-			action := m.ConfirmAction
-			m.Mode = ModeNormal
-			m.ConfirmAction = nil
-			m.ConfirmMessage = ""
-
-			// Switch to output view for all commands
-			m.PreviousView = m.CurrentView
-			m.CurrentView = ViewOutput
-			m.OutputTitle = action.Label
-			m.OutputLines = []string{"Executing " + action.Label + "..."}
-
-			return m, m.ExecMenuItem(*action)
-		}
-		return m, nil
-
+		return m.confirmAccept()
 	case "n", "N":
-		m.Mode = ModeNormal
-		m.ConfirmAction = nil
-		m.ConfirmMessage = ""
-		return m, nil
+		return m.confirmCancel()
 	}
 
+	return m, nil
+}
+
+// clearConfirm resets all pending-confirmation state.
+func (m *TuiModel) clearConfirm() {
+	m.Mode = ModeNormal
+	m.ConfirmAction = nil
+	m.ConfirmMessage = ""
+	m.ConfirmServerName = ""
+	m.ConfirmServerAction = ""
+}
+
+func (m TuiModel) confirmCancel() (tea.Model, tea.Cmd) {
+	m.clearConfirm()
+	return m, nil
+}
+
+// confirmAccept executes whichever pending action was confirmed: an
+// in-process server action, or a subprocess command shown in the output view.
+func (m TuiModel) confirmAccept() (tea.Model, tea.Cmd) {
+	if m.ConfirmServerAction != "" {
+		name, action := m.ConfirmServerName, m.ConfirmServerAction
+		m.clearConfirm()
+		m.StatusMsg = action + ": " + name + "..."
+		return m, m.ServerActionCmd(name, action)
+	}
+
+	if m.ConfirmAction != nil {
+		action := m.ConfirmAction
+		m.clearConfirm()
+
+		// Switch to output view for subprocess commands
+		m.PreviousView = m.CurrentView
+		m.CurrentView = ViewOutput
+		m.OutputTitle = action.Label
+		m.OutputLines = []string{"Executing " + action.Label + "..."}
+
+		return m, m.ExecMenuItem(*action)
+	}
+
+	m.clearConfirm()
 	return m, nil
 }
 
