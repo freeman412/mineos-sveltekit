@@ -7,7 +7,11 @@ import {
 	loadProxyOverviews,
 	overlaySummaries,
 	removeBackendFromBungee,
-	removeBackendFromVelocity
+	proxyDetailPath,
+	removeBackendFromVelocity,
+	splitBackendList,
+	forcedHostOptions,
+	toggleForcedHostBackend
 } from './proxy';
 import {
 	bungeeFixture,
@@ -270,5 +274,104 @@ describe('createClassificationRefresher', () => {
 		onRows([{ name: 'hub' }, { name: 'creative' }]);
 
 		expect(refreshes).toBe(2);
+	});
+});
+
+/**
+ * #176 moved proxies out of /servers but left their detail page behind, so
+ * console/files/backups became unreachable. Every /servers/<proxy>/... URL
+ * now maps onto the proxy section instead.
+ */
+describe('proxyDetailPath', () => {
+	it('sends the server root to the proxy overview', () => {
+		expect(proxyDetailPath('hub', '/servers/hub')).toBe('/proxies/hub');
+	});
+
+	it('carries tabs a proxy still has across', () => {
+		expect(proxyDetailPath('hub', '/servers/hub/files')).toBe('/proxies/hub/files');
+		expect(proxyDetailPath('hub', '/servers/hub/backups')).toBe('/proxies/hub/backups');
+		expect(proxyDetailPath('hub', '/servers/hub/plugins')).toBe('/proxies/hub/plugins');
+		expect(proxyDetailPath('hub', '/servers/hub/cron')).toBe('/proxies/hub/cron');
+		expect(proxyDetailPath('hub', '/servers/hub/performance')).toBe('/proxies/hub/performance');
+		expect(proxyDetailPath('hub', '/servers/hub/advanced')).toBe('/proxies/hub/advanced');
+	});
+
+	it('routes the game-server Properties tab to the proxy config editor', () => {
+		expect(proxyDetailPath('hub', '/servers/hub/config')).toBe('/proxies/hub/proxy-config');
+		expect(proxyDetailPath('hub', '/servers/hub/proxy-config')).toBe('/proxies/hub/proxy-config');
+	});
+
+	// The log viewer was never linked from any tab; it becomes Logs.
+	it('routes the orphaned console page to Logs', () => {
+		expect(proxyDetailPath('hub', '/servers/hub/console')).toBe('/proxies/hub/logs');
+	});
+
+	// Tabs a proxy never had, plus Archives which we dropped: fall back to the
+	// overview rather than 404 on a route the proxy section does not define.
+	it('falls back to the overview for tabs a proxy has no use for', () => {
+		expect(proxyDetailPath('hub', '/servers/hub/worlds')).toBe('/proxies/hub');
+		expect(proxyDetailPath('hub', '/servers/hub/players')).toBe('/proxies/hub');
+		expect(proxyDetailPath('hub', '/servers/hub/mods')).toBe('/proxies/hub');
+		expect(proxyDetailPath('hub', '/servers/hub/archives')).toBe('/proxies/hub');
+	});
+
+	it('encodes names that need it', () => {
+		expect(proxyDetailPath('my hub', '/servers/my hub/files')).toBe('/proxies/my%20hub/files');
+	});
+});
+
+describe('forced host backend lists', () => {
+	it('splits a stored list and drops blanks and padding', () => {
+		expect(splitBackendList(' lobby ,, survival,')).toEqual(['lobby', 'survival']);
+	});
+
+	it('offers the defined backends', () => {
+		expect(forcedHostOptions([], ['lobby', 'survival'])).toEqual(['lobby', 'survival']);
+	});
+
+	it('keeps every routed name that is no longer a defined backend', () => {
+		// The old picker offered only the first of these, so opening a row with two
+		// stale names and touching it deleted the second one.
+		expect(forcedHostOptions(['gone', 'also-gone'], ['lobby'])).toEqual([
+			'gone',
+			'also-gone',
+			'lobby'
+		]);
+	});
+
+	it('does not offer a routed backend twice', () => {
+		expect(forcedHostOptions(['lobby'], ['lobby', 'survival'])).toEqual(['lobby', 'survival']);
+	});
+
+	it('appends a newly ticked backend last', () => {
+		expect(toggleForcedHostBackend(['lobby'], 'survival', true)).toEqual(['lobby', 'survival']);
+	});
+
+	it('leaves the existing order alone when ticking', () => {
+		// Velocity tries these in order. The <select multiple> this replaced reported
+		// its selection in DOM order, so ticking a third backend here silently
+		// rewrote survival/lobby priority and changed where players landed.
+		expect(toggleForcedHostBackend(['survival', 'lobby'], 'creative', true)).toEqual([
+			'survival',
+			'lobby',
+			'creative'
+		]);
+	});
+
+	it('is a no-op when ticking something already routed', () => {
+		expect(toggleForcedHostBackend(['survival', 'lobby'], 'lobby', true)).toEqual([
+			'survival',
+			'lobby'
+		]);
+	});
+
+	it('removes without disturbing the rest of the order', () => {
+		expect(toggleForcedHostBackend(['a', 'b', 'c'], 'b', false)).toEqual(['a', 'c']);
+	});
+
+	it('does not mutate the list it is given', () => {
+		const current = ['lobby'];
+		toggleForcedHostBackend(current, 'survival', true);
+		expect(current).toEqual(['lobby']);
 	});
 });

@@ -3,6 +3,7 @@ using System.Linq;
 using System.Security.Claims;
 using Microsoft.AspNetCore.Mvc;
 using MineOS.Api.Authorization;
+using MineOS.Application;
 using MineOS.Application.Dtos;
 using MineOS.Application.Interfaces;
 using MineOS.Infrastructure.Services;
@@ -144,6 +145,38 @@ public static class ServerEndpoints
             catch (InvalidOperationException ex)
             {
                 return Results.Conflict(new { error = ex.Message });
+            }
+        });
+
+        // Mutable display label (issue #180). The on-disk name never changes,
+        // so this is allowed while the server is running. Rides the /servers
+        // group's ServerAccessFilter like every other server-scoped route.
+        servers.MapPut("/{name}/display-name", async (
+            string name,
+            [FromBody] SetDisplayNameRequest request,
+            IServerService serverService,
+            CancellationToken cancellationToken) =>
+        {
+            var displayName = request.DisplayName?.Trim();
+            if (displayName is { Length: > 64 })
+            {
+                return Results.BadRequest(new { error = "Display name must be 64 characters or fewer." });
+            }
+
+            if (displayName is not null && displayName.Any(char.IsControl))
+            {
+                return Results.BadRequest(new { error = "Display name cannot contain control characters." });
+            }
+
+            try
+            {
+                await serverService.SetDisplayNameAsync(
+                    name, string.IsNullOrEmpty(displayName) ? null : displayName, cancellationToken);
+                return Results.NoContent();
+            }
+            catch (DirectoryNotFoundException ex)
+            {
+                return Results.NotFound(new { error = ex.Message });
             }
         });
 
@@ -298,11 +331,12 @@ public static class ServerEndpoints
                         await serverService.StopServerAsync(name, timeout, cancellationToken);
                         return Results.Ok(new { message = $"Server '{name}' stopped" });
 
+                    // One gated operation, not a stop and a start with a gap between
+                    // them: another caller could win that gap, start the server, and
+                    // leave this restart failing with "already running".
                     case "restart":
                         var restartTimeout = await ResolveShutdownTimeoutAsync(settingsService, null, cancellationToken);
-                        await serverService.StopServerAsync(name, restartTimeout, cancellationToken);
-                        await Task.Delay(1000, cancellationToken);
-                        await serverService.StartServerAsync(name, cancellationToken);
+                        await serverService.RestartServerAsync(name, restartTimeout, cancellationToken);
                         return Results.Ok(new { message = $"Server '{name}' restarted" });
 
                     case "kill":
@@ -724,6 +758,13 @@ public static class ServerEndpoints
 
         cron.MapPost("/", async (string name, CreateCronRequest request, ICronService cronService, CancellationToken ct) =>
         {
+            if (!CronActions.IsValid(request.Action))
+            {
+                return Results.BadRequest(new
+                {
+                    error = $"Unknown cron action '{request.Action}'. Valid actions: {string.Join(", ", CronActions.All)}"
+                });
+            }
             var dto = await cronService.CreateAsync(name, request, ct);
             return Results.Created($"/api/v1/servers/{name}/cron/{dto.Hash}", dto);
         });

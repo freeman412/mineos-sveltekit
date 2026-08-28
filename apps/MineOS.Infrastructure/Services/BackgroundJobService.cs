@@ -18,6 +18,7 @@ public sealed class BackgroundJobService : IBackgroundJobService, IHostedService
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly IRepository<JobRecord> _jobRepo;
     private readonly IRepository<SystemNotification> _notificationRepo;
+    private readonly IDiscordWebhookService _discordWebhook;
     private readonly Channel<BackgroundJob> _jobQueue;
     private readonly ConcurrentDictionary<string, JobState> _jobs;
     private readonly ConcurrentDictionary<string, ModpackInstallState> _modpackStates = new();
@@ -30,12 +31,14 @@ public sealed class BackgroundJobService : IBackgroundJobService, IHostedService
         ILogger<BackgroundJobService> logger,
         IServiceScopeFactory scopeFactory,
         IRepository<JobRecord> jobRepo,
-        IRepository<SystemNotification> notificationRepo)
+        IRepository<SystemNotification> notificationRepo,
+        IDiscordWebhookService discordWebhook)
     {
         _logger = logger;
         _scopeFactory = scopeFactory;
         _jobRepo = jobRepo;
         _notificationRepo = notificationRepo;
+        _discordWebhook = discordWebhook;
         _jobQueue = Channel.CreateUnbounded<BackgroundJob>();
         _modpackJobQueue = Channel.CreateUnbounded<ModpackJob>();
         _jobs = new ConcurrentDictionary<string, JobState>();
@@ -546,6 +549,10 @@ public sealed class BackgroundJobService : IBackgroundJobService, IHostedService
             ServerName = serverName,
             IsRead = false
         }, cancellationToken);
+
+        _discordWebhook.QueueEvent(new DiscordEvent(
+            title, message, DiscordEvent.LevelFromNotificationType(type),
+            serverName, DateTimeOffset.UtcNow));
     }
 
     private static (string Type, string TitleSuffix) GetNotificationType(string outcome)

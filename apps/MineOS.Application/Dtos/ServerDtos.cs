@@ -47,14 +47,20 @@ public record ServerDetailDto(
     ServerConfigDto? Config,
     string ServerType,
     bool EulaAccepted,
-    bool NeedsRestart);
+    bool NeedsRestart,
+    // Mutable user-facing label; falls back to Name when null. Never rename
+    // the on-disk identity — this is display-only (issue #180).
+    string? DisplayName = null);
 
 public record ServerConfigDto(
     JavaConfigDto Java,
     MinecraftConfigDto Minecraft,
     OnRebootConfigDto OnReboot,
     AutoRestartConfigDto AutoRestart,
-    MonitoringConfigDto? Monitoring = null);
+    MonitoringConfigDto? Monitoring = null,
+    // Persisted as the [display] section of server.config so it survives the
+    // full-replace config write. Null means "no label — show the real name".
+    string? DisplayName = null);
 
 public record JavaConfigDto(
     string JavaBinary,
@@ -101,6 +107,9 @@ public record ConsoleCommandDto(string Command);
 public record CreateServerRequest(string Name, int OwnerUid, int OwnerGid, string ServerType = "java", string? ProxyKind = null);
 
 public record CloneServerRequest(string NewName);
+
+// Null/empty/whitespace clears the display name (falls back to the backend name).
+public record SetDisplayNameRequest(string? DisplayName);
 
 public record DeleteServerRequest(bool DeleteLive, bool DeleteBackups, bool DeleteArchives);
 

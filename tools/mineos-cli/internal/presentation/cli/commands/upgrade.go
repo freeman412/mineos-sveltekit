@@ -22,12 +22,21 @@ import (
 )
 
 const (
-	githubRepo       = "freeman412/mineos-sveltekit"
-	githubAPIBase    = "https://api.github.com"
-	latestReleaseURL = githubAPIBase + "/repos/" + githubRepo + "/releases/latest"
-	allReleasesURL   = githubAPIBase + "/repos/" + githubRepo + "/releases"
-	checksumsAsset   = "checksums.txt"
+	githubRepo     = "freeman412/mineos-sveltekit"
+	checksumsAsset = "checksums.txt"
 )
+
+// githubAPIBase is a variable so tests can point release fetching at an
+// httptest server.
+var githubAPIBase = "https://api.github.com"
+
+func latestReleaseURL() string {
+	return githubAPIBase + "/repos/" + githubRepo + "/releases/latest"
+}
+
+func allReleasesURL() string {
+	return githubAPIBase + "/repos/" + githubRepo + "/releases"
+}
 
 var (
 	// metadataHTTPClient is for the small GitHub API JSON calls.
@@ -299,7 +308,7 @@ func verifyChecksum(out io.Writer, filePath, assetName string, release *githubRe
 }
 
 func fetchLatestRelease() (*githubRelease, error) {
-	resp, err := metadataHTTPClient.Get(latestReleaseURL)
+	resp, err := metadataHTTPClient.Get(latestReleaseURL())
 	if err != nil {
 		return nil, err
 	}
@@ -329,7 +338,7 @@ func fetchBestRelease(includePrerelease bool) (*githubRelease, error) {
 	}
 
 	// Otherwise, fetch all releases and find the newest (including pre-releases)
-	resp, err := metadataHTTPClient.Get(allReleasesURL)
+	resp, err := metadataHTTPClient.Get(allReleasesURL())
 	if err != nil {
 		return nil, err
 	}

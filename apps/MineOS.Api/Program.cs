@@ -189,6 +189,10 @@ builder.Services.AddScoped<IProxyForwardingService, ProxyForwardingService>();
 builder.Services.AddSingleton<WatchdogService>();
 builder.Services.AddSingleton<IWatchdogService>(sp => sp.GetRequiredService<WatchdogService>());
 builder.Services.AddHostedService(sp => sp.GetRequiredService<WatchdogService>());
+builder.Services.AddHttpClient(DiscordWebhookService.HttpClientName);
+builder.Services.AddSingleton<DiscordWebhookService>();
+builder.Services.AddSingleton<IDiscordWebhookService>(sp => sp.GetRequiredService<DiscordWebhookService>());
+builder.Services.AddHostedService(sp => sp.GetRequiredService<DiscordWebhookService>());
 builder.Services.AddHttpClient<IProfileService, ProfileService>(client =>
 {
     // hub.spigotmc.org (BungeeCord/BuildTools) is behind Cloudflare and rejects

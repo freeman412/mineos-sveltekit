@@ -1,4 +1,7 @@
+using System.Collections.Concurrent;
+using System.Text;
 using System.Diagnostics;
+using System.IO.Compression;
 using System.Security;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -24,19 +27,22 @@ public class ServerService : IServerService
     private readonly ILogger<ServerService> _logger;
     private readonly ITelemetryService _telemetryService;
     private readonly ITelemetryReportTrigger _telemetryReportTrigger;
+    private readonly IDiscordWebhookService _discordWebhook;
 
     public ServerService(
         IProcessManager processManager,
         IOptions<HostOptions> options,
         ILogger<ServerService> logger,
         ITelemetryService telemetryService,
-        ITelemetryReportTrigger telemetryReportTrigger)
+        ITelemetryReportTrigger telemetryReportTrigger,
+        IDiscordWebhookService discordWebhook)
     {
         _processManager = processManager;
         _options = options.Value;
         _logger = logger;
         _telemetryService = telemetryService;
         _telemetryReportTrigger = telemetryReportTrigger;
+        _discordWebhook = discordWebhook;
     }
 
     private string GetServerPath(string name) =>
@@ -52,8 +58,9 @@ public class ServerService : IServerService
 
     /// <summary>
     /// Returns the Java binary path appropriate for the given Minecraft version.
-    /// MC 1.26+ requires Java 25, 1.21-1.25 requires Java 21,
-    /// 1.17-1.20 requires Java 17 (falls back to 21), older requires Java 8.
+    /// MC 1.26+ needs Java 25, 1.21-1.25 needs 21, 1.17-1.20 needs 17, older needs 8.
+    /// Each tier accepts newer runtimes when its exact match is not installed, so a jar
+    /// that raises its floor keeps starting instead of failing to load.
     /// </summary>
     public static string ResolveJavaBinary(string? minecraftVersion)
     {
@@ -67,13 +74,17 @@ public class ServerService : IServerService
 
         // New versioning: 26.x+ (Minecraft dropped the "1." prefix)
         if (major >= 26)
-            return FindJavaBinary(25, 21);
+            return FindJavaBinary(JavaFallbackOrder(25));
 
         // Old versioning: 1.x.y
         if (major == 1 && parts.Length >= 2 && int.TryParse(parts[1], out var minor))
         {
-            if (minor >= 21) return FindJavaBinary(21);
-            if (minor >= 17) return FindJavaBinary(21, 17); // 17 preferred, 21 fallback
+            if (minor >= 21) return FindJavaBinary(JavaFallbackOrder(21));
+            if (minor >= 17) return FindJavaBinary(JavaFallbackOrder(17));
+
+            // No upward fallback below 17: legacy Minecraft genuinely breaks on modern
+            // JVMs (removed internals, stricter reflection), so a newer runtime is not a
+            // safe substitute the way it is for 17+.
             return FindJavaBinary(8);
         }
 
@@ -102,6 +113,120 @@ public class ServerService : IServerService
         }
 
         return "java"; // Fallback to PATH default
+    }
+
+    // Java majors we know how to look for on disk, ascending.
+    private static readonly int[] KnownJavaMajors = { 8, 11, 17, 21, 25 };
+
+    /// <summary>
+    /// Candidate Java majors for a jar needing <paramref name="required"/>: the exact
+    /// match first, then progressively newer runtimes, since a jar always loads on a
+    /// newer JVM than it was compiled for.
+    /// </summary>
+    private static int[] JavaFallbackOrder(int required) =>
+        new[] { required }
+            .Concat(KnownJavaMajors.Where(v => v > required))
+            .Distinct()
+            .ToArray();
+
+    /// <summary>
+    /// Reads the class file version of a jar's Main-Class and converts it to the minimum
+    /// Java major version needed to load it (class file 61 = Java 17, 65 = 21, 69 = 25).
+    /// Returns null when the jar cannot be inspected, so callers can fall back to a
+    /// version heuristic.
+    /// </summary>
+    public static int? DetectRequiredJavaFromJar(string jarPath)
+    {
+        try
+        {
+            if (!File.Exists(jarPath))
+                return null;
+
+            using var archive = ZipFile.OpenRead(jarPath);
+
+            var manifestEntry = archive.GetEntry("META-INF/MANIFEST.MF");
+            if (manifestEntry is null)
+                return null;
+
+            string manifest;
+            using (var reader = new StreamReader(manifestEntry.Open()))
+                manifest = reader.ReadToEnd();
+
+            // Manifest values wrap at 72 bytes and continue on a line starting with a
+            // single space; unfold before matching or Main-Class comes back truncated.
+            manifest = manifest.Replace("\r\n ", "").Replace("\n ", "").Replace("\r ", "");
+
+            var match = System.Text.RegularExpressions.Regex.Match(manifest, @"Main-Class:\s*(\S+)");
+            if (!match.Success)
+                return null;
+
+            var classEntry = archive.GetEntry(match.Groups[1].Value.Replace('.', '/') + ".class");
+            if (classEntry is null)
+                return null;
+
+            using var stream = classEntry.Open();
+            var header = new byte[8];
+            var read = 0;
+            while (read < header.Length)
+            {
+                var n = stream.Read(header, read, header.Length - read);
+                if (n <= 0)
+                    return null;
+                read += n;
+            }
+
+            // u4 magic 0xCAFEBABE, u2 minor_version, u2 major_version
+            if (header[0] != 0xCA || header[1] != 0xFE || header[2] != 0xBA || header[3] != 0xBE)
+                return null;
+
+            var classFileVersion = (header[6] << 8) | header[7];
+            if (classFileVersion < 45)
+                return null;
+
+            return classFileVersion - 44;
+        }
+        catch
+        {
+            // Unreadable, truncated, or not a zip - let the caller fall back.
+            return null;
+        }
+    }
+
+    // Velocity has required at least Java 17 since 3.0.0, so never resolve below it.
+    private const int ProxyJavaFloor = 17;
+
+    /// <summary>
+    /// Resolves a Java binary from the jar's own bytecode target, tracking upstream
+    /// automatically when a jar bumps its requirement. Returns null when the jar cannot
+    /// be inspected.
+    /// </summary>
+    /// <remarks>
+    /// PROXIES ONLY. This reads the class file version of the jar's Main-Class, which is
+    /// only meaningful when Main-Class is the real entry point - true for Velocity and
+    /// BungeeCord. Paper and Fabric server jars are bootstrap launchers whose Main-Class
+    /// (io.papermc.paperclip.Main, net.fabricmc.installer.ServerLauncher) is deliberately
+    /// compiled to an ancient target so it can print a friendly error on old JVMs: Paper
+    /// 1.21.11 reports class file 50 (Java 6) and Fabric reports 52 (Java 8), nowhere near
+    /// what the server actually needs. Java servers keep using the MC-version heuristic.
+    /// </remarks>
+    private string? ResolveJavaBinaryFromJar(string serverPath, string? jarFile, string serverName)
+    {
+        // Forge @argfile syntax points at argument files, not a jar we can read.
+        if (string.IsNullOrWhiteSpace(jarFile) || jarFile.TrimStart().StartsWith("@"))
+            return null;
+
+        var detected = DetectRequiredJavaFromJar(Path.Combine(serverPath, jarFile));
+        if (detected is null)
+            return null;
+
+        // Guard against a future bootstrap-style Main-Class dragging the choice down.
+        var required = Math.Max(detected.Value, ProxyJavaFloor);
+
+        var javaBinary = FindJavaBinary(JavaFallbackOrder(required));
+        _logger.LogInformation(
+            "Resolved Java binary for proxy {Server} from {JarFile} bytecode (needs Java {Required}): {JavaBinary}",
+            serverName, jarFile, required, javaBinary);
+        return javaBinary;
     }
 
     private string GetPropertiesPath(string name) =>
@@ -176,13 +301,64 @@ public class ServerService : IServerService
             config,
             serverType,
             eulaAccepted,
-            needsRestart
+            needsRestart,
+            config.DisplayName
         );
     }
 
     private static readonly System.Text.RegularExpressions.Regex SafeServerNameRegex = new(
         @"^[a-zA-Z0-9][a-zA-Z0-9 _\-\.]{0,63}$",
         System.Text.RegularExpressions.RegexOptions.Compiled);
+
+    /// <summary>
+    /// Directory name for a newly created server: a slug of the label the user typed,
+    /// plus a short random suffix.
+    /// </summary>
+    /// <remarks>
+    /// The typed name used to become the directory name verbatim, permanently — so a
+    /// server called "Server Loco" lived at "servers/Server Loco" forever, and every
+    /// consumer of that path had to cope with whatever characters a label may contain.
+    /// Spaces alone broke screen-session detection. Since a server now carries a mutable
+    /// display name (issue #180), the on-disk identity no longer has to be the label.
+    ///
+    /// A readable slug rather than a bare GUID: these paths get typed into shells, read
+    /// in logs and grepped for, and "server-loco-7f3a" survives that where a UUID does
+    /// not. The suffix is unconditional, not collision-triggered — it keeps the shape
+    /// predictable and avoids a check-then-create race between two simultaneous creates.
+    ///
+    /// Existing servers keep their directories. This applies to new ones only.
+    /// </remarks>
+    public static string GenerateServerDirectoryName(string displayName)
+    {
+        var slug = Slugify(displayName);
+        var suffix = Guid.NewGuid().ToString("N")[..4];
+        return slug.Length == 0 ? $"server-{suffix}" : $"{slug}-{suffix}";
+    }
+
+    /// <summary>
+    /// Lowercases and reduces a label to [a-z0-9-]: runs of anything else collapse to a
+    /// single hyphen. Returns an empty string when the label has nothing usable in it
+    /// (e.g. all non-Latin characters), which the caller substitutes for.
+    /// </summary>
+    public static string Slugify(string value)
+    {
+        var builder = new StringBuilder();
+        foreach (var ch in (value ?? string.Empty).Trim().ToLowerInvariant())
+        {
+            if ((ch >= 'a' && ch <= 'z') || (ch >= '0' && ch <= '9'))
+            {
+                builder.Append(ch);
+            }
+            else if (builder.Length > 0 && builder[^1] != '-')
+            {
+                builder.Append('-');
+            }
+        }
+
+        var slug = builder.ToString().Trim('-');
+        // Leave room for the suffix inside a sane path length.
+        return slug.Length > 40 ? slug[..40].TrimEnd('-') : slug;
+    }
 
     public async Task<ServerDetailDto> CreateServerAsync(
         CreateServerRequest request,
@@ -205,9 +381,11 @@ public class ServerService : IServerService
         if (string.Equals(request.ServerType, "proxy", StringComparison.OrdinalIgnoreCase))
             NormalizeProxyKind(request.ProxyKind);
 
-        var serverPath = GetServerPath(request.Name);
-        var backupPath = GetBackupPath(request.Name);
-        var archivePath = GetArchivePath(request.Name);
+        // What the user typed is the label; the directory is a slug derived from it.
+        var directoryName = GenerateServerDirectoryName(request.Name);
+        var serverPath = GetServerPath(directoryName);
+        var backupPath = GetBackupPath(directoryName);
+        var archivePath = GetArchivePath(directoryName);
 
         if (Directory.Exists(serverPath))
         {
@@ -225,8 +403,8 @@ public class ServerService : IServerService
             Path.Combine(serverPath, ServerTypeFile), serverType, cancellationToken);
 
         // Create default files
-        var propertiesPath = GetPropertiesPath(request.Name);
-        var configPath = GetConfigPath(request.Name);
+        var propertiesPath = GetPropertiesPath(directoryName);
+        var configPath = GetConfigPath(directoryName);
 
         var usedPorts = await GetUsedPortsAsync(excludeName: null, cancellationToken);
 
@@ -280,6 +458,10 @@ public class ServerService : IServerService
             // Bedrock server.config (minimal - no Java section needed for operation, but kept for compatibility)
             var bedrockConfig = new Dictionary<string, Dictionary<string, string>>
             {
+                ["display"] = new()
+                {
+                    ["name"] = request.Name
+                },
                 ["bedrock"] = new()
                 {
                     ["binary"] = "./bedrock_server"
@@ -312,6 +494,10 @@ public class ServerService : IServerService
 
             var proxyConfig = new Dictionary<string, Dictionary<string, string>>
             {
+                ["display"] = new()
+                {
+                    ["name"] = request.Name
+                },
                 ["java"] = new()
                 {
                     ["java_binary"] = "",
@@ -340,20 +526,26 @@ public class ServerService : IServerService
             await File.WriteAllTextAsync(configPath, IniParser.WriteWithSections(proxyConfig), cancellationToken);
 
             var proxyKind = NormalizeProxyKind(request.ProxyKind);
-            var backends = await DiscoverJavaBackendsAsync(request.Name, cancellationToken);
 
             if (proxyKind == "velocity")
             {
-                // Pre-populate velocity.toml with sibling Java backends so the proxy
-                // does something out of the box. The user can edit/reorder them via
-                // the Properties tab.
+                // A new proxy starts with no backends. Registering every sibling server
+                // automatically looked helpful and was not: attaching a backend is a
+                // security operation - attachServerToProxy installs the forwarding mod
+                // and secures identity - and writing names straight into the config does
+                // none of that, so the proxy came up fronting servers that cannot verify
+                // who a forwarded player claims to be. MineOS then reported those very
+                // backends as Unverifiable in its own exposure table.
+                //
+                // It also guessed which one players land on (the alphabetically first),
+                // and on a host running several Minecraft versions most of the routes it
+                // wrote could never work for a given client. Attach is a deliberate,
+                // one-at-a-time action from the proxies page; leave it to that.
                 var initialConfig = VelocityConfigDefaults(exists: true) with
                 {
                     Bind = $"0.0.0.0:{defaultPort}",
-                    Servers = backends,
-                    Try = backends.Count > 0
-                        ? new List<string> { backends.Keys.First() }
-                        : new List<string>()
+                    Servers = new Dictionary<string, string>(),
+                    Try = new List<string>()
                 };
                 var tomlPath = Path.Combine(serverPath, "velocity.toml");
                 await WriteVelocityTomlAsync(tomlPath, initialConfig, cancellationToken);
@@ -362,17 +554,14 @@ public class ServerService : IServerService
             {
                 // BungeeCord — bootstrap config.yml in its YAML schema.
                 // BungeeCord refuses to start with an empty servers: map
-                // ("IllegalArgumentException: No servers defined"), so when no
-                // sibling Java backends exist we seed the same placeholder
-                // BungeeCord itself ships in its default config.yml.
-                var bungeeBackends = backends.Count > 0
-                    ? backends.ToDictionary(
-                        kv => kv.Key,
-                        kv => new BungeeBackendDto(kv.Value, "&1Backend server", false))
-                    : new Dictionary<string, BungeeBackendDto>
-                    {
-                        ["lobby"] = new("127.0.0.1:25565", "&1Just another BungeeCord - Forced Host", false)
-                    };
+                // ("IllegalArgumentException: No servers defined"), so it gets the same
+                // placeholder BungeeCord itself ships in its default config.yml. This is
+                // a stub to satisfy the parser, not a real backend: attaching one is a
+                // deliberate action from the proxies page. See the Velocity branch above.
+                var bungeeBackends = new Dictionary<string, BungeeBackendDto>
+                {
+                    ["lobby"] = new("127.0.0.1:25565", "&1Just another BungeeCord - Forced Host", false)
+                };
                 var initialConfig = BungeeConfigDefaults(exists: true) with
                 {
                     Host = $"0.0.0.0:{defaultPort}",
@@ -436,6 +625,10 @@ public class ServerService : IServerService
             // Write default server.config
             var defaultConfig = new Dictionary<string, Dictionary<string, string>>
             {
+                ["display"] = new()
+                {
+                    ["name"] = request.Name
+                },
                 ["java"] = new()
                 {
                     ["java_binary"] = "",
@@ -466,7 +659,13 @@ public class ServerService : IServerService
         OwnershipHelper.TrySetOwnership(backupPath, _options.RunAsUid, _options.RunAsGid, _logger, recursive: true);
         OwnershipHelper.TrySetOwnership(archivePath, _options.RunAsUid, _options.RunAsGid, _logger, recursive: true);
 
-        _logger.LogInformation("Created server {ServerName} at {ServerPath}", request.Name, serverPath);
+        _logger.LogInformation("Created server {ServerName} ({DisplayName}) at {ServerPath}", directoryName, request.Name, serverPath);
+        // ServerName keys on the backend directory, as every other Discord event does
+        // (watchdog and jobs both report the on-disk name); the message carries the
+        // display name, which is what a reader in Discord recognises.
+        _discordWebhook.QueueEvent(new DiscordEvent(
+            "Server Created", $"{request.Name} was created.",
+            DiscordEventLevel.Success, directoryName, DateTimeOffset.UtcNow));
         try
         {
             await _telemetryService.ReportLifecycleEventAsync("server_created", null, cancellationToken);
@@ -477,7 +676,7 @@ public class ServerService : IServerService
         }
         _telemetryReportTrigger.RequestImmediateReport();
 
-        return await GetServerAsync(request.Name, cancellationToken);
+        return await GetServerAsync(directoryName, cancellationToken);
     }
 
     public async Task<ServerDetailDto> CloneServerAsync(
@@ -496,7 +695,11 @@ public class ServerService : IServerService
             throw new DirectoryNotFoundException($"Server '{sourceName}' not found");
         }
 
-        var targetPath = GetServerPath(newName);
+        // Same rule as creating one: what the user typed is the label, the directory is
+        // a slug. Without this a clone could still put a space (or worse) on disk, which
+        // would quietly make the "new directories are slugs" guarantee untrue.
+        var targetDirectory = GenerateServerDirectoryName(newName);
+        var targetPath = GetServerPath(targetDirectory);
         if (Directory.Exists(targetPath))
         {
             throw new InvalidOperationException($"Server '{newName}' already exists");
@@ -515,39 +718,42 @@ public class ServerService : IServerService
             "crash-reports"
         });
 
-        // Update preferences are per-server (issue #83): a clone starts fresh.
-        // The jar filename still identifies the cloned software for detection.
-        var cloneConfigPath = GetConfigPath(newName);
-        if (File.Exists(cloneConfigPath))
-        {
-            var cloneSections = IniParser.ParseWithSections(
-                await File.ReadAllTextAsync(cloneConfigPath, cancellationToken));
-            if (cloneSections.Remove("updates"))
-            {
-                await File.WriteAllTextAsync(cloneConfigPath, IniParser.WriteWithSections(cloneSections), cancellationToken);
-            }
-        }
-
-        var backupPath = GetBackupPath(newName);
-        var archivePath = GetArchivePath(newName);
+        var backupPath = GetBackupPath(targetDirectory);
+        var archivePath = GetArchivePath(targetDirectory);
         Directory.CreateDirectory(backupPath);
         Directory.CreateDirectory(archivePath);
 
-        var propertiesPath = GetPropertiesPath(newName);
+        var propertiesPath = GetPropertiesPath(targetDirectory);
         if (File.Exists(propertiesPath))
         {
-            var properties = await GetServerPropertiesAsync(newName, cancellationToken);
+            var properties = await GetServerPropertiesAsync(targetDirectory, cancellationToken);
             var usedPorts = await GetUsedPortsAsync(excludeName: null, cancellationToken);
             var defaultPort = GetNextAvailablePort(usedPorts, 25565);
             properties["server-port"] = defaultPort.ToString();
-            await UpdateServerPropertiesAsync(newName, properties, cancellationToken);
+            await UpdateServerPropertiesAsync(targetDirectory, properties, cancellationToken);
+        }
+
+        // A clone is its own identity — don't carry over the source's label (issue #180).
+        var cloneConfigPath = GetConfigPath(targetDirectory);
+        if (File.Exists(cloneConfigPath))
+        {
+            var cloneContent = await File.ReadAllTextAsync(cloneConfigPath, cancellationToken);
+            var cloneSections = IniParser.ParseWithSections(cloneContent);
+            // A clone must never claim to be its source (issue #180), but it does need a
+            // label of its own — its directory is a slug, so without one the UI could
+            // only show "my-clone-7f3a". The name typed for the copy is that label.
+            cloneSections["display"] = new Dictionary<string, string> { ["name"] = newName };
+            // Update preferences are per-server (issue #83): a clone starts fresh. The
+            // jar filename still identifies the cloned software for detection.
+            cloneSections.Remove("updates");
+            await File.WriteAllTextAsync(cloneConfigPath, IniParser.WriteWithSections(cloneSections), cancellationToken);
         }
 
         OwnershipHelper.TrySetOwnership(targetPath, _options.RunAsUid, _options.RunAsGid, _logger, recursive: true);
         OwnershipHelper.TrySetOwnership(backupPath, _options.RunAsUid, _options.RunAsGid, _logger, recursive: true);
         OwnershipHelper.TrySetOwnership(archivePath, _options.RunAsUid, _options.RunAsGid, _logger, recursive: true);
 
-        _logger.LogInformation("Cloned server {SourceServer} to {TargetServer}", sourceName, newName);
+        _logger.LogInformation("Cloned server {SourceServer} to {TargetServer} ({DisplayName})", sourceName, targetDirectory, newName);
         try
         {
             await _telemetryService.ReportLifecycleEventAsync("server_created", new { clone = true }, cancellationToken);
@@ -558,7 +764,7 @@ public class ServerService : IServerService
         }
         _telemetryReportTrigger.RequestImmediateReport();
 
-        return await GetServerAsync(newName, cancellationToken);
+        return await GetServerAsync(targetDirectory, cancellationToken);
     }
 
     public async Task DeleteServerAsync(string name, CancellationToken cancellationToken)
@@ -585,6 +791,9 @@ public class ServerService : IServerService
             Directory.Delete(archivePath, recursive: true);
 
         _logger.LogInformation("Deleted server {ServerName}", name);
+        _discordWebhook.QueueEvent(new DiscordEvent(
+            "Server Deleted", $"{name} was deleted.",
+            DiscordEventLevel.Warning, name, DateTimeOffset.UtcNow));
         try
         {
             await _telemetryService.ReportLifecycleEventAsync("server_deleted", null, cancellationToken);
@@ -650,7 +859,91 @@ public class ServerService : IServerService
         );
     }
 
+    /// <summary>
+    /// Serializes the whole lifecycle - start, stop, kill and restart - per server.
+    /// Entries are keyed by server name and never removed: a SemaphoreSlim is a few
+    /// dozen bytes and the set is bounded by how many servers have ever been touched,
+    /// which is far cheaper than the alternative of disposing a gate somebody is
+    /// currently holding.
+    /// </summary>
+    /// <remarks>
+    /// Static on purpose. IServerService is registered scoped, so every caller that can
+    /// race here - the action endpoint, WatchdogService, StartupServerService and
+    /// CronSchedulerService - resolves its own ServerService instance. A per-instance
+    /// gate would be uncontended and would serialize nothing.
+    ///
+    /// Gating starts alone only closed half the window. Stop sends its command and then
+    /// polls for the process to disappear, and neither it nor kill took the gate, so a
+    /// start could run against a server in the middle of shutting down - and a stop
+    /// could be sent to a JVM that was still coming up. Both operate on the same world
+    /// directory, which is the thing that must never have two writers.
+    /// </remarks>
+    private static readonly ConcurrentDictionary<string, SemaphoreSlim> LifecycleGates =
+        new(StringComparer.Ordinal);
+
+    /// <summary>
+    /// How long a lifecycle call waits for one already in flight before giving up.
+    /// </summary>
+    /// <remarks>
+    /// Bounded rather than infinite because a stop legitimately holds the gate for its
+    /// whole shutdown timeout - up to five minutes. Blocking a start behind that would
+    /// park an HTTP request until a proxy in front of MineOS gave up on it, so the
+    /// caller is told the server is busy instead. Every caller already handles the
+    /// InvalidOperationException this shares with "already running", which the action
+    /// endpoint turns into a 409.
+    /// </remarks>
+    private static readonly TimeSpan LifecycleWait = TimeSpan.FromSeconds(5);
+
+    /// <summary>
+    /// Takes the lifecycle gate for one server, or throws if another operation holds it.
+    /// </summary>
+    private static async Task<IDisposable> EnterLifecycleAsync(
+        string name, CancellationToken cancellationToken)
+    {
+        var gate = LifecycleGates.GetOrAdd(name, _ => new SemaphoreSlim(1, 1));
+        if (!await gate.WaitAsync(LifecycleWait, cancellationToken))
+        {
+            throw new InvalidOperationException(
+                $"Server '{name}' is busy: another start, stop or restart is already in progress");
+        }
+
+        return new LifecycleLease(gate);
+    }
+
+    /// <summary>Releases the lifecycle gate exactly once, however the caller unwinds.</summary>
+    private sealed class LifecycleLease : IDisposable
+    {
+        private SemaphoreSlim? _gate;
+
+        public LifecycleLease(SemaphoreSlim gate) => _gate = gate;
+
+        public void Dispose() => Interlocked.Exchange(ref _gate, null)?.Release();
+    }
+
+    /// <summary>
+    /// Starts a server, refusing if it is already running.
+    /// </summary>
+    /// <remarks>
+    /// The whole body runs under a per-server gate because the "already running" check is
+    /// a check-then-act. A freshly launched screen session does not appear in the process
+    /// table instantly, and the work between the check and the launch is not trivial - it
+    /// reads server.config, resolves a Java binary (which opens and inspects the jar) and
+    /// chowns the log directory. Two callers arriving inside that window both saw "not
+    /// running" and both launched. On a proxy the loser dies with EADDRINUSE, which is
+    /// noisy but harmless; on a game server it means two JVMs writing one world directory,
+    /// which is how region files get corrupted.
+    ///
+    /// The gate is held through VerifyServerStartedAsync, not just the launch, so it is
+    /// released only once the process is actually observable. Releasing at the screen call
+    /// would reopen the same window a few hundred milliseconds later.
+    /// </remarks>
     public async Task StartServerAsync(string name, CancellationToken cancellationToken)
+    {
+        using var _ = await EnterLifecycleAsync(name, cancellationToken);
+        await StartServerCoreAsync(name, cancellationToken);
+    }
+
+    private async Task StartServerCoreAsync(string name, CancellationToken cancellationToken)
     {
         _logger.LogInformation("StartServerAsync requested for {ServerName}", name);
         var isRunning = await _processManager.IsServerRunningAsync(name, cancellationToken);
@@ -723,18 +1016,28 @@ public class ServerService : IServerService
 
             // Read server config to build start arguments
             var config = await GetServerConfigAsync(name, cancellationToken);
-            var javaBinary = config.Java.JavaBinary;
+            string? javaBinary = config.Java.JavaBinary;
+            var jarFile = config.Java.JarFile;
             if (string.IsNullOrEmpty(javaBinary) || javaBinary == "java")
             {
                 if (isProxy)
                 {
-                    // Velocity requires Java 21+. The auto-detector keys off MC version,
-                    // but proxy jars have no MC version — pin to Java 21.
-                    javaBinary = ResolveJavaBinary("1.21");
-                    _logger.LogInformation("Resolved Java 21 binary for proxy {Server}: {JavaBinary}",
+                    // Proxy jars carry no MC version, so read the requirement off the jar
+                    // itself. Velocity's Main-Class IS the proxy, and its bytecode target
+                    // moves between releases: 3.4.0 targets Java 17, 3.5.1 targets 21,
+                    // 4.x targets 25. Anything pinned to one number breaks the others.
+                    javaBinary = ResolveJavaBinaryFromJar(serverPath, jarFile, name);
+                }
+
+                if (string.IsNullOrEmpty(javaBinary) && isProxy)
+                {
+                    // Unreadable jar: Java 21 has been the Velocity floor since 3.5.0,
+                    // and newer runtimes are accepted when 21 is absent.
+                    javaBinary = FindJavaBinary(JavaFallbackOrder(21));
+                    _logger.LogInformation("Fell back to Java 21+ binary for proxy {Server}: {JavaBinary}",
                         name, javaBinary);
                 }
-                else
+                else if (string.IsNullOrEmpty(javaBinary))
                 {
                     // Auto-detect Java version from the server's Minecraft version
                     string? mcVersion = null;
@@ -758,7 +1061,6 @@ public class ServerService : IServerService
                         name, mcVersion ?? "unknown", javaBinary);
                 }
             }
-            var jarFile = config.Java.JarFile;
 
             _logger.LogInformation(
                 "Server config for {ServerName}: javaBinary={JavaBinary} jarFile={JarFile} xmx={Xmx} xms={Xms}",
@@ -867,9 +1169,18 @@ public class ServerService : IServerService
         await VerifyServerStartedAsync(name, serverPath, startTime, startupLogPath, cancellationToken);
         ClearRestartRequired(name);
         _logger.LogInformation("Started server {ServerName}", name);
+        _discordWebhook.QueueEvent(new DiscordEvent(
+            "Server Started", $"{name} is now running.",
+            DiscordEventLevel.Success, name, DateTimeOffset.UtcNow));
     }
 
     public async Task StopServerAsync(string name, int timeoutSeconds, CancellationToken cancellationToken)
+    {
+        using var _ = await EnterLifecycleAsync(name, cancellationToken);
+        await StopServerCoreAsync(name, timeoutSeconds, cancellationToken);
+    }
+
+    private async Task StopServerCoreAsync(string name, int timeoutSeconds, CancellationToken cancellationToken)
     {
         var isRunning = await _processManager.IsServerRunningAsync(name, cancellationToken);
         if (!isRunning)
@@ -897,6 +1208,9 @@ public class ServerService : IServerService
             if (!isRunning)
             {
                 _logger.LogInformation("Server {ServerName} stopped gracefully", name);
+                _discordWebhook.QueueEvent(new DiscordEvent(
+                    "Server Stopped", $"{name} was stopped gracefully.",
+                    DiscordEventLevel.Info, name, DateTimeOffset.UtcNow));
                 return;
             }
         }
@@ -904,16 +1218,36 @@ public class ServerService : IServerService
         throw new TimeoutException($"Server '{name}' did not stop within {timeoutSeconds} seconds");
     }
 
-    public async Task RestartServerAsync(string name, CancellationToken cancellationToken)
+    /// <summary>
+    /// Stops a server and starts it again, as one operation.
+    /// </summary>
+    /// <remarks>
+    /// Holds the lifecycle gate across both halves and calls the core methods, which do
+    /// not take it - SemaphoreSlim is not reentrant, so calling the public StopServerAsync
+    /// and StartServerAsync from in here would deadlock against itself.
+    ///
+    /// Taking it once is the point: a restart that released between the stop and the
+    /// start let another caller win the gate in the gap and start the server, after which
+    /// this one failed with "already running" on a server that was, confusingly, running.
+    /// </remarks>
+    public async Task RestartServerAsync(string name, int timeoutSeconds, CancellationToken cancellationToken)
     {
-        await StopServerAsync(name, 300, cancellationToken);
+        using var _ = await EnterLifecycleAsync(name, cancellationToken);
+
+        await StopServerCoreAsync(name, timeoutSeconds, cancellationToken);
         await Task.Delay(1000, cancellationToken); // Brief pause between stop and start
-        await StartServerAsync(name, cancellationToken);
+        await StartServerCoreAsync(name, cancellationToken);
 
         _logger.LogInformation("Restarted server {ServerName}", name);
     }
 
     public async Task KillServerAsync(string name, CancellationToken cancellationToken)
+    {
+        using var _ = await EnterLifecycleAsync(name, cancellationToken);
+        await KillServerCoreAsync(name, cancellationToken);
+    }
+
+    private async Task KillServerCoreAsync(string name, CancellationToken cancellationToken)
     {
         var processInfo = _processManager.GetServerProcess(name);
         if (processInfo?.JavaPid == null)
@@ -1282,60 +1616,6 @@ public class ServerService : IServerService
             if (value is string s)
                 result[key] = s;
         }
-        return result;
-    }
-
-    private async Task<Dictionary<string, string>> DiscoverJavaBackendsAsync(
-        string excludeName, CancellationToken cancellationToken)
-    {
-        var result = new Dictionary<string, string>();
-        var serversPath = Path.Combine(_options.BaseDirectory, _options.ServersPathSegment);
-        if (!Directory.Exists(serversPath))
-        {
-            return result;
-        }
-
-        foreach (var dir in Directory.EnumerateDirectories(serversPath).OrderBy(d => Path.GetFileName(d), StringComparer.OrdinalIgnoreCase))
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            var serverName = Path.GetFileName(dir);
-            if (string.IsNullOrWhiteSpace(serverName) ||
-                serverName.Equals(excludeName, StringComparison.OrdinalIgnoreCase))
-            {
-                continue;
-            }
-
-            // Skip non-Java backends. Bedrock (UDP, different protocol) and proxies
-            // (a proxy fronting another proxy is not a sensible default).
-            var typeFile = Path.Combine(dir, ServerTypeFile);
-            if (File.Exists(typeFile))
-            {
-                var marker = (await File.ReadAllTextAsync(typeFile, cancellationToken)).Trim();
-                if (marker.Equals("bedrock", StringComparison.OrdinalIgnoreCase) ||
-                    marker.Equals("proxy", StringComparison.OrdinalIgnoreCase))
-                {
-                    continue;
-                }
-            }
-
-            var propertiesPath = Path.Combine(dir, "server.properties");
-            if (!File.Exists(propertiesPath))
-            {
-                continue;
-            }
-
-            var content = await File.ReadAllTextAsync(propertiesPath, cancellationToken);
-            var props = IniParser.ParseSimple(content);
-            if (!props.TryGetValue("server-port", out var portValue) ||
-                !int.TryParse(portValue, out var port) ||
-                port < 1 || port > 65535)
-            {
-                continue;
-            }
-
-            result[serverName] = $"127.0.0.1:{port}";
-        }
-
         return result;
     }
 
@@ -1818,7 +2098,12 @@ public class ServerService : IServerService
             tpsEnabled,
             string.IsNullOrWhiteSpace(tpsCommand) ? null : tpsCommand);
 
-        return new ServerConfigDto(java, minecraft, onreboot, autorestart, monitoring);
+        // [display] section — mutable user-facing label (issue #180).
+        var displaySection = sections.GetValueOrDefault("display", new Dictionary<string, string>());
+        var displayNameValue = GetOptionalValue(displaySection, "name");
+        var displayName = string.IsNullOrWhiteSpace(displayNameValue) ? null : displayNameValue!.Trim();
+
+        return new ServerConfigDto(java, minecraft, onreboot, autorestart, monitoring, displayName);
     }
 
     public async Task UpdateServerConfigAsync(string name, ServerConfigDto config, CancellationToken cancellationToken)
@@ -1858,6 +2143,11 @@ public class ServerService : IServerService
             {
                 ["tps_enabled"] = (config.Monitoring?.TpsEnabled ?? false).ToString().ToLower(),
                 ["tps_command"] = config.Monitoring?.TpsCommand ?? ""
+            },
+            // Round-trips the display label so a config edit can't wipe it (issue #180).
+            ["display"] = new()
+            {
+                ["name"] = config.DisplayName ?? ""
             }
         };
 
@@ -1886,6 +2176,24 @@ public class ServerService : IServerService
         }
 
         _logger.LogInformation("Updated server.config for {ServerName}", name);
+    }
+
+    public async Task SetDisplayNameAsync(string name, string? displayName, CancellationToken cancellationToken)
+    {
+        var serverPath = GetServerPath(name);
+        if (!Directory.Exists(serverPath))
+        {
+            throw new DirectoryNotFoundException($"Server '{name}' not found");
+        }
+
+        // Null/empty/whitespace clears the label; otherwise store it trimmed.
+        // Deliberately no running-state check: only server.config changes, and
+        // the JVM never reads it back (issue #180).
+        var trimmed = string.IsNullOrWhiteSpace(displayName) ? null : displayName!.Trim();
+        var config = await GetServerConfigAsync(name, cancellationToken);
+        await UpdateServerConfigAsync(name, config with { DisplayName = trimmed }, cancellationToken);
+
+        _logger.LogInformation("Set display name for {ServerName} to {DisplayName}", name, trimmed ?? "(cleared)");
     }
 
     public async Task AcceptEulaAsync(string name, CancellationToken cancellationToken)
@@ -2399,19 +2707,16 @@ public class ServerService : IServerService
                     cancellationToken);
             }
 
-            var backends = await DiscoverJavaBackendsAsync(name, cancellationToken);
-
             if (kind == "velocity")
             {
                 var tomlPath = GetVelocityTomlPath(name);
                 if (!File.Exists(tomlPath))
                 {
+                    // No backends by default — see CreateServerAsync for why.
                     var initialConfig = VelocityConfigDefaults(exists: true) with
                     {
-                        Servers = backends,
-                        Try = backends.Count > 0
-                            ? new List<string> { backends.Keys.First() }
-                            : new List<string>()
+                        Servers = new Dictionary<string, string>(),
+                        Try = new List<string>()
                     };
                     await WriteVelocityTomlAsync(tomlPath, initialConfig, cancellationToken);
                 }
@@ -2422,15 +2727,12 @@ public class ServerService : IServerService
                 if (!File.Exists(yamlPath))
                 {
                     // See CreateServerAsync — BungeeCord requires at least one
-                    // entry in servers: or it fails to start.
-                    var bungeeBackends = backends.Count > 0
-                        ? backends.ToDictionary(
-                            kv => kv.Key,
-                            kv => new BungeeBackendDto(kv.Value, "&1Backend server", false))
-                        : new Dictionary<string, BungeeBackendDto>
-                        {
-                            ["lobby"] = new("127.0.0.1:25565", "&1Just another BungeeCord - Forced Host", false)
-                        };
+                    // entry in servers: or it fails to start, so this placeholder is a
+                    // parser stub rather than a real backend.
+                    var bungeeBackends = new Dictionary<string, BungeeBackendDto>
+                    {
+                        ["lobby"] = new("127.0.0.1:25565", "&1Just another BungeeCord - Forced Host", false)
+                    };
                     var initialConfig = BungeeConfigDefaults(exists: true) with
                     {
                         Servers = bungeeBackends,

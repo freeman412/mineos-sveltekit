@@ -112,6 +112,34 @@ public sealed class CronSchedulerService : IHostedService, IDisposable
                 });
                 break;
 
+            case "start":
+                _jobService.QueueJob("start", job.ServerName, async (sp, progress, ct) =>
+                {
+                    var serverService = sp.GetRequiredService<IServerService>();
+                    progress.Report(new JobProgressDto(
+                        string.Empty, "start", job.ServerName, "running",
+                        30, "Starting server...", DateTimeOffset.UtcNow));
+                    await serverService.StartServerAsync(job.ServerName, ct);
+                    progress.Report(new JobProgressDto(
+                        string.Empty, "start", job.ServerName, "completed",
+                        100, "Scheduled start completed", DateTimeOffset.UtcNow));
+                });
+                break;
+
+            case "stop":
+                _jobService.QueueJob("stop", job.ServerName, async (sp, progress, ct) =>
+                {
+                    var serverService = sp.GetRequiredService<IServerService>();
+                    progress.Report(new JobProgressDto(
+                        string.Empty, "stop", job.ServerName, "running",
+                        30, "Stopping server...", DateTimeOffset.UtcNow));
+                    await serverService.StopServerAsync(job.ServerName, 30, ct);
+                    progress.Report(new JobProgressDto(
+                        string.Empty, "stop", job.ServerName, "completed",
+                        100, "Scheduled stop completed", DateTimeOffset.UtcNow));
+                });
+                break;
+
             default:
                 _logger.LogWarning("Unknown cron action: {Action}", job.Action);
                 break;

@@ -8,7 +8,7 @@ A simple web interface to create and manage Minecraft servers. Run as many serve
 - Create Vanilla, Paper, Spigot, Forge, NeoForge, Fabric, Quilt and Bedrock servers from a guided wizard
 - Start/stop/restart, live console, file manager, worlds, players, backups and archives
 - Live status, players, memory and TPS, with per-server performance charts
-- Scheduled tasks (cron), server icons, and changing a server's type after the fact
+- Scheduled tasks (cron), server icons, changing a server's type after the fact, and renaming servers with a display label
 - Update detection with one-click updates (backup + rollback kept) for Vanilla, Paper, Bedrock, Velocity and BungeeCord
 
 **Proxies / networks**

@@ -677,6 +677,33 @@ public class ProxyForwardingService : IProxyForwardingService
     }
 
     /// <summary>
+    /// <summary>
+    /// Creates a directory the server process must be able to write to, and makes sure it
+    /// is owned by the account the server runs as.
+    /// </summary>
+    /// <remarks>
+    /// Chowning only the file we write is not enough. This service runs as root inside the
+    /// API container while servers run as the unprivileged owner uid, so a directory it
+    /// creates is left root-owned and the server cannot create anything in it. Paper writes
+    /// paper-global.yml and paper-world-defaults.yml into config/ during startup: it fails
+    /// with AccessDeniedException, then dies on the missing world-defaults file it was
+    /// prevented from writing.
+    ///
+    /// This only bit brand-new servers secured before their first start, since a config/
+    /// left over from an earlier run already exists and is already owned correctly - which
+    /// is why it looked like an odd one-off rather than every proxy backend.
+    ///
+    /// The chown is unconditional rather than only-when-created, so an install already
+    /// holding a root-owned config/ repairs itself the next time forwarding is written.
+    /// </remarks>
+    private async Task EnsureOwnedDirectoryAsync(string directory, CancellationToken cancellationToken)
+    {
+        Directory.CreateDirectory(directory);
+        await OwnershipHelper.ChangeOwnershipAsync(
+            directory, _options.RunAsUid, _options.RunAsGid, _logger, cancellationToken);
+    }
+
+    /// <summary>
     /// Writes proxies.velocity into paper-global.yml, editing the existing tree in
     /// place. Paper's file carries well over a hundred keys we do not model, and
     /// regenerating it would silently discard every one of them.
@@ -685,7 +712,7 @@ public class ProxyForwardingService : IProxyForwardingService
         string serverName, string secret, CancellationToken cancellationToken)
     {
         var path = GetPaperGlobalPath(serverName);
-        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        await EnsureOwnedDirectoryAsync(Path.GetDirectoryName(path)!, cancellationToken);
 
         var existingYaml = File.Exists(path)
             ? await File.ReadAllTextAsync(path, cancellationToken)
@@ -745,7 +772,7 @@ public class ProxyForwardingService : IProxyForwardingService
             model["hackOnlineMode"] = true;
         }
 
-        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        await EnsureOwnedDirectoryAsync(Path.GetDirectoryName(path)!, cancellationToken);
         await File.WriteAllTextAsync(path, Toml.FromModel(model), cancellationToken);
         TryRestrictPermissions(path);
         await OwnershipHelper.ChangeOwnershipAsync(path, _options.RunAsUid, _options.RunAsGid, _logger, cancellationToken);

@@ -51,6 +51,7 @@ const (
 	DefaultDockerLogTail = 200
 	LogRetryDelay        = 2 * time.Second
 	MaxLogRetries        = 3
+	MaxLogBatchLines     = 500 // Lines drained into one LogLinesMsg per render
 )
 
 // Streaming constants
@@ -62,6 +63,13 @@ const (
 // Timeout constants
 const (
 	HealthPollInterval = 10 * time.Second // Re-check API when unhealthy
+)
+
+// Metrics sparkline constants
+const (
+	PerfHistoryMinutes    = 30  // Backfill window for the metrics panel
+	MaxPerfHistorySamples = 240 // Cap on retained samples (backfill + live)
+	SparklineWidth        = 30  // Characters per sparkline strip
 )
 
 // UI layout constants

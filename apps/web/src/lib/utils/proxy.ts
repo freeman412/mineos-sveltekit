@@ -107,6 +107,52 @@ export function removeBackendFromBungee(config: BungeeConfig, name: string): Bun
 }
 
 /**
+ * A forced host's backends are stored in velocity.toml as an ordered list —
+ * Velocity tries them in that order. The editor keeps them as one comma-separated
+ * string per row, so both directions go through here.
+ */
+export function splitBackendList(value: string): string[] {
+	return value
+		.split(',')
+		.map((s) => s.trim())
+		.filter((s) => s.length > 0);
+}
+
+/**
+ * Backends to offer for one forced host: every name already routed here that is
+ * no longer a defined backend, followed by the defined ones.
+ *
+ * The stale names come first and are never dropped. A picker that offered only
+ * defined backends would silently delete a hostname's existing routing the first
+ * time someone opened the row — including config MineOS never wrote.
+ */
+export function forcedHostOptions(
+	chosen: readonly string[],
+	backendNames: readonly string[]
+): string[] {
+	const stale = chosen.filter((n) => !backendNames.includes(n));
+	return [...stale, ...backendNames];
+}
+
+/**
+ * Add or remove one backend from a forced host, preserving the order of the rest.
+ * A newly ticked backend goes last, because that is the lowest routing priority
+ * and the least surprising place for it.
+ *
+ * Order is the whole point: the <select multiple> this replaced reported its
+ * selection in DOM order, so touching a row whose config listed `survival, lobby`
+ * rewrote it to `lobby, survival` and changed where players landed.
+ */
+export function toggleForcedHostBackend(
+	current: readonly string[],
+	name: string,
+	checked: boolean
+): string[] {
+	if (!checked) return current.filter((n) => n !== name);
+	return current.includes(name) ? [...current] : [...current, name];
+}
+
+/**
  * Fetch the backend summary for every proxy in parallel. A proxy whose fetch
  * fails degrades to an error entry instead of failing the whole overview.
  */
@@ -147,4 +193,46 @@ export function createClassificationRefresher(
 		}
 		if (sawNew) refresh();
 	};
+}
+
+/**
+ * Tabs a proxy keeps, mapped from their /servers path segment to the
+ * /proxies one. Anything absent here has no meaning for a proxy — worlds,
+ * players and mods were already disabled before the move, and archives are
+ * ceremony for a directory whose whole non-jar content is under a megabyte.
+ */
+const PROXY_TAB_PATHS: Readonly<Record<string, string>> = {
+	advanced: 'advanced',
+	backups: 'backups',
+	cron: 'cron',
+	files: 'files',
+	performance: 'performance',
+	plugins: 'plugins',
+	'proxy-config': 'proxy-config',
+	// A game server's Properties is server.properties; a proxy's is its
+	// velocity.toml/config.yml editor.
+	config: 'proxy-config',
+	// The Server/Java/Crash log viewer, which no tab ever linked to.
+	console: 'logs'
+};
+
+/**
+ * Where a /servers/<name>/... URL belongs once <name> is known to be a proxy.
+ *
+ * #176 pulled proxies out of /servers but left this page behind it, so a
+ * proxy's console, files and backups were reachable only by guessing the URL.
+ * Callers redirect to whatever this returns.
+ */
+export function proxyDetailPath(name: string, pathname: string): string {
+	const encoded = encodeURIComponent(name);
+	const base = `/proxies/${encoded}`;
+
+	const prefix = `/servers/${name}`;
+	if (!pathname.startsWith(prefix)) return base;
+
+	const rest = pathname.slice(prefix.length).replace(/^\/+/, '').replace(/\/+$/, '');
+	if (!rest) return base;
+
+	const tab = PROXY_TAB_PATHS[rest.split('/')[0]];
+	return tab ? `${base}/${tab}` : base;
 }

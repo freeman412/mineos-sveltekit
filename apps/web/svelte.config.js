@@ -16,6 +16,17 @@ const config = {
 		// deprecated and compiles to the same thing).
 		csrf: {
 			trustedOrigins: ['*']
+		},
+		output: {
+			// Emit the module preloads as <link> tags in the page head.
+			//
+			// Under the default 'modulepreload' strategy they exist *only* in the
+			// `Link:` response header, which hooks.server.ts has to strip — it grew
+			// to ~3.9 KB and blew past the 4 KB proxy_buffer_size that nginx and
+			// most reverse proxies ship with, so every full page load came back a
+			// 502. Putting them in the head keeps the preloading while the header
+			// stays small enough for a proxy nobody had to tune.
+			preloadStrategy: 'preload-js'
 		}
 	}
 };

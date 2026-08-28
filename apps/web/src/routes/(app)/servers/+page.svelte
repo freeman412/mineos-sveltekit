@@ -575,7 +575,12 @@
 				</div>
 				<div class="server-title">
 					<StatusBadge variant={isCreating ? 'warning' : server.up ? 'success' : 'error'} dot size="lg" />
-					<h2>{server.name}</h2>
+					<div class="title-text">
+						<h2>{server.displayName || server.name}</h2>
+						{#if server.displayName}
+							<span class="backend-name">{server.name}</span>
+						{/if}
+					</div>
 				</div>
 				<StatusBadge variant={isCreating ? 'warning' : server.up ? 'success' : 'error'} size="sm">
 					{isCreating ? 'Creating' : server.up ? 'Running' : 'Stopped'}
@@ -996,10 +1001,28 @@
 		flex: 1;
 	}
 
+	.title-text {
+		display: flex;
+		flex-direction: column;
+		gap: 2px;
+		min-width: 0;
+	}
+
 	.server-title h2 {
 		margin: 0;
 		font-size: 20px;
 		font-weight: 600;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.backend-name {
+		font-size: 11px;
+		color: #6d7597;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
 	}
 
 	.card-meta {

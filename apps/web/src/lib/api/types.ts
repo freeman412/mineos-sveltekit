@@ -20,6 +20,8 @@ export type ServerSummary = {
 	playersMax?: number | null;
 	memoryBytes?: number | null;
 	needsRestart: boolean;
+	// Mutable display label; null means "show name" (issue #180).
+	displayName?: string | null;
 };
 
 // Server software updates (issue #83)
@@ -102,6 +104,8 @@ export type ServerDetail = {
 	serverType: string;
 	eulaAccepted: boolean;
 	needsRestart: boolean;
+	// Mutable display label; null means "show name" (issue #180).
+	displayName?: string | null;
 };
 
 export type ServerConfig = {
@@ -161,6 +165,15 @@ export type BungeeConfig = {
 	priorities: string[];
 	forcedHosts: Record<string, string>;
 	servers: Record<string, BungeeBackend>;
+};
+
+/** A Java runtime installed on the host, as offered in the Java Binary field. */
+export type JavaRuntime = {
+	path: string;
+	major: number | null;
+	version: string;
+	label: string;
+	isDefault: boolean;
 };
 
 export type JavaConfig = {

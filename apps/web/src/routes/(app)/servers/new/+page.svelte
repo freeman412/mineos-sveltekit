@@ -36,6 +36,15 @@
 	const availableProxies = $derived(
 		(data.servers.data ?? []).filter((s) => s.serverType === 'proxy').map((s) => s.name)
 	);
+
+	// Game servers that can go behind a new proxy. Bedrock cannot sit behind a Java
+	// proxy, and a proxy fronting a proxy is not a sensible default.
+	const attachableBackends = $derived(
+		(data.servers.data ?? [])
+			.filter((s) => s.serverType !== 'proxy' && s.serverType !== 'bedrock')
+			.map((s) => s.name)
+	);
+	let selectedBackends = $state<string[]>([]);
 	// Proxies, Bedrock, and clones can't be backends, so only offer attaching
 	// for the categories that can.
 	const attachableCategories: ReadonlySet<string> = new Set(['vanilla', 'plugins', 'mods']);
@@ -65,6 +74,8 @@
 	let attachNotice = $state<string | null>(null);
 	/** Server awaiting network wiring once its files finish installing */
 	let pendingAttachName = $state('');
+	/** Directory name the API assigned, which is not what the user typed. */
+	let createdServerName = $state('');
 	/** Attach is in flight; the completion button waits rather than racing it. */
 	let attaching = $state(false);
 	/** The attach ran and failed, so the server is not on the Proxies page. */
@@ -104,6 +115,26 @@
 			onStep: (label) => (simpleStepText = label)
 		});
 		return result.ok ? null : result.error;
+	}
+
+	/**
+	 * Register the chosen game servers behind a freshly created proxy, reusing the
+	 * same attach path the Proxies page uses so each one gets verified forwarding
+	 * rather than just a name written into the config. Returns a warning per server
+	 * that could not be attached; the proxy itself is already created either way.
+	 */
+	async function attachChosenBackends(proxyName: string): Promise<string[]> {
+		const failures: string[] = [];
+		for (const backend of selectedBackends) {
+			simpleStepText = `Attaching ${backend}...`;
+			const result = await attachServerToProxy(fetch, {
+				serverName: backend,
+				proxyName,
+				onStep: (label) => (simpleStepText = label)
+			});
+			if (!result.ok) failures.push(`${backend}: ${result.error}`);
+		}
+		return failures;
 	}
 
 	function selectCategory(cat: ServerCategory) {
@@ -216,11 +247,32 @@
 			return;
 		}
 
+		// The directory the API actually created. It is a slug derived from the label,
+		// not the label itself, so every follow-up call has to use this and not `name`.
+		const createdName = createResult.data?.name ?? name;
+		createdServerName = createdName;
+
 		// Join an existing network if requested (game servers only). The actual
 		// wiring waits until the server's files are fully installed — running it
 		// earlier would let the install overwrite the secured configs.
 		pendingAttachName =
-			!isProxy && attachProxy && attachableCategories.has(category ?? '') ? name : '';
+			!isProxy && attachProxy && attachableCategories.has(category ?? '') ? createdName : '';
+
+		// A proxy has no installer step, so anything picked to sit behind it can be
+		// wired straight away. Failures are reported but do not fail the create — the
+		// proxy exists, and the servers can be attached from the Proxies page instead.
+		if (isProxy && selectedBackends.length > 0) {
+			attaching = true;
+			try {
+				const failures = await attachChosenBackends(name);
+				if (failures.length > 0) {
+					attachNotice = `Proxy created, but some servers could not be attached — ${failures.join('; ')}`;
+				}
+				await invalidateAll();
+			} finally {
+				attaching = false;
+			}
+		}
 
 		// For modloaders, trigger installation
 		if (implementation === 'forge' && selectedForgeVersion) {
@@ -228,7 +280,7 @@
 				fetch,
 				selectedMcVersion,
 				selectedForgeVersion.forgeVersion,
-				name
+				createdName
 			);
 			if (result.error) {
 				createError = result.error;
@@ -243,7 +295,7 @@
 				fetch,
 				selectedMcVersion,
 				selectedNeoForgeVersion.neoForgeVersion,
-				name
+				createdName
 			);
 			if (result.error) {
 				createError = result.error;
@@ -260,7 +312,7 @@
 				fetch,
 				selectedMcVersion,
 				selectedLoaderVersion,
-				name
+				createdName
 			);
 			if (result.error) {
 				createError = result.error;
@@ -279,7 +331,7 @@
 				fetch,
 				selectedMcVersion,
 				selectedLoaderVersion,
-				name
+				createdName
 			);
 			if (result.error) {
 				createError = result.error;
@@ -334,14 +386,14 @@
 			simpleProgress = 60;
 			simpleStepText = 'Copying server files...';
 
-			const copyResult = await api.copyProfileToServer(fetch, selectedProfileId, name);
+			const copyResult = await api.copyProfileToServer(fetch, selectedProfileId, createdName);
 			if (copyResult.error) {
 				createError = copyResult.error;
 				step = 'name';
 				return;
 			}
 
-			await runPendingAttach(name);
+			await runPendingAttach(createdName);
 			simpleProgress = 100;
 			createCompleted = true;
 			return;
@@ -350,7 +402,7 @@
 		// For modloaders, completion is handled by InstallProgress component.
 		// Fabric/Quilt resolve inline once their single-JAR download finishes.
 		if (!installStreamUrl) {
-			await runPendingAttach(name);
+			await runPendingAttach(createdName);
 			simpleProgress = 100;
 			createCompleted = true;
 		}
@@ -446,7 +498,7 @@
 			goto('/proxies');
 			return;
 		}
-		goto(`/servers/${encodeURIComponent(serverName.trim())}`);
+		goto(`/servers/${encodeURIComponent(createdServerName || serverName.trim())}`);
 	}
 </script>
 
@@ -509,6 +561,9 @@
 				}
 				{attachProxy}
 				onattachchange={(v) => (attachProxy = v)}
+				backends={proxyMode ? attachableBackends : []}
+				{selectedBackends}
+				onbackendschange={(v) => (selectedBackends = v)}
 				onchange={(v) => (serverName = v)}
 				oncreate={createServer}
 				onback={goBackFromName}

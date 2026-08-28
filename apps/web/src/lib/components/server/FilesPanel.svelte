@@ -1,0 +1,589 @@
+<script lang="ts">
+	import { modal } from '$lib/stores/modal';
+	import { formatBytes, formatDate } from '$lib/utils/formatting';
+	import type { ServerPanelData } from './panelData';
+
+	let { data }: { data: ServerPanelData } = $props();
+
+	let currentPath = $state('/');
+	let files = $state<any[]>([]);
+	let loading = $state(false);
+	let selectedFile = $state<string | null>(null);
+	let fileContent = $state('');
+	let editMode = $state(false);
+	let uploadError = $state('');
+
+	$effect(() => {
+		loadFiles();
+	});
+
+	function buildBrowseUrl(path: string) {
+		if (!data.server) return '';
+		if (path === '/' || path === '') {
+			return `/api/servers/${data.server.name}/files`;
+		}
+		return `/api/servers/${data.server.name}/files${path}`;
+	}
+
+	async function loadFiles() {
+		if (!data.server) return;
+		loading = true;
+		try {
+			const res = await fetch(buildBrowseUrl(currentPath));
+			if (res.ok) {
+				const result = await res.json();
+				files = result.entries ?? [];
+			} else {
+				const error = await res.json().catch(() => ({ error: 'Failed to load files' }));
+				await modal.error(error.error || 'Failed to load files');
+			}
+		} finally {
+			loading = false;
+		}
+	}
+
+	async function navigateTo(name: string, isDirectory: boolean) {
+		if (!isDirectory) {
+			await viewFile(name);
+			return;
+		}
+
+		if (currentPath === '/') {
+			currentPath = `/${name}`;
+		} else {
+			currentPath = `${currentPath}/${name}`;
+		}
+		selectedFile = null;
+		editMode = false;
+		await loadFiles();
+	}
+
+	async function navigateUp() {
+		if (currentPath === '/') return;
+
+		const parts = currentPath.split('/').filter(p => p);
+		parts.pop();
+		currentPath = parts.length === 0 ? '/' : '/' + parts.join('/');
+		selectedFile = null;
+		editMode = false;
+		await loadFiles();
+	}
+
+	async function viewFile(name: string) {
+		if (!data.server) return;
+		loading = true;
+		try {
+			const filePath = currentPath === '/' ? `/${name}` : `${currentPath}/${name}`;
+			const res = await fetch(buildBrowseUrl(filePath));
+			if (res.ok) {
+				const result = await res.json();
+				if (result.kind === 'file' && result.file) {
+					fileContent = result.file.content ?? '';
+					selectedFile = name;
+					editMode = false;
+				} else {
+					await modal.error('Selected path is not a file');
+				}
+			} else {
+				const error = await res.json().catch(() => ({ error: 'Failed to read file' }));
+				await modal.error(error.error || 'Failed to read file');
+			}
+		} finally {
+			loading = false;
+		}
+	}
+
+	async function saveFile() {
+		if (!data.server || !selectedFile) return;
+		loading = true;
+		try {
+			const filePath = currentPath === '/' ? `/${selectedFile}` : `${currentPath}/${selectedFile}`;
+			const res = await fetch(buildBrowseUrl(filePath), {
+				method: 'PUT',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ content: fileContent })
+			});
+			if (res.ok) {
+				await modal.success('File saved successfully');
+				editMode = false;
+			} else {
+				const error = await res.json().catch(() => ({ error: 'Failed to save file' }));
+				await modal.error(error.error || 'Failed to save file');
+			}
+		} finally {
+			loading = false;
+		}
+	}
+
+	async function deleteFile(name: string) {
+		if (!data.server) return;
+		const confirmed = await modal.confirm(`Are you sure you want to delete "${name}"?`, 'Delete File');
+		if (!confirmed) return;
+
+		loading = true;
+		try {
+			const filePath = currentPath === '/' ? `/${name}` : `${currentPath}/${name}`;
+			const res = await fetch(buildBrowseUrl(filePath), {
+				method: 'DELETE'
+			});
+			if (res.ok) {
+				await loadFiles();
+				if (selectedFile === name) {
+					selectedFile = null;
+					fileContent = '';
+					editMode = false;
+				}
+			} else {
+				const error = await res.json().catch(() => ({ error: 'Failed to delete' }));
+				await modal.error(error.error || 'Failed to delete');
+			}
+		} finally {
+			loading = false;
+		}
+	}
+
+	async function uploadFile(event: Event) {
+		if (!data.server) return;
+		const input = event.target as HTMLInputElement;
+		const file = input.files?.[0];
+		if (!file) return;
+
+		uploadError = '';
+		loading = true;
+		try {
+			const filePath = currentPath === '/' ? `/${file.name}` : `${currentPath}/${file.name}`;
+			const buffer = await file.arrayBuffer();
+			const res = await fetch(buildBrowseUrl(filePath), {
+				method: 'POST',
+				headers: {
+					'Content-Type': file.type || 'application/octet-stream'
+				},
+				body: buffer
+			});
+
+			if (res.ok) {
+				await loadFiles();
+				input.value = '';
+			} else {
+				const error = await res.json().catch(() => ({ error: 'Failed to upload file' }));
+				uploadError = error.error || 'Failed to upload file';
+			}
+		} finally {
+			loading = false;
+		}
+	}
+
+</script>
+
+<div class="file-browser">
+	<div class="toolbar">
+		<div class="breadcrumb">
+			<button onclick={navigateUp} disabled={currentPath === '/'} class="btn-icon">
+				↑ Up
+			</button>
+			<span class="path">{currentPath}</span>
+		</div>
+		<div class="toolbar-actions">
+			<label class="btn upload-btn">
+				<input type="file" onchange={uploadFile} hidden />
+				Upload
+			</label>
+			<button onclick={loadFiles} disabled={loading} class="btn">
+				{loading ? 'Loading...' : 'Refresh'}
+			</button>
+		</div>
+	</div>
+
+	<div class="content">
+		<div class="file-list">
+			<h3>Files & Directories</h3>
+			{#if uploadError}
+				<p class="error">{uploadError}</p>
+			{/if}
+			{#if files.length === 0}
+				<p class="empty">No files or directories</p>
+			{:else}
+				<table>
+					<thead>
+						<tr>
+							<th>Name</th>
+							<th>Size</th>
+							<th>Modified</th>
+							<th>Actions</th>
+						</tr>
+					</thead>
+					<tbody>
+						{#each files as file}
+							<tr class:selected={selectedFile === file.name}>
+								<td>
+									<button
+										class="file-name"
+										onclick={() => navigateTo(file.name, file.isDirectory)}
+									>
+										{file.isDirectory ? '📁' : '📄'} {file.name}
+									</button>
+								</td>
+								<td>{file.isDirectory ? '-' : formatBytes(file.size)}</td>
+								<td>{formatDate(file.modified)}</td>
+								<td>
+									{#if !file.isDirectory}
+										<button onclick={() => viewFile(file.name)} class="btn-small">View</button>
+									{/if}
+									<button
+										onclick={() => deleteFile(file.name)}
+										class="btn-small btn-danger icon-button"
+										title="Delete file"
+										aria-label="Delete file"
+									>
+										<svg viewBox="0 0 24 24" aria-hidden="true">
+											<path
+												d="M4 7h16M9 7V5h6v2M10 11v6M14 11v6M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12"
+												fill="none"
+												stroke="currentColor"
+												stroke-width="1.8"
+												stroke-linecap="round"
+												stroke-linejoin="round"
+											/>
+										</svg>
+									</button>
+								</td>
+							</tr>
+						{/each}
+					</tbody>
+				</table>
+			{/if}
+		</div>
+
+		{#if selectedFile}
+			<div class="file-viewer">
+				<div class="viewer-toolbar">
+					<h3>{selectedFile}</h3>
+					<div>
+						{#if editMode}
+							<button onclick={() => (editMode = false)} class="btn-small">Cancel</button>
+							<button onclick={saveFile} class="btn-small btn-primary" disabled={loading}>
+								Save
+							</button>
+						{:else}
+							<button
+								onclick={() => (editMode = true)}
+								class="btn-small btn-primary icon-button"
+								title="Edit file"
+								aria-label="Edit file"
+							>
+								<svg viewBox="0 0 24 24" aria-hidden="true">
+									<path
+										d="M4 20h4l10-10-4-4L4 16v4zM14 6l4 4"
+										fill="none"
+										stroke="currentColor"
+										stroke-width="1.8"
+										stroke-linecap="round"
+										stroke-linejoin="round"
+									/>
+								</svg>
+							</button>
+						{/if}
+					</div>
+				</div>
+				<textarea
+					bind:value={fileContent}
+					readonly={!editMode}
+					class="file-content"
+					class:editable={editMode}
+				></textarea>
+			</div>
+		{/if}
+	</div>
+</div>
+
+<style>
+	.file-browser {
+		display: flex;
+		flex-direction: column;
+		gap: 1rem;
+		height: 100%;
+	}
+
+	.toolbar {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		padding: 1rem;
+		background: var(--mc-panel-dark, #141827);
+		border: 1px solid var(--border-color, #2a2f47);
+		border-radius: 8px;
+	}
+
+	.toolbar-actions {
+		display: flex;
+		gap: 0.5rem;
+		align-items: center;
+	}
+
+	.breadcrumb {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+	}
+
+	.path {
+		font-family: 'Courier New', monospace;
+		color: var(--mc-text-muted, #9aa2c5);
+	}
+
+	.content {
+		display: grid;
+		grid-template-columns: 1fr 1fr;
+		gap: 1rem;
+		flex: 1;
+		overflow: hidden;
+	}
+
+	.file-list {
+		background: var(--mc-panel-dark, #141827);
+		border: 1px solid var(--border-color, #2a2f47);
+		border-radius: 8px;
+		padding: 1.25rem;
+		overflow: auto;
+		scrollbar-width: thin;
+		scrollbar-color: var(--mc-panel-lighter, #3a3f5a) transparent;
+	}
+
+	.file-viewer {
+		background: var(--mc-panel-dark, #141827);
+		border: 1px solid var(--border-color, #2a2f47);
+		border-radius: 8px;
+		padding: 1.25rem 1.25rem 1rem 1.25rem;
+		overflow: hidden;
+		display: flex;
+		flex-direction: column;
+	}
+
+	.file-list::-webkit-scrollbar {
+		width: 8px;
+		height: 8px;
+	}
+
+	.file-list::-webkit-scrollbar-track {
+		background: transparent;
+	}
+
+	.file-list::-webkit-scrollbar-thumb {
+		background: var(--mc-panel-lighter, #3a3f5a);
+		border-radius: 999px;
+	}
+
+	.file-list::-webkit-scrollbar-thumb:hover {
+		background: var(--mc-grass, #6ab04c);
+	}
+
+	.file-list h3,
+	.file-viewer h3 {
+		margin-top: 0;
+		color: var(--mc-text, #eef0f8);
+	}
+
+	table {
+		width: 100%;
+		border-collapse: collapse;
+	}
+
+	thead {
+		background: var(--mc-panel, #1a1e2f);
+		position: sticky;
+		top: 0;
+	}
+
+	th,
+	td {
+		padding: 0.5rem;
+		text-align: left;
+		border-bottom: 1px solid var(--border-color, #2a2f47);
+	}
+
+	th {
+		font-weight: 600;
+		color: var(--mc-text-muted, #9aa2c5);
+	}
+
+	tr:hover {
+		background: var(--mc-panel-light, #2a2f47);
+	}
+
+	tr.selected {
+		background: rgba(106, 176, 76, 0.15);
+		border-left: 2px solid var(--mc-grass, #6ab04c);
+	}
+
+	.file-name {
+		background: none;
+		border: none;
+		color: var(--color-info, #5b9eff);
+		cursor: pointer;
+		padding: 0;
+		font-size: 1rem;
+		text-align: left;
+		transition: color 0.2s;
+	}
+
+	.file-name:hover {
+		color: var(--color-info-light, #a5b4fc);
+		text-decoration: underline;
+	}
+
+	.empty {
+		color: var(--mc-text-dim, #7c87b2);
+		text-align: center;
+		padding: 2rem;
+	}
+
+	.error {
+		color: var(--color-error-light, #ff9f9f);
+		font-size: 0.85rem;
+		margin-bottom: 0.5rem;
+		padding: 0.5rem;
+		background: var(--color-error-bg, rgba(255, 92, 92, 0.15));
+		border: 1px solid var(--color-error-border, rgba(255, 92, 92, 0.3));
+		border-radius: 4px;
+	}
+
+	.viewer-toolbar {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		margin-bottom: 1rem;
+		flex-shrink: 0;
+	}
+
+	.file-content {
+		width: 100%;
+		flex: 1;
+		min-height: 0;
+		background: var(--mc-panel-darkest, #0d1117);
+		color: var(--mc-text-secondary, #c4cff5);
+		border: 1px solid var(--border-color, #2a2f47);
+		border-radius: 8px;
+		padding: 1rem;
+		font-family: 'Courier New', 'Consolas', monospace;
+		font-size: 0.9rem;
+		line-height: 1.5;
+		resize: none;
+		transition: border-color 0.2s, box-shadow 0.2s;
+		scrollbar-width: thin;
+		scrollbar-color: var(--mc-panel-lighter, #3a3f5a) var(--mc-panel, #1a1e2f);
+	}
+
+	.file-content::-webkit-scrollbar {
+		width: 8px;
+		height: 8px;
+	}
+
+	.file-content::-webkit-scrollbar-track {
+		background: var(--mc-panel, #1a1e2f);
+		border-radius: 4px;
+	}
+
+	.file-content::-webkit-scrollbar-thumb {
+		background: var(--mc-panel-lighter, #3a3f5a);
+		border-radius: 4px;
+	}
+
+	.file-content::-webkit-scrollbar-thumb:hover {
+		background: var(--mc-grass, #6ab04c);
+	}
+
+	.file-content.editable {
+		border-color: var(--mc-grass, #6ab04c);
+		box-shadow: 0 0 0 2px rgba(106, 176, 76, 0.1);
+	}
+
+	.btn,
+	.btn-small {
+		background: var(--mc-panel-light, #2a2f47);
+		color: var(--mc-text, #eef0f8);
+		border: 1px solid var(--border-color, #2a2f47);
+		padding: 0.5rem 1rem;
+		border-radius: 8px;
+		cursor: pointer;
+		font-size: 0.9rem;
+		transition: all 0.2s;
+		font-family: inherit;
+	}
+
+	.btn-small {
+		padding: 0.4rem 0.75rem;
+		font-size: 0.85rem;
+	}
+
+	.icon-button {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		gap: 0;
+		line-height: 0;
+		padding: 0.4rem;
+	}
+
+	.icon-button svg {
+		width: 14px;
+		height: 14px;
+	}
+
+	.btn:hover,
+	.btn-small:hover {
+		background: var(--mc-panel-lighter, #3a3f5a);
+		border-color: var(--mc-panel-lighter, #3a3f5a);
+	}
+
+	.btn:disabled,
+	.btn-small:disabled {
+		opacity: 0.5;
+		cursor: not-allowed;
+	}
+
+	.btn-icon {
+		background: none;
+		border: none;
+		color: var(--color-info, #5b9eff);
+		cursor: pointer;
+		font-size: 1rem;
+		padding: 0.4rem 0.75rem;
+		transition: color 0.2s;
+	}
+
+	.btn-icon:hover:not(:disabled) {
+		color: var(--color-info-light, #a5b4fc);
+	}
+
+	.btn-icon:disabled {
+		color: var(--mc-text-dim, #7c87b2);
+		cursor: not-allowed;
+	}
+
+	.btn-primary {
+		background: var(--mc-grass, #6ab04c);
+		border-color: var(--mc-grass, #6ab04c);
+		color: #fff;
+	}
+
+	.btn-primary:hover:not(:disabled) {
+		background: var(--mc-grass-dark, #4a8b34);
+		border-color: var(--mc-grass-dark, #4a8b34);
+	}
+
+	.btn-danger {
+		background: var(--color-error, #ff6b6b);
+		border-color: var(--color-error, #ff6b6b);
+		color: #fff;
+	}
+
+	.btn-danger:hover {
+		background: var(--color-error-light, #ff9f9f);
+		border-color: var(--color-error-light, #ff9f9f);
+	}
+
+	.upload-btn {
+		display: inline-flex;
+		align-items: center;
+	}
+</style>
