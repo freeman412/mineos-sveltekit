@@ -52,6 +52,8 @@ func (m TuiModel) View() string {
 		rightLines = m.RenderServiceLogsMain(rightWidth, contentHeight)
 	case ViewSettings:
 		rightLines = m.RenderSettingsMain(rightWidth, contentHeight)
+	case ViewHealth:
+		rightLines = m.RenderHealthMain(rightWidth, contentHeight)
 	case ViewOutput:
 		rightLines = m.RenderOutputMain(rightWidth, contentHeight)
 	default:

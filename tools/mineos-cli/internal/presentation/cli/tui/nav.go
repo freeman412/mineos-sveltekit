@@ -9,6 +9,7 @@ func BuildNavItems() []NavItem {
 		{Label: "VIEWS", ItemType: NavHeader},
 		{Label: "Dashboard", ItemType: NavView, View: ViewDashboard},
 		{Label: "Minecraft Servers", ItemType: NavView, View: ViewServers},
+		{Label: "Health & Alerts", ItemType: NavView, View: ViewHealth},
 		{Label: "Service Logs", ItemType: NavView, View: ViewServiceLogs},
 		{Label: "Settings", ItemType: NavView, View: ViewSettings},
 

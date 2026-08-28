@@ -263,6 +263,9 @@ func (m TuiModel) navSelect() (tea.Model, tea.Cmd) {
 			m.LogType = LogTypeDocker
 			m.Logs = nil
 			cmd = m.StartLogStreamCmd()
+		} else if item.View == ViewHealth {
+			// Fetch immediately; the health tick keeps it fresh afterwards.
+			cmd = m.LoadHealthDataCmd()
 		}
 		return m, cmd
 
