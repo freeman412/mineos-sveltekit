@@ -19,7 +19,7 @@ func navIndexOf(t *testing.T, items []NavItem, label string) int {
 
 func TestNavSelect_SwitchesToView(t *testing.T) {
 	items := BuildNavItems()
-	m := TuiModel{NavItems: items, CurrentView: ViewDashboard}
+	m := TuiModel{NavState: NavState{NavItems: items, CurrentView: ViewDashboard}}
 	m.NavIndex = navIndexOf(t, items, "Health & Alerts")
 
 	out, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
@@ -33,7 +33,7 @@ func TestNavSelect_SwitchesToView(t *testing.T) {
 }
 
 func TestNavSelect_EnterOnServerOpensActions(t *testing.T) {
-	m := TuiModel{CurrentView: ViewServers, Servers: serverList("lobby", "survival"), Selected: 1}
+	m := TuiModel{ServerListState: ServerListState{Servers: serverList("lobby", "survival"), Selected: 1}, NavState: NavState{CurrentView: ViewServers}}
 	out, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	got := out.(TuiModel)
 	if !got.ServerActions || got.ActionIndex != 0 {
@@ -42,13 +42,7 @@ func TestNavSelect_EnterOnServerOpensActions(t *testing.T) {
 }
 
 func TestNavBack_LeavesServerActionsAndClearsPerfState(t *testing.T) {
-	m := TuiModel{
-		CurrentView:   ViewServers,
-		Servers:       serverList("lobby"),
-		ServerActions: true,
-		ActionIndex:   2,
-		PerfServer:    "lobby",
-	}
+	m := TuiModel{ServerListState: ServerListState{Servers: serverList("lobby"), ServerActions: true, ActionIndex: 2}, PerfState: PerfState{PerfServer: "lobby"}, NavState: NavState{CurrentView: ViewServers}}
 	out, _ := m.Update(tea.KeyMsg{Type: tea.KeyEsc})
 	got := out.(TuiModel)
 	if got.ServerActions || got.ActionIndex != 0 {
@@ -60,7 +54,7 @@ func TestNavBack_LeavesServerActionsAndClearsPerfState(t *testing.T) {
 }
 
 func TestNavBack_OutputReturnsToPreviousView(t *testing.T) {
-	m := TuiModel{CurrentView: ViewOutput, PreviousView: ViewServers}
+	m := TuiModel{NavState: NavState{CurrentView: ViewOutput, PreviousView: ViewServers}}
 	out, _ := m.Update(tea.KeyMsg{Type: tea.KeyEsc})
 	if out.(TuiModel).CurrentView != ViewServers {
 		t.Fatal("Esc from output must return to the previous view")
@@ -68,7 +62,7 @@ func TestNavBack_OutputReturnsToPreviousView(t *testing.T) {
 }
 
 func TestServersNavigation_MovesSelectionAndRetargetsLogs(t *testing.T) {
-	m := TuiModel{CurrentView: ViewServers, Servers: serverList("alpha", "beta"), Selected: 0, MinecraftSource: "alpha"}
+	m := TuiModel{ServerListState: ServerListState{Servers: serverList("alpha", "beta"), Selected: 0}, LogState: LogState{MinecraftSource: "alpha"}, NavState: NavState{CurrentView: ViewServers}}
 	out, _ := m.Update(tea.KeyMsg{Type: tea.KeyDown})
 	got := out.(TuiModel)
 	if got.Selected != 1 || got.MinecraftSource != "beta" {

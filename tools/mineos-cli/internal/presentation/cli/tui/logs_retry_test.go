@@ -10,7 +10,7 @@ func TestListenLogs_BatchesBufferedLines(t *testing.T) {
 	for _, l := range []string{"a", "b", "c"} {
 		logs <- l
 	}
-	m := TuiModel{LogsChan: logs, LogErrsChan: errs}
+	m := TuiModel{LogState: LogState{LogsChan: logs, LogErrsChan: errs}}
 
 	msg := m.ListenLogsCmd()()
 	batch, ok := msg.(LogLinesMsg)
@@ -26,7 +26,7 @@ func TestListenLogs_ClosedChannelSignalsClose(t *testing.T) {
 	logs := make(chan string)
 	errs := make(chan error, 1)
 	close(logs)
-	m := TuiModel{LogsChan: logs, LogErrsChan: errs}
+	m := TuiModel{LogState: LogState{LogsChan: logs, LogErrsChan: errs}}
 
 	if _, ok := m.ListenLogsCmd()().(LogStreamClosedMsg); !ok {
 		t.Fatal("closed channel must yield LogStreamClosedMsg")
@@ -38,7 +38,7 @@ func TestListenLogs_CloseDuringDrainDeliversCollectedLines(t *testing.T) {
 	errs := make(chan error, 1)
 	logs <- "last"
 	close(logs)
-	m := TuiModel{LogsChan: logs, LogErrsChan: errs}
+	m := TuiModel{LogState: LogState{LogsChan: logs, LogErrsChan: errs}}
 
 	msg := m.ListenLogsCmd()()
 	batch, ok := msg.(LogLinesMsg)
@@ -56,7 +56,7 @@ func TestListenLogs_CloseDuringDrainDeliversCollectedLines(t *testing.T) {
 }
 
 func TestUpdate_CleanCloseRetriesWithDelayAndCap(t *testing.T) {
-	m := TuiModel{LogsActive: true}
+	m := TuiModel{LogState: LogState{LogsActive: true}}
 
 	// First MaxLogRetries closes schedule a delayed retry.
 	for i := 0; i < MaxLogRetries; i++ {
@@ -90,9 +90,9 @@ func TestUpdate_CleanCloseRetriesWithDelayAndCap(t *testing.T) {
 
 func TestUpdate_CleanCloseDoesNotRetryWhenStopped(t *testing.T) {
 	for _, m := range []TuiModel{
-		{LogsActive: true, ContainersStopped: true},
-		{LogsActive: false},
-		{LogsActive: true, Quitting: true},
+		{LogState: LogState{LogsActive: true}, ConnectionState: ConnectionState{ContainersStopped: true}},
+		{LogState: LogState{LogsActive: false}},
+		{LogState: LogState{LogsActive: true}, Quitting: true},
 	} {
 		if _, cmd := m.Update(LogStreamClosedMsg{}); cmd != nil {
 			t.Fatalf("no retry expected for %+v", m)

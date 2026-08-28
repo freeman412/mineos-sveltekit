@@ -261,8 +261,14 @@ func (m TuiModel) RenderConfirmDialog(width, height int) []string {
 	lines = append(lines, StyleError.Render("  │"+strings.Repeat(" ", boxWidth)+"│"))
 
 	// Action name
+	actionLabel := ""
 	if m.ConfirmAction != nil {
-		actionLine := centerText(m.ConfirmAction.Label, boxWidth)
+		actionLabel = m.ConfirmAction.Label
+	} else if m.ConfirmServerAction != "" {
+		actionLabel = m.ConfirmServerAction + " " + m.ConfirmServerName
+	}
+	if actionLabel != "" {
+		actionLine := centerText(actionLabel, boxWidth)
 		lines = append(lines, StyleError.Render("  │")+StyleSelected.Render(actionLine)+StyleError.Render("│"))
 	}
 
