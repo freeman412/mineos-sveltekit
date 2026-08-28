@@ -216,6 +216,7 @@ public class ServerStartConcurrencyTests
             options,
             NullLogger<ServerService>.Instance,
             Mock.Of<ITelemetryService>(),
-            Mock.Of<ITelemetryReportTrigger>());
+            Mock.Of<ITelemetryReportTrigger>(),
+            Mock.Of<IDiscordWebhookService>());
     }
 }
