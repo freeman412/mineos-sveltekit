@@ -181,6 +181,30 @@ export async function getServerStatus(
 	return apiFetch(fetcher, `/api/servers/${name}/status`);
 }
 
+// Server software updates (issue #83)
+export async function getServerUpdates(
+	fetcher: Fetcher,
+	name: string
+): Promise<ApiResult<import('./types').ServerUpdateStatus>> {
+	return apiFetch(fetcher, `/api/servers/${encodeURIComponent(name)}/updates`);
+}
+
+export async function setUpdateMode(
+	fetcher: Fetcher,
+	name: string,
+	mode: 'notify' | 'ignore-current' | 'off'
+): Promise<ApiResult<void>> {
+	return apiPut(fetcher, `/api/servers/${encodeURIComponent(name)}/updates/mode`, { mode });
+}
+
+export async function applyServerUpdate(
+	fetcher: Fetcher,
+	name: string,
+	profileId: string
+): Promise<ApiResult<import('./types').ApplyUpdateResult>> {
+	return apiPost(fetcher, `/api/servers/${encodeURIComponent(name)}/updates/apply`, { profileId });
+}
+
 export async function startServer(fetcher: Fetcher, name: string): Promise<ApiResult<void>> {
 	return performServerAction(fetcher, name, 'start');
 }

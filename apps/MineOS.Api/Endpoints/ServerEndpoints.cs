@@ -197,6 +197,70 @@ public static class ServerEndpoints
             }
         });
 
+        // Server software updates (issue #83): detection, per-server
+        // notification mode, and apply. Rides the group-level
+        // ServerAccessFilter like every other server-scoped route.
+        servers.MapGet("/{name}/updates", async (
+            string name,
+            IUpdateService updateService,
+            CancellationToken cancellationToken) =>
+        {
+            try
+            {
+                return Results.Ok(await updateService.GetUpdateStatusAsync(name, cancellationToken));
+            }
+            catch (DirectoryNotFoundException ex)
+            {
+                return Results.NotFound(new { error = ex.Message });
+            }
+        });
+
+        servers.MapPut("/{name}/updates/mode", async (
+            string name,
+            [FromBody] SetUpdateModeRequest request,
+            IUpdateService updateService,
+            CancellationToken cancellationToken) =>
+        {
+            try
+            {
+                await updateService.SetUpdateModeAsync(name, request.Mode ?? "", cancellationToken);
+                return Results.NoContent();
+            }
+            catch (DirectoryNotFoundException ex)
+            {
+                return Results.NotFound(new { error = ex.Message });
+            }
+            catch (ArgumentException ex)
+            {
+                return Results.BadRequest(new { error = ex.Message });
+            }
+        });
+
+        servers.MapPost("/{name}/updates/apply", async (
+            string name,
+            [FromBody] ApplyUpdateRequest request,
+            IUpdateService updateService,
+            CancellationToken cancellationToken) =>
+        {
+            try
+            {
+                var result = await updateService.ApplyUpdateAsync(name, request.ProfileId ?? "", cancellationToken);
+                return Results.Ok(result);
+            }
+            catch (DirectoryNotFoundException ex)
+            {
+                return Results.NotFound(new { error = ex.Message });
+            }
+            catch (InvalidOperationException ex)
+            {
+                return Results.Conflict(new { error = ex.Message });
+            }
+            catch (ArgumentException ex)
+            {
+                return Results.BadRequest(new { error = ex.Message });
+            }
+        });
+
         // Server actions
         servers.MapPost("/actions/stop-all", async (
             HttpContext context,

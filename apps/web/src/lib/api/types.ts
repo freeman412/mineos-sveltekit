@@ -24,6 +24,30 @@ export type ServerSummary = {
 	displayName?: string | null;
 };
 
+// Server software updates (issue #83)
+export type ServerUpdateStatus = {
+	supported: boolean;
+	reason?: string | null;
+	mode: 'notify' | 'ignore-current' | 'off';
+	family?: string | null;
+	updateAvailable: boolean;
+	currentVersion?: string | null;
+	currentBuild?: number | null;
+	latestBuildVersion?: string | null;
+	latestBuildNumber?: number | null;
+	latestBuildProfileId?: string | null;
+	jumpAvailable: boolean;
+	jumpVersion?: string | null;
+	jumpProfileId?: string | null;
+	ignoredUpdateKey?: string | null;
+};
+
+export type ApplyUpdateResult = {
+	appliedProfileId: string;
+	previousJar: string | null;
+	newJar: string;
+};
+
 export type Profile = {
 	id: string;
 	group: string;

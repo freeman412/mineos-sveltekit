@@ -743,6 +743,9 @@ public class ServerService : IServerService
             // label of its own — its directory is a slug, so without one the UI could
             // only show "my-clone-7f3a". The name typed for the copy is that label.
             cloneSections["display"] = new Dictionary<string, string> { ["name"] = newName };
+            // Update preferences are per-server (issue #83): a clone starts fresh. The
+            // jar filename still identifies the cloned software for detection.
+            cloneSections.Remove("updates");
             await File.WriteAllTextAsync(cloneConfigPath, IniParser.WriteWithSections(cloneSections), cancellationToken);
         }
 
@@ -2148,8 +2151,20 @@ public class ServerService : IServerService
             }
         };
 
-        var content = IniParser.WriteWithSections(sections);
+        // [updates] is owned by UpdateService and deliberately absent from the
+        // DTO; carry the raw section through so this full-replace write cannot
+        // silently wipe a server's update preferences.
         var configPath = GetConfigPath(name);
+        if (File.Exists(configPath))
+        {
+            var rawSections = IniParser.ParseWithSections(await File.ReadAllTextAsync(configPath, cancellationToken));
+            if (rawSections.TryGetValue("updates", out var updatesSection))
+            {
+                sections["updates"] = updatesSection;
+            }
+        }
+
+        var content = IniParser.WriteWithSections(sections);
         await File.WriteAllTextAsync(configPath, content, cancellationToken);
         await OwnershipHelper.ChangeOwnershipAsync(configPath, _options.RunAsUid, _options.RunAsGid, _logger, cancellationToken);
 

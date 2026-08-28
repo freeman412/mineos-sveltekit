@@ -147,6 +147,7 @@ builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<IUserService, UserService>();
 builder.Services.AddScoped<IServerAccessService, ServerAccessService>();
 builder.Services.AddScoped<IServerService, ServerService>();
+builder.Services.AddScoped<IUpdateService, UpdateService>();
 builder.Services.AddScoped<IBackupService, BackupService>();
 builder.Services.AddScoped<IArchiveService, ArchiveService>();
 builder.Services.AddScoped<IClientPackageService, ClientPackageService>();

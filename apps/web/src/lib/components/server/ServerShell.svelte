@@ -4,6 +4,7 @@
 	import StatusBadge from '$lib/components/StatusBadge.svelte';
 	import ServerQuickActions from '$lib/components/ServerQuickActions.svelte';
 	import ServerIconUploader from '$lib/components/ServerIconUploader.svelte';
+	import ServerUpdateBadge from '$lib/components/ServerUpdateBadge.svelte';
 	import * as api from '$lib/api/client';
 	import { buildTabs, type Tab } from '$lib/utils/serverTabs';
 	import type { ServerPanelData } from './panelData';
@@ -200,6 +201,9 @@
 				</StatusBadge>
 				{#if isProxy}
 					<span class="proxy-chip">Proxy</span>
+				{/if}
+				{#if server?.name}
+					<ServerUpdateBadge serverName={server.name} running={statusMeta.running} />
 				{/if}
 			</div>
 			{#if hasCustomName && server?.name}

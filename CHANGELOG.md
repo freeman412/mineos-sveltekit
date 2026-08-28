@@ -10,6 +10,18 @@ Pre-releases publish `:preview` Docker images and are not intended for productio
 
 ### Added
 
+- **Server software updates** (#83). Servers running vanilla, Paper, Bedrock,
+  Velocity, or BungeeCord are compared against the profile catalog MineOS already
+  fetches: an "Update available" chip appears on the server page and the servers
+  list when a newer build exists, with a guided update that stops nothing you
+  didn't approve — apply requires a stopped server, keeps one rollback generation
+  (`*.jar.bak` / `bedrock_server.bak`), and flags restart-required. Version jumps
+  (e.g. 1.21.11 → 1.22) are surfaced separately as an explicit opt-in with a
+  plugin/world-format warning, never badged on their own for build-based families.
+  Per-server notification modes: always notify, ignore this update (the badge
+  returns when something even newer ships), or never notify. Modded loaders
+  (Forge/NeoForge/Fabric/Quilt) report "manual update required" by design.
+
 - **Servers pick their backends when a proxy is set up.** Creating a proxy used to
   register every Java server on the host automatically, unsecured, and land players on
   whichever sorted first. The setup flow now lists eligible servers and attaches only
