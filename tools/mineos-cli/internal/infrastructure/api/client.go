@@ -318,12 +318,28 @@ func (c *Client) StreamConsoleLogs(ctx context.Context, name, source string) (<-
 
 // PerfSample mirrors the API's PerformanceSampleDto (the fields the CLI shows).
 type PerfSample struct {
-	IsRunning   bool     `json:"isRunning"`
-	CpuPercent  float64  `json:"cpuPercent"`
-	RamUsedMb   int64    `json:"ramUsedMb"`
-	RamTotalMb  int64    `json:"ramTotalMb"`
-	Tps         *float64 `json:"tps"`
-	PlayerCount int      `json:"playerCount"`
+	Timestamp   time.Time `json:"timestamp"`
+	IsRunning   bool      `json:"isRunning"`
+	CpuPercent  float64   `json:"cpuPercent"`
+	RamUsedMb   int64     `json:"ramUsedMb"`
+	RamTotalMb  int64     `json:"ramTotalMb"`
+	Tps         *float64  `json:"tps"`
+	PlayerCount int       `json:"playerCount"`
+}
+
+// PerformanceHistory fetches DB-backed samples for the last N minutes
+// (the API clamps minutes to 5-1440). Oldest first.
+func (c *Client) PerformanceHistory(ctx context.Context, name string, minutes int) ([]PerfSample, error) {
+	if strings.TrimSpace(name) == "" {
+		return nil, errors.New("server name is required")
+	}
+	endpoint := fmt.Sprintf("%s/servers/%s/performance/history?minutes=%d",
+		c.apiBaseURL, url.PathEscape(strings.TrimSpace(name)), minutes)
+	var samples []PerfSample
+	if err := c.getJSON(ctx, endpoint, &samples); err != nil {
+		return nil, err
+	}
+	return samples, nil
 }
 
 // StreamPerformance opens the per-server performance SSE (2s cadence) and emits

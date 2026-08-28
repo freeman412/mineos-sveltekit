@@ -160,6 +160,44 @@ public sealed class ModrinthService : IModrinthService
         return response == null ? null : MapVersion(response);
     }
 
+    public async Task<IReadOnlyDictionary<string, ModrinthVersionDto>> GetVersionsByFileHashesAsync(
+        IReadOnlyList<string> hashes,
+        string algorithm,
+        CancellationToken cancellationToken)
+    {
+        var result = new Dictionary<string, ModrinthVersionDto>(StringComparer.OrdinalIgnoreCase);
+        if (hashes is null || hashes.Count == 0)
+        {
+            return result;
+        }
+
+        var response = await _httpClient.PostAsJsonAsync(
+            "version_files",
+            new { hashes, algorithm },
+            cancellationToken);
+
+        if (!response.IsSuccessStatusCode)
+        {
+            _logger.LogWarning(
+                "Modrinth bulk hash lookup returned {Status}; treating every file as unknown",
+                (int)response.StatusCode);
+            return result;
+        }
+
+        var payload = await response.Content.ReadFromJsonAsync<Dictionary<string, ModrinthVersionResponse>>(
+            JsonOptions, cancellationToken);
+
+        foreach (var (hash, version) in payload ?? new Dictionary<string, ModrinthVersionResponse>())
+        {
+            if (version is not null)
+            {
+                result[hash] = MapVersion(version);
+            }
+        }
+
+        return result;
+    }
+
     public async Task<Stream> OpenDownloadStreamAsync(string url, CancellationToken cancellationToken)
     {
         return await _httpClient.GetStreamAsync(url, cancellationToken);

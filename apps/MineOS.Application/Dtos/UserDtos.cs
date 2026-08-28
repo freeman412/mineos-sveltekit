@@ -22,7 +22,8 @@ public record UpdateUserRequestDto(
     string? Role,
     bool? IsActive,
     string? MinecraftUsername,
-    IReadOnlyList<ServerAccessRequestDto>? ServerAccesses);
+    IReadOnlyList<ServerAccessRequestDto>? ServerAccesses,
+    string? Username = null);
 
 public record UpdateSelfRequestDto(string? Username, string? Password);
 

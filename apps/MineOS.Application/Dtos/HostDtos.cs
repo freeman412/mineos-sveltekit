@@ -12,7 +12,9 @@ public record ServerSummaryDto(
     int? PlayersOnline,
     int? PlayersMax,
     long? MemoryBytes,
-    bool NeedsRestart);
+    bool NeedsRestart,
+    // Mutable display label (issue #180); null means "use Name".
+    string? DisplayName = null);
 
 public record ProfileDto(
     string Id,
@@ -58,5 +60,11 @@ public record CreateClientPackageRequest(
 public record IncrementEntryDto(DateTimeOffset Time, string Step, long? Size, long? CumulativeSize);
 
 public record HostUserDto(string Username, int Uid, int Gid, string Home);
+
+/// <summary>
+/// A Java runtime installed on the host, as offered in the server config UI.
+/// <paramref name="Major"/> is null when the version could not be determined.
+/// </summary>
+public record JavaRuntimeDto(string Path, int? Major, string Version, string Label, bool IsDefault);
 
 public record HostGroupDto(string GroupName, int Gid);

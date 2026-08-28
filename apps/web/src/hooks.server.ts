@@ -2,6 +2,7 @@ import type { Handle } from '@sveltejs/kit';
 import { env } from '$env/dynamic/private';
 import { isFormContentType, isTrustedOrigin } from '$lib/server/originCheck';
 import { renderOriginErrorPage } from '$lib/server/originErrorPage';
+import { stripPreloadHeader } from '$lib/server/preloadHeader';
 
 // Replaces SvelteKit's csrf.checkOrigin (disabled in svelte.config.js) with a
 // dynamic same-origin check so any IP/DNS name pointing at this server works
@@ -38,5 +39,7 @@ export const handle: Handle = async ({ event, resolve }) => {
 		}
 	}
 
-	return resolve(event);
+	// Dropped because the preload header does not fit a default reverse-proxy
+	// buffer; see preloadHeader.ts for what that broke.
+	return stripPreloadHeader(await resolve(event));
 };

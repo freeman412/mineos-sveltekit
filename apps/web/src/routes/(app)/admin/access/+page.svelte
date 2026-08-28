@@ -38,6 +38,7 @@
 
 	let editingUser = $state<User | null>(null);
 	let editPassword = $state('');
+	let editUsername = $state('');
 	let editRole = $state('');
 	let editActive = $state(true);
 	let editMinecraftUsername = $state('');
@@ -110,6 +111,7 @@
 
 	function startEdit(user: User) {
 		editingUser = user;
+		editUsername = user.username;
 		editPassword = '';
 		editRole = user.role;
 		editActive = user.isActive;
@@ -119,6 +121,7 @@
 
 	function cancelEdit() {
 		editingUser = null;
+		editUsername = '';
 		editPassword = '';
 		editRole = '';
 		editActive = true;
@@ -132,6 +135,7 @@
 		saving = true;
 		try {
 			const payload: {
+				username?: string;
 				password?: string;
 				role?: string;
 				isActive?: boolean;
@@ -139,6 +143,10 @@
 				serverAccesses?: ServerAccess[];
 			} = {};
 
+			const trimmedUsername = editUsername.trim();
+			if (trimmedUsername && trimmedUsername !== editingUser.username) {
+				payload.username = trimmedUsername;
+			}
 			if (editPassword.trim()) {
 				payload.password = editPassword.trim();
 			}
@@ -314,6 +322,15 @@
 									<span class="edit-badge">Editing</span>
 								</div>
 
+								<label>
+									<span class="label-text">Username</span>
+									<input
+										type="text"
+										bind:value={editUsername}
+										placeholder="Username"
+										autocomplete="off"
+									/>
+								</label>
 								<label>
 									<span class="label-text">New Password</span>
 									<input

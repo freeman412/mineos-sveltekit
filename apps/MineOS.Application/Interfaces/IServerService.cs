@@ -11,11 +11,18 @@ public interface IServerService
     Task<ServerDetailDto> CloneServerAsync(string sourceName, string newName, CancellationToken cancellationToken);
     Task DeleteServerAsync(string name, CancellationToken cancellationToken);
 
+    /// <summary>
+    /// Sets or clears the mutable display label (issue #180). The on-disk name
+    /// never changes; null/empty/whitespace clears the label. Allowed while the
+    /// server is running.
+    /// </summary>
+    Task SetDisplayNameAsync(string name, string? displayName, CancellationToken cancellationToken);
+
     // Lifecycle operations
     Task<ServerHeartbeatDto> GetServerStatusAsync(string name, CancellationToken cancellationToken);
     Task StartServerAsync(string name, CancellationToken cancellationToken);
     Task StopServerAsync(string name, int timeoutSeconds, CancellationToken cancellationToken);
-    Task RestartServerAsync(string name, CancellationToken cancellationToken);
+    Task RestartServerAsync(string name, int timeoutSeconds, CancellationToken cancellationToken);
     Task KillServerAsync(string name, CancellationToken cancellationToken);
 
     // Configuration management
@@ -25,18 +32,27 @@ public interface IServerService
     Task UpdateServerConfigAsync(string name, ServerConfigDto config, CancellationToken cancellationToken);
     Task<VelocityConfigDto> GetVelocityConfigAsync(string name, CancellationToken cancellationToken);
     Task UpdateVelocityConfigAsync(string name, VelocityConfigDto config, CancellationToken cancellationToken);
+    Task<BungeeConfigDto> GetBungeeConfigAsync(string name, CancellationToken cancellationToken);
+    Task UpdateBungeeConfigAsync(string name, BungeeConfigDto config, CancellationToken cancellationToken);
 
     /// <summary>
-    /// Returns the (host, port) the server listens on, branching on server type
-    /// (server.properties for java/bedrock, velocity.toml for proxy).
-    /// Returns null if neither config exists or the value is malformed.
+    /// Returns the (host, port) the server listens on, branching on server type:
+    /// server.properties for java/bedrock, velocity.toml or config.yml for proxies.
+    /// Returns null if no config exists or the value is malformed.
     /// </summary>
     Task<(string Host, int Port)?> GetServerListenEndpointAsync(string name, CancellationToken cancellationToken);
 
     Task AcceptEulaAsync(string name, CancellationToken cancellationToken);
     Task RunFtbInstallerAsync(string name, CancellationToken cancellationToken);
 
+    /// <summary>
+    /// Flags a server as needing a restart for pending config changes to apply.
+    /// Exposed because callers outside ServerService now change files a running
+    /// server has already read (proxy forwarding writes both halves of a pair).
+    /// </summary>
+    Task MarkRestartRequiredAsync(string name, CancellationToken cancellationToken);
+
     // Loader detection
     Task<ServerLoaderDto> DetectLoaderAsync(string name, CancellationToken cancellationToken);
-    Task UpdateServerTypeAsync(string name, string serverType, CancellationToken cancellationToken);
+    Task UpdateServerTypeAsync(string name, string serverType, string? proxyKind, CancellationToken cancellationToken);
 }

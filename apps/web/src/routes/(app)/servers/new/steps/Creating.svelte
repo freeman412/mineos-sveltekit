@@ -7,6 +7,8 @@
 		implementation: string;
 		/** Server name being created */
 		serverName: string;
+		/** Creating a proxy (network) rather than a game server */
+		isProxy?: boolean;
 		/** SSE stream URL (for modloader installs) */
 		streamUrl?: string;
 		/** Simple progress value (for profile downloads) */
@@ -17,6 +19,14 @@
 		completed: boolean;
 		/** Error if creation failed */
 		error?: string;
+		/** Post-creation note, e.g. a network-attach warning (shown on success) */
+		notice?: string;
+		/** Label for the completion button */
+		viewLabel?: string;
+		/** Fires once when creation completes (for post-create work) */
+		oncomplete?: () => void;
+		/** Post-create work is still running; the view button waits for it */
+		finishing?: boolean;
 		/** Navigate to the created server */
 		onviewserver: () => void;
 	}
@@ -24,24 +34,40 @@
 	let {
 		implementation,
 		serverName,
+		isProxy = false,
 		streamUrl,
 		progress,
 		stepText,
 		completed,
 		error,
+		notice,
+		viewLabel,
+		oncomplete,
+		finishing = false,
 		onviewserver
 	}: Props = $props();
 
 	let streamCompleted = $state(false);
 	let streamError = $state('');
+	// A plain latch: only the effect reads it, so it needs no reactivity.
+	let notifiedComplete = false;
 	const isCompleted = $derived(completed || streamCompleted);
 	const displayError = $derived(error || streamError || '');
 
-	const label = $derived(`Installing ${implementation} server "${serverName}"`);
+	$effect(() => {
+		if (isCompleted && !notifiedComplete) {
+			notifiedComplete = true;
+			oncomplete?.();
+		}
+	});
+
+	const label = $derived(
+		`${isProxy ? 'Setting up' : 'Installing'} ${implementation} ${isProxy ? 'proxy' : 'server'} "${serverName}"`
+	);
 </script>
 
 <div class="step">
-	<h2>Creating server...</h2>
+	<h2>{isProxy ? 'Setting up proxy...' : 'Creating server...'}</h2>
 
 	{#if streamUrl}
 		<InstallProgress
@@ -63,8 +89,13 @@
 
 	{#if isCompleted}
 		<div class="completed">
-			<p>Server created successfully!</p>
-			<button class="view-btn" onclick={onviewserver} type="button">View Server</button>
+			<p>{isProxy ? 'Proxy created successfully!' : 'Server created successfully!'}</p>
+			{#if notice}
+				<p class="notice">{notice}</p>
+			{/if}
+			<button class="view-btn" onclick={onviewserver} type="button" disabled={finishing}>
+				{finishing ? 'Finishing setup…' : (viewLabel ?? 'View Server')}
+			</button>
 		</div>
 	{/if}
 </div>
@@ -111,6 +142,17 @@
 		margin: 0;
 		font-weight: 600;
 		color: #22c55e;
+	}
+
+	.notice {
+		font-weight: 400;
+		font-size: 0.85rem;
+		color: #f59e0b;
+	}
+
+	.view-btn:disabled {
+		opacity: 0.6;
+		cursor: progress;
 	}
 
 	.view-btn {

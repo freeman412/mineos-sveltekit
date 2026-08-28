@@ -131,6 +131,10 @@ public static class AuthEndpoints
             {
                 return Results.NotFound(new { error = ex.Message });
             }
+            catch (InvalidOperationException ex)
+            {
+                return Results.Conflict(new { error = ex.Message });
+            }
         }).RequireAuthorization(new AuthorizeAttribute { Roles = "admin" });
 
         auth.MapDelete("/users/{id:int}", async (

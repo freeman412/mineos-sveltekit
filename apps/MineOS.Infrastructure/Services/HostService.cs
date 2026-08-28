@@ -5,6 +5,7 @@ using Microsoft.Extensions.Options;
 using MineOS.Application.Dtos;
 using MineOS.Application.Interfaces;
 using MineOS.Application.Options;
+using MineOS.Infrastructure.Utilities;
 
 namespace MineOS.Infrastructure.Services;
 
@@ -117,10 +118,42 @@ public sealed class HostService : IHostService
                 PlayersOnline: playersOnline,
                 PlayersMax: playersMax,
                 MemoryBytes: memoryBytes,
-                NeedsRestart: needsRestart));
+                NeedsRestart: needsRestart,
+                DisplayName: TryReadDisplayName(dir)));
         }
 
         return results;
+    }
+
+    /// <summary>
+    /// Reads the mutable display label from a server directory's server.config
+    /// ([display] section, issue #180). Returns null when unset or unreadable —
+    /// callers fall back to the backend name.
+    /// </summary>
+    private static string? TryReadDisplayName(string serverDir)
+    {
+        try
+        {
+            var configPath = Path.Combine(serverDir, "server.config");
+            if (!File.Exists(configPath))
+            {
+                return null;
+            }
+
+            var sections = IniParser.ParseWithSections(File.ReadAllText(configPath));
+            if (!sections.TryGetValue("display", out var display) ||
+                !display.TryGetValue("name", out var value) ||
+                string.IsNullOrWhiteSpace(value))
+            {
+                return null;
+            }
+
+            return value.Trim();
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return null;
+        }
     }
 
     public Task<IReadOnlyList<ProfileDto>> GetProfilesAsync(CancellationToken cancellationToken)
@@ -263,6 +296,112 @@ public sealed class HostService : IHostService
         }
 
         return Task.FromResult<IReadOnlyList<HostGroupDto>>(results);
+    }
+
+    private const string JvmRoot = "/usr/lib/jvm";
+
+    /// <summary>
+    /// Lists the Java runtimes installed on the host by scanning <c>/usr/lib/jvm</c>.
+    /// </summary>
+    /// <remarks>
+    /// The config UI used to offer a hardcoded list of paths, which drifted from what the
+    /// image actually ships - it named amd64 and JRE directories on an image carrying
+    /// arm64 JDKs, so every explicit choice pointed at a binary that did not exist, and
+    /// newly added runtimes never appeared. Reading the directory keeps the two in step.
+    /// </remarks>
+    public Task<IReadOnlyList<JavaRuntimeDto>> GetJavaRuntimesAsync(CancellationToken cancellationToken)
+    {
+        // Always offer the PATH default first: it is what an empty java_binary resolves
+        // through, and it is the only entry guaranteed to exist.
+        var runtimes = new List<JavaRuntimeDto>
+        {
+            new("java", null, string.Empty, "Default (java on PATH)", true)
+        };
+
+        if (!Directory.Exists(JvmRoot))
+        {
+            return Task.FromResult<IReadOnlyList<JavaRuntimeDto>>(runtimes);
+        }
+
+        var found = new List<JavaRuntimeDto>();
+        foreach (var home in Directory.EnumerateDirectories(JvmRoot))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            var binary = Path.Combine(home, "bin", "java");
+            if (!File.Exists(binary))
+            {
+                continue;
+            }
+
+            var version = ReadJavaVersion(home);
+            var major = ParseJavaMajor(version) ?? ParseJavaMajor(Path.GetFileName(home));
+            var label = major is null
+                ? Path.GetFileName(home)
+                : $"Java {major}{(string.IsNullOrEmpty(version) ? string.Empty : $" ({version})")}";
+
+            found.Add(new JavaRuntimeDto(binary, major, version, label, false));
+        }
+
+        runtimes.AddRange(found
+            .OrderByDescending(runtime => runtime.Major ?? int.MinValue)
+            .ThenBy(runtime => runtime.Path, StringComparer.Ordinal));
+
+        return Task.FromResult<IReadOnlyList<JavaRuntimeDto>>(runtimes);
+    }
+
+    /// <summary>Reads JAVA_VERSION from a JDK/JRE's release file, e.g. "25.0.4".</summary>
+    private static string ReadJavaVersion(string javaHome)
+    {
+        var releasePath = Path.Combine(javaHome, "release");
+        if (!File.Exists(releasePath))
+        {
+            return string.Empty;
+        }
+
+        try
+        {
+            foreach (var line in File.ReadLines(releasePath))
+            {
+                if (line.StartsWith("JAVA_VERSION=", StringComparison.Ordinal))
+                {
+                    return line["JAVA_VERSION=".Length..].Trim().Trim('"');
+                }
+            }
+        }
+        catch
+        {
+            // Unreadable release file: fall back to the directory name.
+        }
+
+        return string.Empty;
+    }
+
+    /// <summary>
+    /// Java major from a version or directory name. Handles the legacy "1.8.0_502" form,
+    /// where the major is the second component, as well as "25.0.4" and "temurin-21-jdk".
+    /// </summary>
+    public static int? ParseJavaMajor(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return null;
+        }
+
+        var match = System.Text.RegularExpressions.Regex.Match(value, @"(\d+)");
+        if (!match.Success || !int.TryParse(match.Groups[1].Value, out var first))
+        {
+            return null;
+        }
+
+        // "1.8.0_502" means Java 8; anything else already leads with its major.
+        if (first == 1)
+        {
+            var second = System.Text.RegularExpressions.Regex.Match(value, @"1\.(\d+)");
+            return second.Success && int.TryParse(second.Groups[1].Value, out var legacy) ? legacy : null;
+        }
+
+        return first;
     }
 
     private static Dictionary<string, string> TryReadProperties(string path)

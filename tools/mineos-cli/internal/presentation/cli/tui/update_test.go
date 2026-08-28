@@ -17,7 +17,7 @@ func TestUpdate_HealthCheckedSetsHealthy(t *testing.T) {
 
 // The refresh loop must keep re-arming (non-nil cmd) and stopped != healthy.
 func TestUpdate_HealthTickReschedulesAndStoppedIsUnhealthy(t *testing.T) {
-	m := TuiModel{ContainersStopped: true, Healthy: true}
+	m := TuiModel{ConnectionState: ConnectionState{ContainersStopped: true, Healthy: true}}
 	out, cmd := m.Update(HealthTickMsg{})
 	if out.(TuiModel).Healthy {
 		t.Fatal("stopped containers must not report healthy")
@@ -29,7 +29,7 @@ func TestUpdate_HealthTickReschedulesAndStoppedIsUnhealthy(t *testing.T) {
 
 // While ready, a tick issues refresh work (and still re-arms).
 func TestUpdate_HealthTickWhileReadyRefreshes(t *testing.T) {
-	m := TuiModel{ConfigReady: true}
+	m := TuiModel{ConnectionState: ConnectionState{ConfigReady: true}}
 	_, cmd := m.Update(HealthTickMsg{})
 	if cmd == nil {
 		t.Fatal("expected refresh commands while ready")

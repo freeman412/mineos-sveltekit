@@ -9,6 +9,7 @@
 	import QuiltVersions from '../version-pickers/QuiltVersions.svelte';
 	import BedrockVersions from '../version-pickers/BedrockVersions.svelte';
 	import VelocityVersions from '../version-pickers/VelocityVersions.svelte';
+	import BungeeCordVersions from '../version-pickers/BungeeCordVersions.svelte';
 	import TemplateSelect from '../version-pickers/TemplateSelect.svelte';
 
 	interface VersionSelection {
@@ -42,6 +43,7 @@
 		quilt: 'Quilt',
 		bedrock: 'Bedrock',
 		velocity: 'Velocity',
+		bungeecord: 'BungeeCord',
 		template: 'Template'
 	};
 </script>
@@ -90,6 +92,12 @@
 		/>
 	{:else if implementation === 'velocity'}
 		<VelocityVersions
+			{profiles}
+			onselect={(profile) => onselect({ profileId: profile.id, minecraftVersion: profile.version })}
+			onready={onready}
+		/>
+	{:else if implementation === 'bungeecord'}
+		<BungeeCordVersions
 			{profiles}
 			onselect={(profile) => onselect({ profileId: profile.id, minecraftVersion: profile.version })}
 			onready={onready}
