@@ -370,6 +370,13 @@ public sealed class BackgroundJobService : IBackgroundJobService, IHostedService
     private class JobState
     {
         private readonly object _lock = new();
+
+        /// <summary>
+        /// Serializes the fire-and-forget writes of this job's row. Held on the state
+        /// rather than in a side dictionary so it lives and dies with the job entry.
+        /// </summary>
+        public SemaphoreSlim PersistGate { get; } = new(1, 1);
+
         public required string JobId { get; init; }
         public required string Type { get; init; }
         public required string ServerName { get; init; }
@@ -468,6 +475,25 @@ public sealed class BackgroundJobService : IBackgroundJobService, IHostedService
     }
 
     private async Task UpsertJobAsync(JobState state, CancellationToken cancellationToken)
+    {
+        // Persists are fire-and-forget (see PersistJobFireAndForget), so a status
+        // change, each progress tick and the completion write all run at once for one
+        // job. Finding the row and inserting it when absent is a check-then-act: two
+        // writers both see nothing and both insert, and the second is rejected with
+        // "UNIQUE constraint failed: Jobs.JobId". The per-job gate keeps concurrent
+        // writers for one row in line while leaving different jobs parallel.
+        await state.PersistGate.WaitAsync(cancellationToken);
+        try
+        {
+            await UpsertJobCoreAsync(state, cancellationToken);
+        }
+        finally
+        {
+            state.PersistGate.Release();
+        }
+    }
+
+    private async Task UpsertJobCoreAsync(JobState state, CancellationToken cancellationToken)
     {
         var snap = state.Snapshot();
 
