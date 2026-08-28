@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { describeCron, type CronTimeMode } from '$lib/cron';
 	import { modal } from '$lib/stores/modal';
 	import type { ServerPanelData } from './panelData';
 
@@ -22,18 +23,20 @@
 	let customCron = $state('0 3 * * *');
 	let action = $state('backup');
 	let message = $state('');
+	// How schedule interpretations are displayed; expressions stay UTC.
+	let timeMode = $state<CronTimeMode>('local');
 
 	const presets: Record<string, { label: string; cron: string; description: string }> = {
 		hourly: { label: 'Every Hour', cron: '0 * * * *', description: 'Runs at the start of every hour' },
 		'every-6h': {
 			label: 'Every 6 Hours',
 			cron: '0 */6 * * *',
-			description: 'Runs every 6 hours (midnight, 6am, noon, 6pm)'
+			description: 'Runs every 6 hours (midnight, 6am, noon, 6pm UTC)'
 		},
 		'every-12h': {
 			label: 'Every 12 Hours',
 			cron: '0 0,12 * * *',
-			description: 'Runs at midnight and noon'
+			description: 'Runs at midnight and noon UTC'
 		},
 		daily: { label: 'Daily', cron: '0 3 * * *', description: 'Runs daily at 3:00 AM UTC' },
 		weekly: { label: 'Weekly', cron: '0 3 * * 0', description: 'Runs every Sunday at 3:00 AM UTC' },
@@ -59,8 +62,10 @@
 	);
 	let presetDescription = $derived(
 		schedulePreset === 'custom'
-			? describeCron(customCron)
-			: presets[schedulePreset]?.description ?? ''
+			? describeCron(customCron, timeMode)
+			: effectiveCron
+				? describeCron(effectiveCron, timeMode)
+				: presets[schedulePreset]?.description ?? ''
 	);
 
 	$effect(() => {
@@ -162,34 +167,30 @@
 		}
 	}
 
-	function describeCron(expr: string): string {
-		const parts = expr.trim().split(/\s+/);
-		if (parts.length < 5) return 'Invalid expression';
-
-		const [min, hour, dom, mon, dow] = parts;
-
-		if (min === '0' && hour === '*') return 'Every hour';
-		if (min === '0' && hour.startsWith('*/'))
-			return `Every ${hour.slice(2)} hours`;
-		if (min !== '*' && hour !== '*' && dow === '*' && dom === '*' && mon === '*')
-			return `Daily at ${hour.padStart(2, '0')}:${min.padStart(2, '0')} UTC`;
-		if (min !== '*' && hour !== '*' && dow !== '*')
-			return `${describeDow(dow)} at ${hour.padStart(2, '0')}:${min.padStart(2, '0')} UTC`;
-		return expr;
-	}
-
-	function describeDow(dow: string): string {
-		const names = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-		const idx = parseInt(dow);
-		if (!isNaN(idx) && idx >= 0 && idx <= 6) return `Every ${names[idx]}`;
-		return `Day ${dow}`;
-	}
 </script>
 
 <div class="page-header">
 	<div>
 		<h1>Scheduled Tasks</h1>
 		<p class="subtitle">Automate backups, restarts, and more with cron schedules</p>
+	</div>
+	<div class="time-mode-toggle" role="group" aria-label="Interpretation timezone">
+		<button
+			type="button"
+			class="mode-btn"
+			class:selected={timeMode === 'local'}
+			onclick={() => (timeMode = 'local')}
+		>
+			Local time
+		</button>
+		<button
+			type="button"
+			class="mode-btn"
+			class:selected={timeMode === 'utc'}
+			onclick={() => (timeMode = 'utc')}
+		>
+			UTC
+		</button>
 	</div>
 </div>
 
@@ -296,7 +297,7 @@
 								{/if}
 							</div>
 							<div class="job-meta">
-								<span class="job-schedule">{describeCron(job.source)}</span>
+								<span class="job-schedule">{describeCron(job.source, timeMode)}</span>
 								{#if job.msg}
 									<span class="job-msg">{job.msg}</span>
 								{/if}
@@ -332,6 +333,7 @@
 		<ul>
 			<li><strong>Backup:</strong> Creates an incremental backup using rdiff-backup. Safe to run while the server is online.</li>
 			<li><strong>Restart:</strong> Gracefully stops the server, waits 5 seconds, then starts it again.</li>
+			<li><strong>Timezone:</strong> Cron expressions always run in UTC. The Local time/UTC toggle only changes how schedules are described, not when they run.</li>
 			<li><strong>Schedule:</strong> Tasks are checked every minute. Use presets or enter a standard 5-field cron expression.</li>
 		</ul>
 	</div>
@@ -355,6 +357,28 @@
 		justify-content: space-between;
 		align-items: center;
 		margin-bottom: 32px;
+	}
+
+	.time-mode-toggle {
+		display: flex;
+		border: 1px solid rgba(122, 134, 154, 0.3);
+		border-radius: 8px;
+		overflow: hidden;
+	}
+
+	.mode-btn {
+		background: transparent;
+		border: none;
+		color: #7a869a;
+		font-size: 12px;
+		font-weight: 600;
+		padding: 6px 14px;
+		cursor: pointer;
+	}
+
+	.mode-btn.selected {
+		background: rgba(91, 158, 255, 0.15);
+		color: #a5b4fc;
 	}
 
 	h1 {
