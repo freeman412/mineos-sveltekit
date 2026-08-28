@@ -156,24 +156,30 @@ public class ServerUpdateTests : IClassFixture<MineOsWebApplicationFactory>
         return request;
     }
 
-    private async Task<string> CreateJavaServerAsync(HttpClient client, string name)
+    private async Task<(string Token, string Dir)> CreateJavaServerAsync(HttpClient client, string name)
     {
         var token = await GetTokenAsync(client);
         using var request = AuthRequest(HttpMethod.Post, "/api/v1/servers", token,
             JsonContent.Create(new { name, ownerUid = 1000, ownerGid = 1000, serverType = "java" }));
         var response = await client.SendAsync(request);
         Assert.Equal(HttpStatusCode.Created, response.StatusCode);
-        return token;
+        // Since #192 the directory is a slug, not the typed label, so every
+        // subsequent lookup has to use the name the API actually created.
+        var created = await response.Content.ReadFromJsonAsync<JsonElement>();
+        return (token, created.GetProperty("name").GetString()!);
     }
 
-    private async Task<string> CreateBedrockServerAsync(HttpClient client, string name)
+    private async Task<(string Token, string Dir)> CreateBedrockServerAsync(HttpClient client, string name)
     {
         var token = await GetTokenAsync(client);
         using var request = AuthRequest(HttpMethod.Post, "/api/v1/servers", token,
             JsonContent.Create(new { name, ownerUid = 1000, ownerGid = 1000, serverType = "bedrock" }));
         var response = await client.SendAsync(request);
         Assert.Equal(HttpStatusCode.Created, response.StatusCode);
-        return token;
+        // Since #192 the directory is a slug, not the typed label, so every
+        // subsequent lookup has to use the name the API actually created.
+        var created = await response.Content.ReadFromJsonAsync<JsonElement>();
+        return (token, created.GetProperty("name").GetString()!);
     }
 
     private string ServerDir(string name) => Path.Combine(_factory.HostRoot, "servers", name);
@@ -225,8 +231,7 @@ public class ServerUpdateTests : IClassFixture<MineOsWebApplicationFactory>
     public async Task Fresh_Java_Server_Without_Jar_Is_Unsupported()
     {
         var client = NewClient(new FakeProfileService());
-        var name = UniqueName("upd-fresh");
-        var token = await CreateJavaServerAsync(client, name);
+        var (token, name) = await CreateJavaServerAsync(client, UniqueName("upd-fresh"));
 
         var json = await GetUpdatesJsonAsync(client, token, name);
 
@@ -238,8 +243,7 @@ public class ServerUpdateTests : IClassFixture<MineOsWebApplicationFactory>
     public async Task Paper_Server_With_Older_Build_Shows_Update_Available()
     {
         var client = NewClient(new FakeProfileService());
-        var name = UniqueName("upd-paper-old");
-        var token = await CreateJavaServerAsync(client, name);
+        var (token, name) = await CreateJavaServerAsync(client, UniqueName("upd-paper-old"));
         PlantJar(name, "paper-1.21.11-132.jar");
         await SetConfigSectionAsync(name, "java", new Dictionary<string, string>
         {
@@ -266,8 +270,7 @@ public class ServerUpdateTests : IClassFixture<MineOsWebApplicationFactory>
     public async Task Paper_Server_On_Latest_Build_And_Version_Has_No_Update()
     {
         var client = NewClient(new FakeProfileService());
-        var name = UniqueName("upd-paper-new");
-        var token = await CreateJavaServerAsync(client, name);
+        var (token, name) = await CreateJavaServerAsync(client, UniqueName("upd-paper-new"));
         PlantJar(name, "paper-1.21.11-140.jar");
         await SetConfigSectionAsync(name, "java", new Dictionary<string, string>
         {
@@ -287,8 +290,7 @@ public class ServerUpdateTests : IClassFixture<MineOsWebApplicationFactory>
     public async Task Legacy_Jar_Without_Config_Entry_Is_Detected_By_Scan()
     {
         var client = NewClient(new FakeProfileService());
-        var name = UniqueName("upd-paper-scan");
-        var token = await CreateJavaServerAsync(client, name);
+        var (token, name) = await CreateJavaServerAsync(client, UniqueName("upd-paper-scan"));
         PlantJar(name, "paper-1.21.11-100.jar");
 
         var json = await GetUpdatesJsonAsync(client, token, name);
@@ -302,8 +304,7 @@ public class ServerUpdateTests : IClassFixture<MineOsWebApplicationFactory>
     public async Task Modded_Server_Is_Not_Supported()
     {
         var client = NewClient(new FakeProfileService());
-        var name = UniqueName("upd-forge");
-        var token = await CreateJavaServerAsync(client, name);
+        var (token, name) = await CreateJavaServerAsync(client, UniqueName("upd-forge"));
         PlantJar(name, "forge-1.21.1-52.0.24.jar");
         await SetConfigSectionAsync(name, "java", new Dictionary<string, string>
         {
@@ -321,8 +322,7 @@ public class ServerUpdateTests : IClassFixture<MineOsWebApplicationFactory>
     public async Task Velocity_Server_Detects_Newer_Build()
     {
         var client = NewClient(new FakeProfileService());
-        var name = UniqueName("upd-velocity");
-        var token = await CreateJavaServerAsync(client, name);
+        var (token, name) = await CreateJavaServerAsync(client, UniqueName("upd-velocity"));
         PlantJar(name, "velocity-3.4.0-566.jar");
         await SetConfigSectionAsync(name, "java", new Dictionary<string, string>
         {
@@ -341,8 +341,7 @@ public class ServerUpdateTests : IClassFixture<MineOsWebApplicationFactory>
     public async Task BungeeCord_Server_On_Latest_Build_Has_No_Update()
     {
         var client = NewClient(new FakeProfileService());
-        var name = UniqueName("upd-bungee");
-        var token = await CreateJavaServerAsync(client, name);
+        var (token, name) = await CreateJavaServerAsync(client, UniqueName("upd-bungee"));
         PlantJar(name, "bungeecord-build-2131.jar");
         await SetConfigSectionAsync(name, "java", new Dictionary<string, string>
         {
@@ -359,8 +358,7 @@ public class ServerUpdateTests : IClassFixture<MineOsWebApplicationFactory>
     public async Task Bedrock_Server_With_Recorded_Version_Detects_Update()
     {
         var client = NewClient(new FakeProfileService());
-        var name = UniqueName("upd-bedrock");
-        var token = await CreateBedrockServerAsync(client, name);
+        var (token, name) = await CreateBedrockServerAsync(client, UniqueName("upd-bedrock"));
         // The version a guided apply installed is recorded in [updates]; this is
         // how detection works for servers whose binary carries no version marker.
         await SetConfigSectionAsync(name, "updates", new Dictionary<string, string>
@@ -381,8 +379,7 @@ public class ServerUpdateTests : IClassFixture<MineOsWebApplicationFactory>
     public async Task Bedrock_Without_Version_Info_Allows_Manual_Apply()
     {
         var client = NewClient(new FakeProfileService());
-        var name = UniqueName("upd-bedrock-x");
-        var token = await CreateBedrockServerAsync(client, name);
+        var (token, name) = await CreateBedrockServerAsync(client, UniqueName("upd-bedrock-x"));
 
         var json = await GetUpdatesJsonAsync(client, token, name);
 
@@ -400,8 +397,7 @@ public class ServerUpdateTests : IClassFixture<MineOsWebApplicationFactory>
         // so the badge must fire on it (unlike paper, whose badge stays on
         // same-MC-version builds until the user opts into a jump).
         var client = NewClient(new FakeProfileService());
-        var name = UniqueName("upd-vanilla");
-        var token = await CreateJavaServerAsync(client, name);
+        var (token, name) = await CreateJavaServerAsync(client, UniqueName("upd-vanilla"));
         PlantJar(name, "vanilla-1.21.10.jar");
         await SetConfigSectionAsync(name, "java", new Dictionary<string, string>
         {
@@ -421,8 +417,7 @@ public class ServerUpdateTests : IClassFixture<MineOsWebApplicationFactory>
     public async Task Clone_Does_Not_Inherit_Update_Settings()
     {
         var client = NewClient(new FakeProfileService());
-        var name = UniqueName("upd-clone-src");
-        var token = await CreateJavaServerAsync(client, name);
+        var (token, name) = await CreateJavaServerAsync(client, UniqueName("upd-clone-src"));
         PlantJar(name, "paper-1.21.11-132.jar");
         await SetConfigSectionAsync(name, "java", new Dictionary<string, string> { ["jarfile"] = "paper-1.21.11-132.jar" });
         using var putOff = AuthRequest(HttpMethod.Put, $"/api/v1/servers/{name}/updates/mode", token,
@@ -432,10 +427,13 @@ public class ServerUpdateTests : IClassFixture<MineOsWebApplicationFactory>
         var cloneName = UniqueName("upd-clone-dst");
         using var cloneRequest = AuthRequest(HttpMethod.Post, $"/api/v1/servers/{name}/clone", token,
             JsonContent.Create(new { newName = cloneName }));
-        Assert.Equal(HttpStatusCode.OK, (await client.SendAsync(cloneRequest)).StatusCode);
+        var cloneResponse = await client.SendAsync(cloneRequest);
+        Assert.Equal(HttpStatusCode.OK, cloneResponse.StatusCode);
+        // The clone gets its own slug directory too (#192).
+        var cloneDir = (await cloneResponse.Content.ReadFromJsonAsync<JsonElement>())
+            .GetProperty("name").GetString()!;
 
-        var cloneToken = token;
-        var cloneUpdates = await GetUpdatesJsonAsync(client, cloneToken, cloneName);
+        var cloneUpdates = await GetUpdatesJsonAsync(client, token, cloneDir);
         Assert.Equal("notify", cloneUpdates.GetProperty("mode").GetString());
     }
 
@@ -447,8 +445,7 @@ public class ServerUpdateTests : IClassFixture<MineOsWebApplicationFactory>
     public async Task Put_Mode_Off_Persists_And_Suppresses_Badge()
     {
         var client = NewClient(new FakeProfileService());
-        var name = UniqueName("upd-mode-off");
-        var token = await CreateJavaServerAsync(client, name);
+        var (token, name) = await CreateJavaServerAsync(client, UniqueName("upd-mode-off"));
         PlantJar(name, "paper-1.21.11-132.jar");
         await SetConfigSectionAsync(name, "java", new Dictionary<string, string> { ["jarfile"] = "paper-1.21.11-132.jar" });
 
@@ -467,8 +464,7 @@ public class ServerUpdateTests : IClassFixture<MineOsWebApplicationFactory>
     {
         var profiles = new FakeProfileService();
         var client = NewClient(profiles);
-        var name = UniqueName("upd-ignore");
-        var token = await CreateJavaServerAsync(client, name);
+        var (token, name) = await CreateJavaServerAsync(client, UniqueName("upd-ignore"));
         PlantJar(name, "paper-1.21.11-132.jar");
         await SetConfigSectionAsync(name, "java", new Dictionary<string, string> { ["jarfile"] = "paper-1.21.11-132.jar" });
 
@@ -491,8 +487,7 @@ public class ServerUpdateTests : IClassFixture<MineOsWebApplicationFactory>
     public async Task Ignore_Current_Without_Known_Update_Returns_400()
     {
         var client = NewClient(new FakeProfileService());
-        var name = UniqueName("upd-ignore-none");
-        var token = await CreateJavaServerAsync(client, name); // fresh, unsupported → nothing to ignore
+        var (token, name) = await CreateJavaServerAsync(client, UniqueName("upd-ignore-none")); // fresh, unsupported → nothing to ignore
 
         using var putRequest = AuthRequest(HttpMethod.Put, $"/api/v1/servers/{name}/updates/mode", token,
             JsonContent.Create(new { mode = "ignore-current" }));
@@ -505,8 +500,7 @@ public class ServerUpdateTests : IClassFixture<MineOsWebApplicationFactory>
     public async Task Put_Mode_Invalid_Value_Returns_400()
     {
         var client = NewClient(new FakeProfileService());
-        var name = UniqueName("upd-mode-bad");
-        var token = await CreateJavaServerAsync(client, name);
+        var (token, name) = await CreateJavaServerAsync(client, UniqueName("upd-mode-bad"));
 
         using var putRequest = AuthRequest(HttpMethod.Put, $"/api/v1/servers/{name}/updates/mode", token,
             JsonContent.Create(new { mode = "auto-update-everything" }));
@@ -522,11 +516,12 @@ public class ServerUpdateTests : IClassFixture<MineOsWebApplicationFactory>
     [Fact]
     public async Task Apply_While_Running_Returns_409()
     {
-        var name = UniqueName("upd-apply-run");
         var processManager = new Mock<IProcessManager>();
-        processManager.Setup(pm => pm.GetServerProcess(name)).Returns(new ServerProcessInfo(1234, 5678));
+        // The server's directory is a slug the API picks (#192), so the process
+        // has to be reported as running for that name, not for the typed label.
+        processManager.Setup(pm => pm.GetServerProcess(It.IsAny<string>())).Returns(new ServerProcessInfo(1234, 5678));
         var client = NewClient(new FakeProfileService(), processManager);
-        var token = await CreateJavaServerAsync(client, name);
+        var (token, name) = await CreateJavaServerAsync(client, UniqueName("upd-apply-run"));
         PlantJar(name, "paper-1.21.11-132.jar");
         await SetConfigSectionAsync(name, "java", new Dictionary<string, string> { ["jarfile"] = "paper-1.21.11-132.jar" });
 
@@ -541,8 +536,7 @@ public class ServerUpdateTests : IClassFixture<MineOsWebApplicationFactory>
     public async Task Apply_Build_Bump_Swaps_Jar_Updates_Config_And_Backups_Old()
     {
         var client = NewClient(new FakeProfileService());
-        var name = UniqueName("upd-apply-jar");
-        var token = await CreateJavaServerAsync(client, name);
+        var (token, name) = await CreateJavaServerAsync(client, UniqueName("upd-apply-jar"));
         PlantJar(name, "paper-1.21.11-132.jar");
         await SetConfigSectionAsync(name, "java", new Dictionary<string, string> { ["jarfile"] = "paper-1.21.11-132.jar" });
         File.Delete(Path.Combine(ServerDir(name), ".mineos-restart-required"));
@@ -570,8 +564,7 @@ public class ServerUpdateTests : IClassFixture<MineOsWebApplicationFactory>
     public async Task Apply_Cross_Family_Profile_Returns_400()
     {
         var client = NewClient(new FakeProfileService());
-        var name = UniqueName("upd-apply-xfam");
-        var token = await CreateJavaServerAsync(client, name);
+        var (token, name) = await CreateJavaServerAsync(client, UniqueName("upd-apply-xfam"));
         PlantJar(name, "paper-1.21.11-132.jar");
         await SetConfigSectionAsync(name, "java", new Dictionary<string, string> { ["jarfile"] = "paper-1.21.11-132.jar" });
 
@@ -586,8 +579,7 @@ public class ServerUpdateTests : IClassFixture<MineOsWebApplicationFactory>
     public async Task Apply_Bedrock_Zip_Extracts_And_Records_Version()
     {
         var client = NewClient(new FakeProfileService());
-        var name = UniqueName("upd-apply-br");
-        var token = await CreateBedrockServerAsync(client, name);
+        var (token, name) = await CreateBedrockServerAsync(client, UniqueName("upd-apply-br"));
         await SetConfigSectionAsync(name, "updates", new Dictionary<string, string>
         {
             ["applied_version"] = "1.21.40.9"
@@ -612,8 +604,7 @@ public class ServerUpdateTests : IClassFixture<MineOsWebApplicationFactory>
     public async Task Apply_Unknown_Profile_Returns_400()
     {
         var client = NewClient(new FakeProfileService());
-        var name = UniqueName("upd-apply-unk");
-        var token = await CreateJavaServerAsync(client, name);
+        var (token, name) = await CreateJavaServerAsync(client, UniqueName("upd-apply-unk"));
         PlantJar(name, "paper-1.21.11-132.jar");
         await SetConfigSectionAsync(name, "java", new Dictionary<string, string> { ["jarfile"] = "paper-1.21.11-132.jar" });
 
@@ -632,8 +623,7 @@ public class ServerUpdateTests : IClassFixture<MineOsWebApplicationFactory>
     public async Task Updates_Settings_Survive_Server_Config_Round_Trip()
     {
         var client = NewClient(new FakeProfileService());
-        var name = UniqueName("upd-roundtrip");
-        var token = await CreateJavaServerAsync(client, name);
+        var (token, name) = await CreateJavaServerAsync(client, UniqueName("upd-roundtrip"));
         PlantJar(name, "paper-1.21.11-132.jar");
         await SetConfigSectionAsync(name, "java", new Dictionary<string, string> { ["jarfile"] = "paper-1.21.11-132.jar" });
 
