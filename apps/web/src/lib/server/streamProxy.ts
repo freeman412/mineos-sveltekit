@@ -1,6 +1,7 @@
 // src/lib/server/streamProxy.ts
 import { env } from '$env/dynamic/private';
 import type { RequestEvent } from '@sveltejs/kit';
+import { withHeartbeat } from './sseHeartbeat';
 
 const baseUrl =
 	env.PRIVATE_API_BASE_URL ??
@@ -68,23 +69,10 @@ export async function proxyEventStream(
 		return new Response('Upstream did not return a body', { status: 502 });
 	}
 
-	// Pipe the stream directly
-	const reader = response.body.getReader();
-
-	const stream = new ReadableStream<Uint8Array>({
-		async pull(controller) {
-			const { done, value } = await reader.read();
-			if (done) {
-				controller.close();
-				return;
-			}
-			if (value) controller.enqueue(value);
-		},
-		cancel() {
-			abortController.abort();
-			reader.releaseLock();
-		}
-	});
+	// Pipe the stream through, adding a keep-alive comment whenever the upstream
+	// goes quiet. Without it a proxy in front of MineOS drops any stream that
+	// has nothing to report for a minute — see sseHeartbeat.ts.
+	const stream = withHeartbeat(response.body, () => abortController.abort());
 
 	const headers = new Headers(response.headers);
 	headers.set('Content-Type', 'text/event-stream');

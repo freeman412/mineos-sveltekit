@@ -520,8 +520,7 @@ public static class ModEndpoints
         modrinth.MapPost("/install", async (
             string name,
             [FromBody] ModrinthInstallRequest request,
-            IModrinthService modrinthService,
-            IModService modService,
+            IModDependencyService dependencyService,
             CancellationToken cancellationToken) =>
         {
             if (string.IsNullOrWhiteSpace(request.VersionId))
@@ -529,21 +528,63 @@ public static class ModEndpoints
                 return Results.BadRequest(new { error = "VersionId is required" });
             }
 
-            var version = await modrinthService.GetVersionAsync(request.VersionId, cancellationToken);
-            if (version == null)
+            try
             {
-                return Results.NotFound(new { error = "Version not found" });
+                // Installs hard dependencies alongside the mod. A mod whose
+                // required dependency is missing does not warn at startup —
+                // Fabric aborts the boot — so installing the jar alone was
+                // reliably breaking servers.
+                var result = await dependencyService.InstallWithDependenciesAsync(
+                    name,
+                    request.VersionId,
+                    request.OptionalProjectIds ?? Array.Empty<string>(),
+                    cancellationToken);
+
+                var installed = string.Join(", ", result.InstalledFiles);
+                return Results.Ok(new
+                {
+                    message = result.InstalledFiles.Count == 1
+                        ? $"Installed mod '{installed}'"
+                        : $"Installed {result.InstalledFiles.Count} files: {installed}",
+                    installedFiles = result.InstalledFiles,
+                    skippedAlreadyInstalled = result.SkippedAlreadyInstalled
+                });
+            }
+            catch (DirectoryNotFoundException ex)
+            {
+                return Results.NotFound(new { error = ex.Message });
+            }
+            catch (InvalidOperationException ex)
+            {
+                // Unresolvable hard dependency: nothing was written, and the
+                // message names what could not be satisfied.
+                return Results.Conflict(new { error = ex.Message });
+            }
+        });
+
+        modrinth.MapGet("/install/plan", async (
+            string name,
+            [FromQuery] string versionId,
+            IModDependencyService dependencyService,
+            CancellationToken cancellationToken) =>
+        {
+            if (string.IsNullOrWhiteSpace(versionId))
+            {
+                return Results.BadRequest(new { error = "versionId is required" });
             }
 
-            var file = version.Files.FirstOrDefault(f => f.Primary) ?? version.Files.FirstOrDefault();
-            if (file == null)
+            try
             {
-                return Results.BadRequest(new { error = "No files available for this version" });
+                return Results.Ok(await dependencyService.PlanInstallAsync(name, versionId, cancellationToken));
             }
-
-            await using var stream = await modrinthService.OpenDownloadStreamAsync(file.Url, cancellationToken);
-            await modService.SaveModAsync(name, file.FileName, stream, cancellationToken);
-            return Results.Ok(new { message = $"Installed mod '{file.FileName}'" });
+            catch (DirectoryNotFoundException ex)
+            {
+                return Results.NotFound(new { error = ex.Message });
+            }
+            catch (InvalidOperationException ex)
+            {
+                return Results.Conflict(new { error = ex.Message });
+            }
         });
 
         var modrinthModpacks = servers.MapGroup("/{name}/mods/modrinth/modpacks");
@@ -663,7 +704,15 @@ public static class ModEndpoints
             try
             {
                 var result = await serverService.DetectLoaderAsync(name, cancellationToken);
-                return Results.Ok(new { loader = result.Loader, version = result.Version });
+                // minecraftVersion is additive: existing clients keep reading
+                // loader/version unchanged, and anything that needs the game
+                // version no longer has to infer it from the loader version.
+                return Results.Ok(new
+                {
+                    loader = result.Loader,
+                    version = result.Version,
+                    minecraftVersion = result.MinecraftVersion
+                });
             }
             catch (DirectoryNotFoundException ex)
             {
@@ -683,7 +732,7 @@ public static class ModEndpoints
         {
             try
             {
-                await serverService.UpdateServerTypeAsync(name, request.ServerType, cancellationToken);
+                await serverService.UpdateServerTypeAsync(name, request.ServerType, request.ProxyKind, cancellationToken);
                 return Results.Ok(new { message = "Server type updated" });
             }
             catch (DirectoryNotFoundException ex)
@@ -695,7 +744,7 @@ public static class ModEndpoints
         return servers;
     }
 
-    private record UpdateServerTypeRequest(string ServerType);
+    private record UpdateServerTypeRequest(string ServerType, string? ProxyKind = null);
 
     /// <summary>
     /// Resolves the mod loader and Minecraft version for a server.
@@ -710,10 +759,15 @@ public static class ModEndpoints
     {
         try
         {
-            // Use the canonical detection from ServerService
+            // Use the canonical detection from ServerService.
+            //
+            // MinecraftVersion, not Version: the latter is the LOADER's version, and
+            // for Fabric/Quilt the two are unrelated. Filtering Modrinth by a loader
+            // version ("0.19.3") matched nothing, so mod search returned zero results
+            // on every Fabric server.
             var detected = await serverService.DetectLoaderAsync(serverName, cancellationToken);
             var loader = detected.Loader;
-            var version = detected.Version;
+            var version = detected.MinecraftVersion;
 
             // If we have a loader but no version, try to get it from the profile
             if (loader != null && version == null)

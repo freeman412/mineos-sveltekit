@@ -5,6 +5,7 @@
 	import { modal } from '$lib/stores/modal';
 	import { formatBytes, formatUptime } from '$lib/utils/formatting';
 	import { createEventStream, type EventStreamHandle } from '$lib/utils/eventStream';
+	import { createClassificationRefresher } from '$lib/utils/proxy';
 	import StatusBadge from '$lib/components/StatusBadge.svelte';
 	import type { PageData } from './$types';
 	import type { HostMetrics, ServerSummary } from '$lib/api/types';
@@ -22,19 +23,23 @@
 
 	const maxMemoryPoints = 30;
 
+	// Proxies live on the Proxies page — keep them out of the dashboard's
+	// server stats and widget so it matches the Servers page.
+	let proxyNames = $derived(new Set(data.proxyNames ?? []));
+	const gameServers = $derived(servers.filter((s) => !proxyNames.has(s.name)));
 
-	const totalServers = $derived(servers.length ?? 0);
+	const totalServers = $derived(gameServers.length ?? 0);
 	const runningServers = $derived(
-		servers.filter((s) => s.up).length ?? 0
+		gameServers.filter((s) => s.up).length ?? 0
 	);
 	const totalPlayers = $derived(
-		servers.reduce((sum, s) => sum + (s.playersOnline ?? 0), 0) ?? 0
+		gameServers.reduce((sum, s) => sum + (s.playersOnline ?? 0), 0) ?? 0
 	);
 	const maxPlayers = $derived(
-		servers.reduce((sum, s) => sum + (s.playersMax ?? 0), 0) ?? 0
+		gameServers.reduce((sum, s) => sum + (s.playersMax ?? 0), 0) ?? 0
 	);
 	const totalServerMemory = $derived(
-		servers.reduce((sum, s) => sum + (s.memoryBytes ?? 0), 0) ?? 0
+		gameServers.reduce((sum, s) => sum + (s.memoryBytes ?? 0), 0) ?? 0
 	);
 
 	function buildSparkline(values: number[], width = 120, height = 28) {
@@ -113,13 +118,20 @@
 	onMount(() => {
 		updateMemoryHistory(servers);
 
+		const classifyNewcomers = createClassificationRefresher(
+			(data.servers.data ?? []).map((s) => s.name),
+			() => void invalidateAll()
+		);
+
 		serversStream = createEventStream<ServerSummary[]>({
 			url: '/api/host/servers/stream',
 			onMessage: (nextServers) => {
 				servers = nextServers;
 				updateMemoryHistory(nextServers);
 				serversError = null;
+				classifyNewcomers(nextServers);
 			},
+			reconnect: {},
 			onClose: () => {
 				serversStream = null;
 			}
@@ -131,6 +143,7 @@
 				hostMetrics = data;
 				hostMetricsError = null;
 			},
+			reconnect: {},
 			onClose: () => {
 				metricsStream = null;
 			}
@@ -265,9 +278,9 @@
 			<div class="error-box">
 				<p>Failed to load servers: {serversError}</p>
 			</div>
-		{:else if servers && servers.length > 0}
+		{:else if gameServers && gameServers.length > 0}
 			<div class="server-list">
-				{#each servers.slice(0, 6) as server}
+				{#each gameServers.slice(0, 6) as server}
 					<div
 						class="server-item"
 						role="link"

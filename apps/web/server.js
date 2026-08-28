@@ -4,6 +4,7 @@
 import { createServer } from 'http';
 import { WebSocketServer, WebSocket } from 'ws';
 import { handler } from './build/handler.js';
+import { closeSafely } from './wsCloseCode.js';
 
 const PORT = parseInt(process.env.PORT || '3000', 10);
 const HOST = process.env.HOST || '0.0.0.0';
@@ -90,26 +91,29 @@ server.on('upgrade', (req, socket, head) => {
 					}
 				});
 
-				// Handle close
+				// Handle close. The reported code is not necessarily one that may be
+				// sent - 1006 in particular is raised locally whenever a connection
+				// drops without a close frame - and passing it on throws inside this
+				// handler, which ends the process. See wsCloseCode.js and #156.
 				clientWs.on('close', (code, reason) => {
 					console.log(`[WS Proxy] Client closed: ${code}`);
-					upstream.close(code, reason);
+					closeSafely(upstream, code, reason, console.error);
 				});
 
 				upstream.on('close', (code, reason) => {
 					console.log(`[WS Proxy] Upstream closed: ${code}`);
-					clientWs.close(code, reason);
+					closeSafely(clientWs, code, reason, console.error);
 				});
 
 				// Handle errors
 				clientWs.on('error', (err) => {
 					console.error(`[WS Proxy] Client error:`, err.message);
-					upstream.close();
+					closeSafely(upstream, undefined, undefined, console.error);
 				});
 
 				upstream.on('error', (err) => {
 					console.error(`[WS Proxy] Upstream error:`, err.message);
-					clientWs.close();
+					closeSafely(clientWs, undefined, undefined, console.error);
 				});
 			});
 		});

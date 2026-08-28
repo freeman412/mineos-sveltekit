@@ -239,7 +239,6 @@
 					<h4>Platform</h4>
 					<ul>
 						<li><span class="status planned">Planned</span> <a href="https://github.com/freeman412/mineos-sveltekit/issues/63" target="_blank" rel="noopener noreferrer">Velocity proxy support</a></li>
-						<li><span class="status planned">Planned</span> <a href="https://github.com/freeman412/mineos-sveltekit/issues/64" target="_blank" rel="noopener noreferrer">BungeeCord proxy support</a></li>
 						<li><span class="status planned">Planned</span> <a href="https://github.com/freeman412/mineos-sveltekit/issues/25" target="_blank" rel="noopener noreferrer">OAuth login (Discord/Google)</a></li>
 						<li><span class="status planned">Planned</span> <a href="https://github.com/freeman412/mineos-sveltekit/issues/87" target="_blank" rel="noopener noreferrer">TurnKey Linux appliance</a></li>
 					</ul>

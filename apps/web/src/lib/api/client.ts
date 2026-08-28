@@ -4,12 +4,13 @@ import type {
 	ServerSummary,
 	Profile,
 	ArchiveEntry,
+	JavaRuntime,
 	MineOSMeta,
 	CurseForgeSearchResult,
 	CurseForgeMod
 } from './types';
 
-type Fetcher = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
+export type Fetcher = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
 
 /**
  * Generic API fetch with error handling for GET requests that return data.
@@ -99,6 +100,10 @@ export function getHostProfiles(fetcher: Fetcher) {
 	return apiFetch<Profile[]>(fetcher, '/api/host/profiles');
 }
 
+export function getHostJavaRuntimes(fetcher: Fetcher) {
+	return apiFetch<JavaRuntime[]>(fetcher, '/api/host/java-runtimes');
+}
+
 export function getHostImports(fetcher: Fetcher) {
 	return apiFetch<ArchiveEntry[]>(fetcher, '/api/host/imports');
 }
@@ -150,6 +155,19 @@ export async function cloneServer(
 	request: import('./types').CloneServerRequest
 ): Promise<ApiResult<import('./types').ServerDetail>> {
 	return apiPost(fetcher, `/api/servers/${name}/clone`, request);
+}
+
+// Sets or clears the mutable display label (issue #180). Null clears it.
+export async function setDisplayName(
+	fetcher: Fetcher,
+	name: string,
+	displayName: string | null
+): Promise<ApiResult<void>> {
+	return apiFetch(fetcher, `/api/servers/${name}/display-name`, {
+		method: 'PUT',
+		headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify({ displayName })
+	});
 }
 
 export async function deleteServer(fetcher: Fetcher, name: string): Promise<ApiResult<void>> {
@@ -230,6 +248,21 @@ export async function updateVelocityConfig(
 	config: import('./types').VelocityConfig
 ): Promise<ApiResult<void>> {
 	return apiPut(fetcher, `/api/servers/${name}/velocity-config`, config);
+}
+
+export async function getBungeeConfig(
+	fetcher: Fetcher,
+	name: string
+): Promise<ApiResult<import('./types').BungeeConfig>> {
+	return apiFetch(fetcher, `/api/servers/${name}/bungee-config`);
+}
+
+export async function updateBungeeConfig(
+	fetcher: Fetcher,
+	name: string,
+	config: import('./types').BungeeConfig
+): Promise<ApiResult<void>> {
+	return apiPut(fetcher, `/api/servers/${name}/bungee-config`, config);
 }
 
 export async function acceptEula(fetcher: Fetcher, name: string): Promise<ApiResult<void>> {
@@ -797,4 +830,32 @@ export async function getPlayerActivityStats(
 		return { data: null, error: result.error };
 	}
 	return { data: result.data?.data ?? null, error: null };
+}
+
+export async function getForwardingStatus(
+	fetcher: Fetcher,
+	name: string
+): Promise<ApiResult<import('./types').BackendForwarding>> {
+	return apiFetch(fetcher, `/api/servers/${name}/forwarding`);
+}
+
+export async function getProxyBackends(
+	fetcher: Fetcher,
+	name: string
+): Promise<ApiResult<import('./types').ProxyBackendSummary>> {
+	return apiFetch(fetcher, `/api/servers/${name}/forwarding/backends`);
+}
+
+export async function secureBackend(
+	fetcher: Fetcher,
+	name: string
+): Promise<ApiResult<import('./types').BackendForwarding>> {
+	return apiPost(fetcher, `/api/servers/${name}/forwarding/secure`);
+}
+
+export async function installForwardingMod(
+	fetcher: Fetcher,
+	name: string
+): Promise<ApiResult<import('./types').BackendForwarding>> {
+	return apiPost(fetcher, `/api/servers/${name}/forwarding/install-mod`);
 }

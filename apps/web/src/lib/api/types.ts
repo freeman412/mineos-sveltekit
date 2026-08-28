@@ -20,6 +20,8 @@ export type ServerSummary = {
 	playersMax?: number | null;
 	memoryBytes?: number | null;
 	needsRestart: boolean;
+	// Mutable display label; null means "show name" (issue #180).
+	displayName?: string | null;
 };
 
 export type Profile = {
@@ -78,6 +80,8 @@ export type ServerDetail = {
 	serverType: string;
 	eulaAccepted: boolean;
 	needsRestart: boolean;
+	// Mutable display label; null means "show name" (issue #180).
+	displayName?: string | null;
 };
 
 export type ServerConfig = {
@@ -105,6 +109,47 @@ export type VelocityConfig = {
 	servers: Record<string, string>;
 	try: string[];
 	forcedHosts: Record<string, string[]>;
+};
+
+export type BungeeBackend = {
+	address: string;
+	motd: string;
+	restricted: boolean;
+};
+
+export type BungeeConfig = {
+	exists: boolean;
+	onlineMode: boolean;
+	ipForward: boolean;
+	playerLimit: number;
+	timeout: number;
+	networkCompressionThreshold: number;
+	forgeSupport: boolean;
+	logCommands: boolean;
+	logPings: boolean;
+	connectionThrottle: number;
+	connectionThrottleLimit: number;
+	host: string;
+	motd: string;
+	maxPlayers: number;
+	queryEnabled: boolean;
+	queryPort: number;
+	pingPassthrough: boolean;
+	forceDefaultServer: boolean;
+	tabList: string;
+	proxyProtocol: boolean;
+	priorities: string[];
+	forcedHosts: Record<string, string>;
+	servers: Record<string, BungeeBackend>;
+};
+
+/** A Java runtime installed on the host, as offered in the Java Binary field. */
+export type JavaRuntime = {
+	path: string;
+	major: number | null;
+	version: string;
+	label: string;
+	isDefault: boolean;
 };
 
 export type JavaConfig = {
@@ -183,6 +228,9 @@ export type CreateServerRequest = {
 	ownerUid: number;
 	ownerGid: number;
 	serverType?: string;
+	// When serverType is "proxy", proxyKind narrows the implementation
+	// so the backend bootstraps the right config file (velocity.toml vs config.yml).
+	proxyKind?: 'velocity' | 'bungeecord';
 };
 
 export type CloneServerRequest = {
@@ -596,4 +644,40 @@ export type PlayerActivityStats = {
 	joinCount: number;
 	leaveCount: number;
 	deathCount: number;
+};
+
+export type ProxyForwardingStatus =
+	| 'NotABackend'
+	| 'Secured'
+	| 'Misconfigured'
+	| 'Securable'
+	| 'Unverifiable';
+
+export type ProxyForwardingKind = 'None' | 'VelocityModern' | 'VelocityUnverified' | 'BungeeCord';
+
+export type LoaderTier = 'Native' | 'ModRequired' | 'Unsupported';
+
+export type ExposureVerdict = 'Unknown' | 'NotExposed' | 'Exposed';
+
+// Note there is no secret here, by design: the API reports only whether the two
+// sides agree, never the value.
+export type BackendForwarding = {
+	serverName: string;
+	status: ProxyForwardingStatus;
+	isSpoofable: boolean;
+	proxyKind: ProxyForwardingKind;
+	tier: LoaderTier;
+	proxyName: string | null;
+	loader: string | null;
+	serverOnlineMode: boolean;
+	backendForwardingConfigured: boolean;
+	secretMatches: boolean;
+	exposure: ExposureVerdict;
+	exposureDetail: string | null;
+	remediationAction: 'secure' | 'install-mod' | null;
+};
+
+export type ProxyBackendSummary = {
+	proxyName: string;
+	backends: BackendForwarding[];
 };

@@ -190,6 +190,9 @@ func (m TuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.ConfigReady {
 			// Live refresh: real health probe + current server list.
 			cmds = append(cmds, m.HealthCheckCmd(), m.LoadServersCmd())
+			if m.CurrentView == ViewHealth {
+				cmds = append(cmds, m.LoadHealthDataCmd())
+			}
 		} else {
 			// API was unreachable — try to reconnect.
 			m.StatusMsg = "Reconnecting to API..."
@@ -199,6 +202,18 @@ func (m TuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case HealthCheckedMsg:
 		m.Healthy = msg.Healthy
+		return m, nil
+
+	case HealthDataMsg:
+		if msg.Err != nil {
+			m.HealthDataErr = msg.Err.Error()
+			return m, nil
+		}
+		m.Watchdog = msg.Watchdog
+		m.Crashes = msg.Crashes
+		m.Alerts = msg.Alerts
+		m.HealthDataLoaded = true
+		m.HealthDataErr = ""
 		return m, nil
 
 	case PerfStreamStartedMsg:
@@ -259,6 +274,33 @@ func (m TuiModel) HealthCheckCmd() tea.Cmd {
 	return func() tea.Msg {
 		err := client.Health(ctx)
 		return HealthCheckedMsg{Healthy: err == nil, Err: err}
+	}
+}
+
+// LoadHealthDataCmd fetches the watchdog/crash/alert roll-up in one shot.
+func (m TuiModel) LoadHealthDataCmd() tea.Cmd {
+	client := m.Client
+	if client == nil {
+		return nil
+	}
+	ctx := m.Ctx
+	return func() tea.Msg {
+		if ctx == nil {
+			ctx = context.Background()
+		}
+		watchdog, err := client.WatchdogStatus(ctx)
+		if err != nil {
+			return HealthDataMsg{Err: err}
+		}
+		crashes, err := client.WatchdogCrashes(ctx, MaxHealthRows*2)
+		if err != nil {
+			return HealthDataMsg{Err: err}
+		}
+		alerts, err := client.ActiveNotifications(ctx)
+		if err != nil {
+			return HealthDataMsg{Err: err}
+		}
+		return HealthDataMsg{Watchdog: watchdog, Crashes: crashes, Alerts: alerts}
 	}
 }
 

@@ -11,8 +11,7 @@ public partial class ProcessManager : IProcessManager
     private const string PROC_PATH = "/proc";
     private const string ScreenCommand = "screen";
 
-    [GeneratedRegex(@"screen[^S]+S mc-([^\s]+)", RegexOptions.IgnoreCase)]
-    private static partial Regex ScreenRegex();
+    private const string ScreenSessionPrefix = "mc-";
 
     // Matches the full argument when cmdline is split by \0
     [GeneratedRegex(@"^-Dmineos\.server=(.+)$", RegexOptions.IgnoreCase)]
@@ -25,6 +24,55 @@ public partial class ProcessManager : IProcessManager
     public ProcessManager(ILogger<ProcessManager> _logger)
     {
         this._logger = _logger;
+    }
+
+    /// <summary>
+    /// The MineOS server name of a screen session process, or null if this is not one.
+    /// </summary>
+    /// <remarks>
+    /// Reads the argument that follows screen's -S flag verbatim, rather than pattern
+    /// matching the command line. /proc gives arguments NUL-separated, and joining them
+    /// to run a regex over the result destroys the only argument boundary that exists -
+    /// which is why the previous "mc-([^\s]+)" registered a server named "Server Loco"
+    /// under "Server", leaving its real name looking permanently stopped.
+    ///
+    /// The session name follows any flag group ending in S: screen accepts both -S and
+    /// combined forms like -dmS. Lowercase -s is a different flag (shell) and is not
+    /// matched, which the case-sensitive check preserves.
+    ///
+    /// argv[0] must be screen itself. A detached session renames itself to SCREEN, hence
+    /// the case-insensitive compare. Requiring it also rejects the su process that
+    /// launched it, whose whole command sits in one -c argument and would otherwise be
+    /// scanned as though it were screen's own arguments.
+    /// </remarks>
+    public static string? TryGetScreenSessionName(IReadOnlyList<string> cmdlineArgs)
+    {
+        if (cmdlineArgs.Count < 3)
+        {
+            return null;
+        }
+
+        var program = Path.GetFileName(cmdlineArgs[0]);
+        if (!string.Equals(program, ScreenCommand, StringComparison.OrdinalIgnoreCase))
+        {
+            return null;
+        }
+
+        for (var i = 1; i < cmdlineArgs.Count - 1; i++)
+        {
+            var arg = cmdlineArgs[i];
+            if (arg.Length < 2 || arg[0] != '-' || !arg.EndsWith('S'))
+            {
+                continue;
+            }
+
+            var session = cmdlineArgs[i + 1];
+            return session.StartsWith(ScreenSessionPrefix, StringComparison.Ordinal)
+                ? session[ScreenSessionPrefix.Length..]
+                : null;
+        }
+
+        return null;
     }
 
     public Dictionary<string, ServerProcessInfo> GetServerProcesses()
@@ -53,18 +101,15 @@ public partial class ProcessManager : IProcessManager
                 var cmdlineRaw = File.ReadAllText(cmdlinePath);
                 // Split by null bytes to get individual arguments
                 var cmdlineArgs = cmdlineRaw.Split('\0', StringSplitOptions.RemoveEmptyEntries);
-                // Also create joined version for screen regex (which matches across args)
-                var cmdlineJoined = string.Join(" ", cmdlineArgs);
 
-                // Check for screen session (uses joined cmdline)
-                var screenMatch = ScreenRegex().Match(cmdlineJoined);
-                if (screenMatch.Success)
+                // Check for screen session
+                var screenSession = TryGetScreenSessionName(cmdlineArgs);
+                if (screenSession != null)
                 {
-                    var serverName = screenMatch.Groups[1].Value;
-                    if (!servers.ContainsKey(serverName))
-                        servers[serverName] = new ServerProcessInfo(null, null);
+                    if (!servers.ContainsKey(screenSession))
+                        servers[screenSession] = new ServerProcessInfo(null, null);
 
-                    servers[serverName] = servers[serverName] with { ScreenPid = int.Parse(pidStr) };
+                    servers[screenSession] = servers[screenSession] with { ScreenPid = int.Parse(pidStr) };
                     continue;
                 }
 

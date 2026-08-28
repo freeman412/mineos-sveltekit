@@ -7,6 +7,7 @@
 	import { modal } from '$lib/stores/modal';
 	import { formatBytes, formatDate } from '$lib/utils/formatting';
 	import { createEventStream, type EventStreamHandle } from '$lib/utils/eventStream';
+	import { createClassificationRefresher } from '$lib/utils/proxy';
 	import CopyButton from '$lib/components/CopyButton.svelte';
 	import ProgressBar from '$lib/components/ProgressBar.svelte';
 	import StatusBadge from '$lib/components/StatusBadge.svelte';
@@ -29,6 +30,11 @@
 	let importLoading = $state<Record<string, boolean>>({});
 	let servers = $state<ServerSummary[]>(data.servers.data ?? []);
 	let serversError = $state<string | null>(data.servers.error);
+	// Proxies live on the Proxies page, not in this grid. The SSE stream has
+	// no serverType, so proxy names come from load; a server the stream
+	// reports for the first time triggers one reload to classify it.
+	let proxyNames = $derived(new Set(data.proxyNames ?? []));
+	const visibleServers = $derived(servers.filter((s) => !proxyNames.has(s.name)));
 	let serversStream: EventStreamHandle | null = null;
 	let memoryHistory = $state<Record<string, number[]>>({});
 	let imports = $state<ArchiveEntry[]>(data.imports.data ?? []);
@@ -475,13 +481,20 @@
 		restoreImportJobsFromStorage();
 		restoreImportedServersFromStorage();
 
+		const classifyNewcomers = createClassificationRefresher(
+			(data.servers.data ?? []).map((s) => s.name),
+			() => void invalidateAll()
+		);
+
 		serversStream = createEventStream<ServerSummary[]>({
 			url: '/api/host/servers/stream',
 			onMessage: (nextServers) => {
 				servers = nextServers;
 				updateMemoryHistory(nextServers);
 				serversError = null;
+				classifyNewcomers(nextServers);
 			},
+			reconnect: {},
 			onClose: () => {
 				serversStream = null;
 			}
@@ -517,135 +530,144 @@
 	<div class="error-box">
 		<p>Failed to load servers: {serversError}</p>
 	</div>
-{:else if servers.length > 0}
-	<div class="server-grid">
-		{#each servers as server}
-			{@const isCreating = creatingServers.has(server.name)}
-			<div
-				class="server-card"
-				class:creating={isCreating}
-				role="link"
-				tabindex="0"
-				onclick={() => handleCardClick(server.name)}
-				onkeydown={(event) => handleCardKeydown(event, server.name)}
-			>
-				<div class="card-header">
-					<div class="server-icon-wrapper">
-						<img
-							src="/api/servers/{server.name}/icon"
-							alt="{server.name} icon"
-							class="server-icon"
-							onerror={(e) => (e.currentTarget.style.display = 'none')}
-						/>
-					</div>
-					<div class="server-title">
-						<StatusBadge variant={isCreating ? 'warning' : server.up ? 'success' : 'error'} dot size="lg" />
-						<h2>{server.name}</h2>
-					</div>
-					<StatusBadge variant={isCreating ? 'warning' : server.up ? 'success' : 'error'} size="sm">
-						{isCreating ? 'Creating' : server.up ? 'Running' : 'Stopped'}
-					</StatusBadge>
+{:else if visibleServers.length > 0}
+	{#snippet serverCard(server: ServerSummary)}
+		{@const isCreating = creatingServers.has(server.name)}
+		<div
+			class="server-card"
+			class:creating={isCreating}
+			role="link"
+			tabindex="0"
+			onclick={() => handleCardClick(server.name)}
+			onkeydown={(event) => handleCardKeydown(event, server.name)}
+		>
+			<div class="card-header">
+				<div class="server-icon-wrapper">
+					<img
+						src="/api/servers/{server.name}/icon"
+						alt="{server.name} icon"
+						class="server-icon"
+						onerror={(e) => ((e.currentTarget as HTMLElement).style.display = 'none')}
+					/>
 				</div>
-
-				<div class="card-meta">
-					{#if isCreating}
-						<span class="badge badge-warning">Creating</span>
-					{/if}
-					{#if server.profile}
-						<span class="badge">Profile: {server.profile}</span>
-					{/if}
-					{#if server.port}
-						<span class="badge badge-muted address-badge">
-							<span>{hostname}:{server.port}</span>
-							<CopyButton
-								value={`${hostname}:${server.port}`}
-								title="Copy server address"
-								variant="ghost"
-								size="sm"
-								showErrors={false}
-							/>
-						</span>
-					{/if}
-					{#if server.needsRestart}
-						<span class="badge badge-warning">Restart required</span>
-					{/if}
-				</div>
-				<div class="card-metrics">
-					<div class="metric">
-						<span class="metric-label">Players</span>
-						<span class="metric-value">
-							{server.playersOnline ?? '--'} / {server.playersMax ?? '--'}
-						</span>
-					</div>
-					<div class="metric">
-						<span class="metric-label">Status</span>
-						<span class="metric-value">{isCreating ? 'Creating' : server.up ? 'Online' : 'Offline'}</span>
-					</div>
-					<div class="metric memory">
-						<span class="metric-label">Memory</span>
-						<span class="metric-value">{formatBytes(server.memoryBytes)}</span>
-						{#if memoryHistory[server.name]?.length > 1}
-							<svg class="sparkline" viewBox="0 0 120 32" preserveAspectRatio="none">
-								<polyline
-									points={buildSparkline(memoryHistory[server.name])}
-									fill="none"
-									stroke="rgba(106, 176, 76, 0.8)"
-									stroke-width="2"
-									stroke-linecap="round"
-									stroke-linejoin="round"
-								/>
-							</svg>
+				<div class="server-title">
+					<StatusBadge variant={isCreating ? 'warning' : server.up ? 'success' : 'error'} dot size="lg" />
+					<div class="title-text">
+						<h2>{server.displayName || server.name}</h2>
+						{#if server.displayName}
+							<span class="backend-name">{server.name}</span>
 						{/if}
 					</div>
 				</div>
+				<StatusBadge variant={isCreating ? 'warning' : server.up ? 'success' : 'error'} size="sm">
+					{isCreating ? 'Creating' : server.up ? 'Running' : 'Stopped'}
+				</StatusBadge>
+			</div>
 
-				<div class="card-actions">
-					{#if server.up}
-						<button
-							class="btn-action btn-warning"
-							onclick={(event) => handleAction(server.name, 'stop', event)}
-							disabled={actionLoading[server.name] || isCreating}
-						>
-							Stop
-						</button>
-						<button
-							class="btn-action"
-							onclick={(event) => handleAction(server.name, 'restart', event)}
-							disabled={actionLoading[server.name] || isCreating}
-						>
-							Restart
-						</button>
-						<button
-							class="btn-action btn-danger"
-							onclick={(event) => handleAction(server.name, 'kill', event)}
-							disabled={actionLoading[server.name] || isCreating}
-						>
-							Kill
-						</button>
-					{:else}
-						<button
-							class="btn-action btn-success"
-							onclick={(event) => handleAction(server.name, 'start', event)}
-							disabled={actionLoading[server.name] || isCreating}
-						>
-							Start
-						</button>
+			<div class="card-meta">
+				{#if isCreating}
+					<span class="badge badge-warning">Creating</span>
+				{/if}
+				{#if server.profile}
+					<span class="badge">Profile: {server.profile}</span>
+				{/if}
+				{#if server.port}
+					<span class="badge badge-muted address-badge">
+						<span>{hostname}:{server.port}</span>
+						<CopyButton
+							value={`${hostname}:${server.port}`}
+							title="Copy server address"
+							variant="ghost"
+							size="sm"
+							showErrors={false}
+						/>
+					</span>
+				{/if}
+				{#if server.needsRestart}
+					<span class="badge badge-warning">Restart required</span>
+				{/if}
+			</div>
+			<div class="card-metrics">
+				<div class="metric">
+					<span class="metric-label">Players</span>
+					<span class="metric-value">
+						{server.playersOnline ?? '--'} / {server.playersMax ?? '--'}
+					</span>
+				</div>
+				<div class="metric">
+					<span class="metric-label">Status</span>
+					<span class="metric-value">{isCreating ? 'Creating' : server.up ? 'Online' : 'Offline'}</span>
+				</div>
+				<div class="metric memory">
+					<span class="metric-label">Memory</span>
+					<span class="metric-value">{formatBytes(server.memoryBytes)}</span>
+					{#if memoryHistory[server.name]?.length > 1}
+						<svg class="sparkline" viewBox="0 0 120 32" preserveAspectRatio="none">
+							<polyline
+								points={buildSparkline(memoryHistory[server.name])}
+								fill="none"
+								stroke="rgba(106, 176, 76, 0.8)"
+								stroke-width="2"
+								stroke-linecap="round"
+								stroke-linejoin="round"
+							/>
+						</svg>
 					{/if}
-					<button
-						class="btn-action btn-danger"
-						onclick={(event) => handleDelete(server.name, event)}
-						disabled={actionLoading[server.name] || isCreating}
-					>
-						Delete
-					</button>
 				</div>
 			</div>
+
+			<div class="card-actions">
+				{#if server.up}
+					<button
+						class="btn-action btn-warning"
+						onclick={(event) => handleAction(server.name, 'stop', event)}
+						disabled={actionLoading[server.name] || isCreating}
+					>
+						Stop
+					</button>
+					<button
+						class="btn-action"
+						onclick={(event) => handleAction(server.name, 'restart', event)}
+						disabled={actionLoading[server.name] || isCreating}
+					>
+						Restart
+					</button>
+					<button
+						class="btn-action btn-danger"
+						onclick={(event) => handleAction(server.name, 'kill', event)}
+						disabled={actionLoading[server.name] || isCreating}
+					>
+						Kill
+					</button>
+				{:else}
+					<button
+						class="btn-action btn-success"
+						onclick={(event) => handleAction(server.name, 'start', event)}
+						disabled={actionLoading[server.name] || isCreating}
+					>
+						Start
+					</button>
+				{/if}
+				<button
+					class="btn-action btn-danger"
+					onclick={(event) => handleDelete(server.name, event)}
+					disabled={actionLoading[server.name] || isCreating}
+				>
+					Delete
+				</button>
+			</div>
+		</div>
+	{/snippet}
+
+	<div class="server-grid">
+		{#each visibleServers as server (server.name)}
+			{@render serverCard(server)}
 		{/each}
 	</div>
 {:else}
 	<div class="empty-state">
 		<p class="empty-icon">[]</p>
-		<h2>No servers yet</h2>
+		<h2>No game servers yet</h2>
 		<p>Create your first Minecraft server to get started</p>
 		<a href="/servers/new" class="btn-primary">Create Server</a>
 	</div>
@@ -953,10 +975,28 @@
 		flex: 1;
 	}
 
+	.title-text {
+		display: flex;
+		flex-direction: column;
+		gap: 2px;
+		min-width: 0;
+	}
+
 	.server-title h2 {
 		margin: 0;
 		font-size: 20px;
 		font-weight: 600;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.backend-name {
+		font-size: 11px;
+		color: #6d7597;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
 	}
 
 	.card-meta {

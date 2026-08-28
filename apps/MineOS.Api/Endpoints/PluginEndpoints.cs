@@ -320,4 +320,7 @@ public static class PluginEndpoints
     }
 }
 
-public record ModrinthInstallRequest(string VersionId);
+// OptionalProjectIds is additive and only read by the mod install route: callers
+// that send just a version id keep working, and get hard dependencies resolved
+// for them. Plugins and resource packs share this record and ignore the field.
+public record ModrinthInstallRequest(string VersionId, IReadOnlyList<string>? OptionalProjectIds = null);

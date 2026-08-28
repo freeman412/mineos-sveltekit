@@ -71,7 +71,7 @@ public sealed class ServerAccessFilter : IEndpointFilter
         return !string.IsNullOrWhiteSpace(serverName);
     }
 
-    private static bool TryGetUserId(ClaimsPrincipal user, out int userId)
+    internal static bool TryGetUserId(ClaimsPrincipal user, out int userId)
     {
         userId = 0;
         var claim = user.Claims.FirstOrDefault(c => c.Type == ClaimTypes.NameIdentifier)?.Value
