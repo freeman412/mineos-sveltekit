@@ -10,6 +10,8 @@ import (
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
+
+	"github.com/freemancraft/mineos-sveltekit/tools/mineos-cli/internal/infrastructure/env"
 )
 
 func (m TuiModel) ConsoleCommandCmd(command string) tea.Cmd {
@@ -182,7 +184,8 @@ func (m TuiModel) SendInteractiveInput(input string) tea.Cmd {
 	}
 }
 
-// ToggleEnvSettingCmd toggles a boolean env var between "true" and "false" in the .env file
+// ToggleEnvSettingCmd toggles a boolean env var between "true" and "false" in
+// the .env file (via the single writer in infrastructure/env).
 func (m TuiModel) ToggleEnvSettingCmd(envKey, currentValue string) tea.Cmd {
 	envPath := m.Cfg.EnvPath
 	newVal := "true"
@@ -190,40 +193,9 @@ func (m TuiModel) ToggleEnvSettingCmd(envKey, currentValue string) tea.Cmd {
 		newVal = "false"
 	}
 	return func() tea.Msg {
-		err := writeEnvValue(envPath, envKey, newVal)
+		err := env.SetValue(envPath, envKey, newVal)
 		return SettingsToggledMsg{Key: envKey, Val: newVal, Err: err}
 	}
-}
-
-// writeEnvValue sets a key=value in the .env file
-func writeEnvValue(path, key, value string) error {
-	if path == "" {
-		path = ".env"
-	}
-	data, err := os.ReadFile(path)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return os.WriteFile(path, []byte(key+"="+value+"\n"), 0o600)
-		}
-		return err
-	}
-	lines := strings.Split(string(data), "\n")
-	found := false
-	prefix := key + "="
-	for i, line := range lines {
-		if strings.HasPrefix(strings.TrimSpace(line), prefix) {
-			lines[i] = prefix + value
-			found = true
-		}
-	}
-	if !found {
-		lines = append(lines, prefix+value)
-	}
-	output := strings.Join(lines, "\n")
-	if !strings.HasSuffix(output, "\n") {
-		output += "\n"
-	}
-	return os.WriteFile(path, []byte(output), 0o600)
 }
 
 func (m TuiModel) SelectedServer() string {
