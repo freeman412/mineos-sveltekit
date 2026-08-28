@@ -107,13 +107,21 @@ func (m TuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case LogStreamStartedMsg:
 		return m.handleLogStreamStarted(msg)
 
-	case LogLineMsg:
-		m.AppendLog(msg.Line)
+	case LogLinesMsg:
+		for _, line := range msg.Lines {
+			m.AppendLog(line)
+		}
+		m.LogRetries = 0 // Receiving data proves the stream works
 		// Clear log-related errors on successful log receipt
 		if strings.Contains(m.ErrMsg, "log stream") || strings.Contains(m.ErrMsg, "stream") {
 			m.ErrMsg = ""
 		}
 		return m, m.ListenLogsCmd()
+
+	case LogStreamClosedMsg:
+		// Clean close — reconnect with the same backoff and retry cap as the
+		// error path so a dead source can't spin a tight reconnect loop.
+		return m.scheduleLogRetry(LogRetryDelay)
 
 	case LogErrorMsg:
 		if msg.Err != nil {
@@ -689,7 +697,8 @@ func (m TuiModel) StartLogStreamCmd() tea.Cmd {
 	}
 }
 
-// ListenLogsCmd creates a command to listen for log messages
+// ListenLogsCmd waits for log output, then drains everything already buffered
+// on the channel into a single batch so one burst costs one re-render.
 func (m TuiModel) ListenLogsCmd() tea.Cmd {
 	logsChan := m.LogsChan
 	errsChan := m.LogErrsChan
@@ -702,18 +711,46 @@ func (m TuiModel) ListenLogsCmd() tea.Cmd {
 		select {
 		case line, ok := <-logsChan:
 			if !ok {
-				// Channel closed cleanly - trigger silent retry
-				return LogRetryMsg{}
+				return LogStreamClosedMsg{}
 			}
-			return LogLineMsg{Line: line}
+			lines := []string{line}
+			for len(lines) < MaxLogBatchLines {
+				select {
+				case next, ok := <-logsChan:
+					if !ok {
+						// Deliver what we have; the re-armed listener sees the
+						// close and triggers the retry path.
+						return LogLinesMsg{Lines: lines}
+					}
+					lines = append(lines, next)
+				default:
+					return LogLinesMsg{Lines: lines}
+				}
+			}
+			return LogLinesMsg{Lines: lines}
 		case err, ok := <-errsChan:
 			if !ok {
-				// Channel closed cleanly - trigger silent retry
-				return LogRetryMsg{}
+				return LogStreamClosedMsg{}
 			}
 			return LogErrorMsg{Err: err}
 		}
 	}
+}
+
+// scheduleLogRetry re-arms the log stream after a delay, giving up after
+// MaxLogRetries consecutive reconnects that produced no data. Receiving any
+// lines resets the counter; switching views/sources restarts the stream.
+func (m TuiModel) scheduleLogRetry(delay time.Duration) (tea.Model, tea.Cmd) {
+	if m.ContainersStopped || !m.LogsActive || m.Quitting {
+		return m, nil
+	}
+	if m.LogRetries >= MaxLogRetries {
+		return m, nil
+	}
+	m.LogRetries++
+	return m, tea.Tick(delay, func(time.Time) tea.Msg {
+		return LogRetryMsg{}
+	})
 }
 
 // NormalizeComposeServices normalizes the list of compose services
