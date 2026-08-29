@@ -705,3 +705,24 @@ export type ProxyBackendSummary = {
 	proxyName: string;
 	backends: BackendForwarding[];
 };
+
+export type CrashDiagnosis = {
+	id: number;
+	crashEventId: number;
+	serverName: string;
+	createdAt: string;
+	model: string;
+	summary: string | null;
+	likelyCause: string | null;
+	suggestedActions: string[];
+	classification: string | null;
+	confidence: string | null;
+	status: 'pending' | 'complete' | 'failed';
+	error: string | null;
+};
+
+export type DiagnosisPreview = {
+	redactedInput: string;
+	approxCharacters: number;
+	rulesApplied: string[];
+};

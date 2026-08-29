@@ -49,6 +49,53 @@ public static class WatchdogEndpoints
             });
         });
 
+        // Crash diagnosis. Server-scoped, so ServerAccessFilter already gates
+        // access — anyone who can see the server can diagnose its crashes.
+        servers.MapGet("/{name}/crashes/{id:int}/diagnosis", async (
+            string name, int id, IAiDiagnosisService diagnosis, CancellationToken ct) =>
+        {
+            var existing = await diagnosis.GetAsync(name, id, ct);
+            return existing is null ? Results.NotFound() : Results.Ok(existing);
+        });
+
+        servers.MapGet("/{name}/crashes/{id:int}/diagnosis/preview", async (
+            string name, int id, IAiDiagnosisService diagnosis, CancellationToken ct) =>
+        {
+            try
+            {
+                return Results.Ok(await diagnosis.PreviewAsync(name, id, ct));
+            }
+            catch (KeyNotFoundException ex)
+            {
+                return Results.NotFound(new { message = ex.Message });
+            }
+        });
+
+        servers.MapPost("/{name}/crashes/{id:int}/diagnosis", async (
+            string name, int id, IAiCompletionService ai, IAiDiagnosisService diagnosis, CancellationToken ct) =>
+        {
+            if (!await ai.IsConfiguredAsync(ct))
+            {
+                return Results.Problem(
+                    "AI is not configured. Add an endpoint URL and model in Settings.",
+                    statusCode: StatusCodes.Status503ServiceUnavailable);
+            }
+
+            try
+            {
+                return Results.Ok(await diagnosis.DiagnoseAsync(name, id, ct));
+            }
+            catch (KeyNotFoundException ex)
+            {
+                return Results.NotFound(new { message = ex.Message });
+            }
+            catch (InvalidOperationException ex)
+            {
+                // Hourly cap reached, or diagnosis disabled (cap set to 0).
+                return Results.Problem(ex.Message, statusCode: StatusCodes.Status429TooManyRequests);
+            }
+        });
+
         return servers;
     }
 

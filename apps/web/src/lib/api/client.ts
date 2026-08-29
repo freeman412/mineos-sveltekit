@@ -7,7 +7,9 @@ import type {
 	JavaRuntime,
 	MineOSMeta,
 	CurseForgeSearchResult,
-	CurseForgeMod
+	CurseForgeMod,
+	CrashDiagnosis,
+	DiagnosisPreview
 } from './types';
 
 export type Fetcher = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
@@ -718,6 +720,47 @@ export async function getAllWatchdogStatus(
 	fetcher: Fetcher
 ): Promise<ApiResult<Record<string, import('./types').WatchdogStatus>>> {
 	return apiFetch(fetcher, `/api/watchdog/status`);
+}
+
+// AI crash diagnosis
+export async function getCrashDiagnosis(
+	fetcher: Fetcher,
+	serverName: string,
+	crashEventId: number
+): Promise<ApiResult<CrashDiagnosis>> {
+	return apiFetch(
+		fetcher,
+		`/api/servers/${encodeURIComponent(serverName)}/crashes/${crashEventId}/diagnosis`
+	);
+}
+
+export async function previewCrashDiagnosis(
+	fetcher: Fetcher,
+	serverName: string,
+	crashEventId: number
+): Promise<ApiResult<DiagnosisPreview>> {
+	return apiFetch(
+		fetcher,
+		`/api/servers/${encodeURIComponent(serverName)}/crashes/${crashEventId}/diagnosis/preview`
+	);
+}
+
+export async function runCrashDiagnosis(
+	fetcher: Fetcher,
+	serverName: string,
+	crashEventId: number
+): Promise<ApiResult<CrashDiagnosis>> {
+	return apiMutate<CrashDiagnosis>(
+		fetcher,
+		`/api/servers/${encodeURIComponent(serverName)}/crashes/${crashEventId}/diagnosis`,
+		'POST'
+	);
+}
+
+export async function getAiStatus(
+	fetcher: Fetcher
+): Promise<ApiResult<{ isConfigured: boolean }>> {
+	return apiFetch(fetcher, `/api/settings/ai/status`);
 }
 
 // Modpack Installation

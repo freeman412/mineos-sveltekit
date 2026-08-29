@@ -3,6 +3,9 @@
 	import '@xterm/xterm/css/xterm.css';
 	import type { ServerPanelData } from './panelData';
 	import { modal } from '$lib/stores/modal';
+	import * as api from '$lib/api/client';
+	import type { CrashEvent } from '$lib/api/types';
+	import CrashDiagnosisPanel from './CrashDiagnosisPanel.svelte';
 
 	type TerminalType = import('@xterm/xterm').Terminal;
 	type FitAddonType = import('@xterm/addon-fit').FitAddon;
@@ -204,6 +207,30 @@
 		requestAnimationFrame(() => {
 			fitActiveTerminal();
 		});
+		if (tab === 'crash' && !crashEventsLoaded) {
+			loadCrashEvents();
+		}
+	}
+
+	let crashEvents = $state<CrashEvent[]>([]);
+	let crashEventsLoaded = $state(false);
+	let crashEventsLoading = $state(false);
+	let expandedCrashId = $state<number | null>(null);
+
+	async function loadCrashEvents() {
+		if (!data.server) return;
+		crashEventsLoading = true;
+		try {
+			const res = await api.getServerCrashEvents(fetch, data.server.name, 10);
+			crashEvents = res.data ?? [];
+		} finally {
+			crashEventsLoading = false;
+			crashEventsLoaded = true;
+		}
+	}
+
+	function toggleCrashDiagnosis(id: number) {
+		expandedCrashId = expandedCrashId === id ? null : id;
 	}
 
 	function fitActiveTerminal() {
@@ -345,6 +372,31 @@
 		</div>
 	</div>
 
+	{#if activeTab === 'crash' && data.server}
+		<div class="crash-events">
+			{#if crashEventsLoading}
+				<p class="crash-events-status">Loading crash events…</p>
+			{:else if crashEvents.length === 0}
+				<p class="crash-events-status">No recorded crash events for this server.</p>
+			{:else}
+				<ul class="crash-events-list">
+					{#each crashEvents as event (event.id)}
+						<li class="crash-event">
+							<button class="crash-event-summary" onclick={() => toggleCrashDiagnosis(event.id)}>
+								<span class="crash-event-type">{event.crashType}</span>
+								<span class="crash-event-time">{new Date(event.detectedAt).toLocaleString()}</span>
+								<span class="crash-event-toggle">{expandedCrashId === event.id ? 'Hide' : 'Diagnose'}</span>
+							</button>
+							{#if expandedCrashId === event.id}
+								<CrashDiagnosisPanel serverName={data.server.name} crashEventId={event.id} />
+							{/if}
+						</li>
+					{/each}
+				</ul>
+			{/if}
+		</div>
+	{/if}
+
 	<div bind:this={terminalWrapper} class="terminal-wrapper">
 		<div bind:this={serverTerminalContainer} class="terminal" class:hidden={activeTab !== 'server'}></div>
 		<div bind:this={javaTerminalContainer} class="terminal" class:hidden={activeTab !== 'java'}></div>
@@ -407,6 +459,62 @@
 	.tab-button:hover:not(.active) {
 		background: #1a223a;
 		color: #c9d1e6;
+	}
+
+	.crash-events {
+		flex-shrink: 0;
+		max-height: 40vh;
+		overflow-y: auto;
+	}
+
+	.crash-events-status {
+		font-size: 0.85rem;
+		opacity: 0.7;
+		margin: 0;
+	}
+
+	.crash-events-list {
+		list-style: none;
+		margin: 0;
+		padding: 0;
+		display: flex;
+		flex-direction: column;
+		gap: 0.5rem;
+	}
+
+	.crash-event {
+		display: flex;
+		flex-direction: column;
+		gap: 0.4rem;
+	}
+
+	.crash-event-summary {
+		display: flex;
+		align-items: center;
+		gap: 0.75rem;
+		width: 100%;
+		background: #161b22;
+		border: 1px solid #30363d;
+		border-radius: 6px;
+		padding: 0.5rem 0.75rem;
+		color: inherit;
+		cursor: pointer;
+		text-align: left;
+	}
+
+	.crash-event-type {
+		font-weight: 600;
+	}
+
+	.crash-event-time {
+		opacity: 0.7;
+		font-size: 0.85rem;
+	}
+
+	.crash-event-toggle {
+		margin-left: auto;
+		font-size: 0.85rem;
+		text-decoration: underline;
 	}
 
 	.terminal-wrapper {
