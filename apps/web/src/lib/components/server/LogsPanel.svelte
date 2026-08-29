@@ -105,9 +105,12 @@
 			crashTerminal = crashSetup.terminal;
 			crashFitAddon = crashSetup.fitAddon;
 
-			connectToLogs('server');
-			connectToLogs('java');
-			connectToLogs('crash');
+			// Connect only the tab actually being viewed. Each SSE stream holds one
+			// of the browser's six per-origin HTTP/1.1 connections for its whole
+			// 300s life, so opening all three here starved every other request on
+			// this origin. The API replays the last 200 lines on connect, so
+			// reconnecting on tab switch loses no history.
+			connectToLogs(activeTab);
 
 			resizeObserver = new ResizeObserver(() => {
 				fitActiveTerminal();
@@ -156,6 +159,19 @@
 		return { terminal, fitAddon };
 	}
 
+	function closeStream(tab: LogTab) {
+		if (tab === 'java') {
+			javaEventSource?.close();
+			javaEventSource = null;
+		} else if (tab === 'crash') {
+			crashEventSource?.close();
+			crashEventSource = null;
+		} else {
+			serverEventSource?.close();
+			serverEventSource = null;
+		}
+	}
+
 	function connectToLogs(tab: LogTab) {
 		if (!data.server) return;
 
@@ -186,6 +202,9 @@
 
 		eventSource.onerror = () => {
 			eventSource?.close();
+			// Only the visible tab may reconnect: a timer armed by a tab the user
+			// has since left would silently reopen its stream and leak the slot.
+			if (tab !== activeTab) return;
 			// Debounce reconnection to prevent stacking
 			if (!reconnectTimer) {
 				terminal?.writeln('\x1b[1;31m[Connection lost. Reconnecting...]\x1b[0m');
@@ -203,7 +222,11 @@
 
 	function setActiveTab(tab: LogTab) {
 		if (activeTab === tab) return;
+		// Release the outgoing tab's connection before claiming one for the new
+		// tab, so only a single stream is ever open for this page.
+		closeStream(activeTab);
 		activeTab = tab;
+		connectToLogs(tab);
 		requestAnimationFrame(() => {
 			fitActiveTerminal();
 		});
