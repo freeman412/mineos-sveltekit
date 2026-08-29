@@ -19,6 +19,15 @@ public sealed class SettingsService : ISettingsService
         public const string DiscordWebhookUrl = "Discord:WebhookUrl";
         public const string LogLevel = "MineOS:LogLevel";
         public const string TelemetryKey = "MineOS:TelemetryKey";
+        public const string AiEnabled = "Ai:Enabled";
+        public const string AiBaseUrl = "Ai:BaseUrl";
+        public const string AiApiKey = "Ai:ApiKey";
+        public const string AiModel = "Ai:Model";
+        public const string AiMaxTokens = "Ai:MaxTokens";
+        public const string AiTimeoutSeconds = "Ai:TimeoutSeconds";
+        public const string AiMaxDiagnosesPerHour = "Ai:MaxDiagnosesPerHour";
+        public const string AiRedactPaths = "Ai:RedactPaths";
+        public const string AiRedactPlayerNames = "Ai:RedactPlayerNames";
     }
 
     // Metadata for known settings
@@ -62,7 +71,59 @@ public sealed class SettingsService : ISettingsService
             false, "Logging__LogLevel__Default",
             "select", "Advanced", "Log Level",
             Options: "[\"Verbose\",\"Debug\",\"Information\",\"Warning\",\"Error\"]"),
+
+        [Keys.AiEnabled] = new(
+            "Enable AI-assisted crash diagnosis. Requires an endpoint and model below.",
+            false, "MINEOS_AI_ENABLED",
+            "boolean", "AI", "Enable AI Features"),
+
+        [Keys.AiBaseUrl] = new(
+            "Base URL of any endpoint speaking the OpenAI-compatible /chat/completions format. "
+            + "Examples: http://localhost:11434/v1 (Ollama), http://localhost:1234/v1 (LM Studio), "
+            + "vLLM, llama.cpp, LiteLLM, OpenRouter, https://api.openai.com/v1.",
+            false, "MINEOS_AI_BASE_URL",
+            "text", "AI", "AI Endpoint URL"),
+
+        [Keys.AiApiKey] = new(
+            "API key for the endpoint above. Leave blank for local endpoints that do not require one.",
+            true, "MINEOS_AI_API_KEY",
+            "secret", "AI", "AI API Key"),
+
+        [Keys.AiModel] = new(
+            "Model name to request, exactly as the endpoint expects it (for example llama3.1:8b or gpt-4o-mini).",
+            false, "MINEOS_AI_MODEL",
+            "text", "AI", "AI Model"),
+
+        [Keys.AiMaxTokens] = new(
+            "Maximum tokens in the diagnosis response.",
+            false, "MINEOS_AI_MAX_TOKENS",
+            "number", "AI", "Max Response Tokens", Min: 100, Max: 4000),
+
+        [Keys.AiTimeoutSeconds] = new(
+            "Seconds to wait for the endpoint before giving up.",
+            false, "MINEOS_AI_TIMEOUT_SECONDS",
+            "number", "AI", "Request Timeout", Min: 5, Max: 300),
+
+        [Keys.AiMaxDiagnosesPerHour] = new(
+            "Maximum diagnoses run per hour across all servers. Cached results do not count. 0 disables diagnosis.",
+            false, "MINEOS_AI_MAX_DIAGNOSES_PER_HOUR",
+            "number", "AI", "Diagnoses Per Hour", Min: 0, Max: 100),
+
+        [Keys.AiRedactPaths] = new(
+            "Replace host filesystem paths before sending a log. Mod filenames are always preserved.",
+            false, "MINEOS_AI_REDACT_PATHS",
+            "boolean", "AI", "Redact File Paths"),
+
+        [Keys.AiRedactPlayerNames] = new(
+            "Replace player names and UUIDs before sending a log.",
+            false, "MINEOS_AI_REDACT_PLAYER_NAMES",
+            "boolean", "AI", "Redact Player Names"),
     };
+
+    public static bool HasMetadata(string key) => SettingsMetadata.ContainsKey(key);
+
+    public static bool IsSecretSetting(string key) =>
+        SettingsMetadata.TryGetValue(key, out var meta) && meta.IsSecret;
 
     private readonly AppDbContext _db;
     private readonly IConfiguration _configuration;
