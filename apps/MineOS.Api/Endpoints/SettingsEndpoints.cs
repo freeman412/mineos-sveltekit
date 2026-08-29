@@ -39,6 +39,14 @@ public static class SettingsEndpoints
             return Results.Ok(new { isConfigured });
         }).RequireAuthorization();
 
+        // Check if AI is configured (available to all authenticated users, so the
+        // crash view can hide the Diagnose button).
+        settings.MapGet("/ai/status", async (IAiCompletionService ai, CancellationToken cancellationToken) =>
+        {
+            var isConfigured = await ai.IsConfiguredAsync(cancellationToken);
+            return Results.Ok(new { isConfigured });
+        }).RequireAuthorization();
+
         return api;
     }
 }
