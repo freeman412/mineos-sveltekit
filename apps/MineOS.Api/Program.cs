@@ -151,6 +151,7 @@ builder.Services.AddScoped<IUpdateService, UpdateService>();
 builder.Services.AddScoped<IBackupService, BackupService>();
 builder.Services.AddScoped<IArchiveService, ArchiveService>();
 builder.Services.AddScoped<IClientPackageService, ClientPackageService>();
+builder.Services.AddScoped<IServerPathProvider, ServerPathProvider>();
 builder.Services.AddScoped<IConsoleService, ConsoleService>();
 builder.Services.AddScoped<IMonitoringService, MonitoringService>();
 builder.Services.AddScoped<IPerformanceService, PerformanceService>();

@@ -14,30 +14,30 @@ public sealed class ConsoleService : IConsoleService
     private readonly IProcessManager _processManager;
     private readonly HostOptions _hostOptions;
     private readonly IFeatureUsageTracker _featureTracker;
+    private readonly IServerPathProvider _paths;
 
     public ConsoleService(
         ILogger<ConsoleService> logger,
         IProcessManager processManager,
         IOptions<HostOptions> hostOptions,
-        IFeatureUsageTracker featureTracker)
+        IFeatureUsageTracker featureTracker,
+        IServerPathProvider paths)
     {
         _logger = logger;
         _processManager = processManager;
         _hostOptions = hostOptions.Value;
         _featureTracker = featureTracker;
+        _paths = paths;
     }
 
-    private string GetServerPath(string serverName) =>
-        Path.Combine(_hostOptions.BaseDirectory, _hostOptions.ServersPathSegment, serverName);
+    private string GetServerPath(string serverName) => _paths.GetServerPath(serverName);
 
-    private string GetLogPath(string serverName) =>
-        Path.Combine(GetServerPath(serverName), "logs", "latest.log");
+    private string GetLogPath(string serverName) => _paths.GetLogPath(serverName);
 
     private string GetStartupLogPath(string serverName) =>
         Path.Combine(GetServerPath(serverName), "logs", "startup.log");
 
-    private string GetCrashReportsPath(string serverName) =>
-        Path.Combine(GetServerPath(serverName), "crash-reports");
+    private string GetCrashReportsPath(string serverName) => _paths.GetCrashReportsPath(serverName);
 
     public async Task SendCommandAsync(string serverName, string command, CancellationToken cancellationToken)
     {
