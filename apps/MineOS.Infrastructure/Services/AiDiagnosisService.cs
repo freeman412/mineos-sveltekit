@@ -1,5 +1,7 @@
 // apps/MineOS.Infrastructure/Services/AiDiagnosisService.cs
 using System.Globalization;
+using System.IO.Compression;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using MineOS.Application.Dtos;
 using MineOS.Application.Interfaces;
@@ -18,9 +20,22 @@ public sealed class AiDiagnosisService : IAiDiagnosisService
     // exactly what the distiller reserves budget for.
     private const int MaxCrashReportCharacters = 24_000;
 
-    // Leaves comfortable room for the capped crash report and the headers inside
-    // MaxInputCharacters, so the final backstop below should now rarely bind.
-    private const int MaxDistilledLogCharacters = 40_000;
+    // A crash report further than this from the crash belongs to a different crash.
+    private static readonly TimeSpan CrashReportWindow = TimeSpan.FromMinutes(10);
+
+    private const string LatestLogHeading = "--- latest.log (whole-session distillation) ---";
+
+    // The budgets have to reconcile with MaxInputCharacters, or the final backstop trims the
+    // one thing the distiller reserves budget to protect — the verbatim pre-crash tail, which
+    // sits at the very end of the assembled text. Worst case:
+    //   crash report        24,000
+    //   truncation marker      ~70
+    //   distilled log       39,000
+    //   metadata + headings   ~400
+    //   joining newlines       ~10
+    //   ------------------------------
+    //                       ~63,480  <  64,000
+    private const int MaxDistilledLogCharacters = 39_000;
 
     private readonly IServerPathProvider _paths;
     private readonly IRepository<CrashEvent> _crashEvents;
@@ -28,6 +43,7 @@ public sealed class AiDiagnosisService : IAiDiagnosisService
     private readonly IAiCompletionService _ai;
     private readonly ISettingsService _settings;
     private readonly IPlayerService _players;
+    private readonly IServerService _servers;
     private readonly ILogger<AiDiagnosisService> _logger;
 
     public AiDiagnosisService(
@@ -37,6 +53,7 @@ public sealed class AiDiagnosisService : IAiDiagnosisService
         IAiCompletionService ai,
         ISettingsService settings,
         IPlayerService players,
+        IServerService servers,
         ILogger<AiDiagnosisService> logger)
     {
         _paths = paths;
@@ -45,6 +62,7 @@ public sealed class AiDiagnosisService : IAiDiagnosisService
         _ai = ai;
         _settings = settings;
         _players = players;
+        _servers = servers;
         _logger = logger;
     }
 
@@ -141,7 +159,15 @@ public sealed class AiDiagnosisService : IAiDiagnosisService
 
         var cached = await _diagnoses.FirstOrDefaultAsync(
             d => d.ServerName == serverName && d.SourceHash == hash, ct);
-        if (cached is not null) return ToDto(cached);
+        if (cached is not null)
+        {
+            // A failure is not an answer. Caching one against a now-stable input — a stopped
+            // server's crash, whose text never changes again — would make the crash permanently
+            // undiagnosable the moment the endpoint had a bad five minutes. Treat it as a miss
+            // and drop the stale row, so the unique index does not then reject the retry.
+            if (!string.Equals(cached.Status, "failed", StringComparison.Ordinal)) return ToDto(cached);
+            await _diagnoses.RemoveAsync(cached, ct);
+        }
 
         await EnsureUnderHourlyCapAsync(ct);
 
@@ -184,7 +210,21 @@ public sealed class AiDiagnosisService : IAiDiagnosisService
             }
         }
 
-        await _diagnoses.AddAsync(row, ct);
+        try
+        {
+            await _diagnoses.AddAsync(row, ct);
+        }
+        catch (DbUpdateException)
+        {
+            // Two POSTs for the same crash — two browser tabs is enough — both miss the cache
+            // and both insert; the unique index on (ServerName, SourceHash) rejects the loser.
+            // The winner's row is the same diagnosis, so return it rather than a 500.
+            var winner = await _diagnoses.FirstOrDefaultAsync(
+                d => d.ServerName == serverName && d.SourceHash == hash, ct);
+            if (winner is null) throw;
+            return ToDto(winner);
+        }
+
         return ToDto(row);
     }
 
@@ -240,6 +280,15 @@ public sealed class AiDiagnosisService : IAiDiagnosisService
             $"Detected at: {crashEvent.DetectedAt:u}"
         };
 
+        // The loader and the game version are the two most useful facts about a modded crash:
+        // "NoSuchMethodError in a Forge 1.20.1 pack" is a different problem from the same
+        // exception on Fabric. A missing value is omitted rather than guessed — an invented
+        // "unknown" line is worse than silence, because the model will reason from it.
+        var loader = await DetectLoaderAsync(serverName, ct);
+        if (!string.IsNullOrWhiteSpace(loader?.Loader)) sections.Add($"Server type: {loader!.Loader}");
+        if (!string.IsNullOrWhiteSpace(loader?.MinecraftVersion)) sections.Add($"Minecraft version: {loader!.MinecraftVersion}");
+        if (!string.IsNullOrWhiteSpace(loader?.Version)) sections.Add($"Loader version: {loader!.Version}");
+
         var report = ReadNearestCrashReport(serverName, crashEvent.DetectedAt);
         if (report is not null)
         {
@@ -260,11 +309,11 @@ public sealed class AiDiagnosisService : IAiDiagnosisService
             sections.Add("--- no crash report was produced; distilled log only ---");
         }
 
-        var logTail = ReadLogTail(serverName);
-        if (!string.IsNullOrWhiteSpace(logTail))
+        var log = ReadDistilledLog(serverName, crashEvent.DetectedAt);
+        if (!string.IsNullOrWhiteSpace(log.Text))
         {
-            sections.Add("--- latest.log (whole-session distillation) ---");
-            sections.Add(logTail);
+            sections.Add(log.Heading);
+            sections.Add(log.Text!);
         }
 
         var raw = string.Join("\n", sections);
@@ -317,7 +366,22 @@ public sealed class AiDiagnosisService : IAiDiagnosisService
                 .OrderBy(f => Math.Abs((f.LastWriteTimeUtc - detectedAt.UtcDateTime).TotalSeconds))
                 .FirstOrDefault();
 
-            return nearest is null ? null : File.ReadAllText(nearest.FullName);
+            if (nearest is null) return null;
+
+            // A ProcessDeath or OutOfMemory crash produces no crash report at all, and "nearest"
+            // with no window happily attaches a real stack trace from months ago under a
+            // "--- crash report ---" heading. The prompt's "never invent" instruction cannot save
+            // the model from that: the content is genuine, it is just about a different crash.
+            var distance = Math.Abs((nearest.LastWriteTimeUtc - detectedAt.UtcDateTime).TotalSeconds);
+            if (distance > CrashReportWindow.TotalSeconds)
+            {
+                _logger.LogDebug(
+                    "Nearest crash report for {Server} is {Seconds:N0}s from the crash; ignoring it.",
+                    serverName, distance);
+                return null;
+            }
+
+            return File.ReadAllText(nearest.FullName);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
@@ -328,25 +392,139 @@ public sealed class AiDiagnosisService : IAiDiagnosisService
         }
     }
 
-    private string? ReadLogTail(string serverName)
+    /// <summary>
+    /// The distilled whole-session log for the session that actually crashed, with the heading
+    /// that honestly describes what was found.
+    /// </summary>
+    /// <remarks>
+    /// log4j archives latest.log to logs/YYYY-MM-DD-N.log.gz and starts a fresh one on every
+    /// server start — and watchdog auto-restart is this product's normal path. So for the most
+    /// common crash, latest.log by the time anyone clicks Diagnose is the POST-restart session:
+    /// the wrong evidence, presented under a heading that claims it is the crash's own log. It
+    /// also guts the cache — on a running server the text changes between clicks, so SourceHash
+    /// never matches and every POST is a fresh billed call.
+    /// </remarks>
+    private (string Heading, string? Text) ReadDistilledLog(string serverName, DateTimeOffset detectedAt)
     {
         var path = _paths.GetLogPath(serverName);
-        if (!File.Exists(path)) return null;
+        if (!File.Exists(path)) return (LatestLogHeading, null);
 
         try
         {
-            // File.ReadLines is lazy and the distiller enumerates it exactly once, so a
-            // multi-gigabyte latest.log is streamed rather than loaded. A tail would only show
-            // the last few seconds; the cause of a modded crash is usually logged much earlier.
-            return CrashLogDistiller.Distill(
-                File.ReadLines(path),
-                new LogDistillerOptions { MaxOutputCharacters = MaxDistilledLogCharacters }).Text;
+            if (LooksLikeALaterSession(path, detectedAt))
+            {
+                var archive = FindArchivedSessionLog(path, detectedAt);
+                if (archive is not null)
+                {
+                    return ($"--- {Path.GetFileName(archive)} (whole-session distillation; the crash's own session log) ---",
+                        Distill(archive));
+                }
+
+                // Still worth sending — an unrelated session shows the modpack and the shape of
+                // the server — but the model must not be allowed to read it as the crash's log.
+                return (
+                    "--- latest.log (whole-session distillation; the crash's own session log was not found) ---",
+                    Distill(path));
+            }
+
+            return (LatestLogHeading, Distill(path));
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            // latest.log can be rotated or locked between the existence check and the
+            // The log can be rotated, compressed or locked between the existence check and the
             // read — especially likely during a crash. Degrade gracefully.
-            _logger.LogDebug("Could not read log tail for {Server}: {Message}", serverName, ex.Message);
+            _logger.LogDebug("Could not read the distilled log for {Server}: {Message}", serverName, ex.Message);
+            return (LatestLogHeading, null);
+        }
+    }
+
+    private static string Distill(string path) =>
+        CrashLogDistiller.Distill(
+            ReadLines(path),
+            new LogDistillerOptions { MaxOutputCharacters = MaxDistilledLogCharacters }).Text;
+
+    /// <summary>
+    /// Lines from a plain or gzipped log, streamed. Never materialises the file: the distiller's
+    /// bounded-memory guarantee over an unbounded log has to survive decompression too.
+    /// </summary>
+    private static IEnumerable<string> ReadLines(string path)
+    {
+        if (!path.EndsWith(".gz", StringComparison.OrdinalIgnoreCase))
+        {
+            // File.ReadLines is lazy and the distiller enumerates it exactly once, so a
+            // multi-gigabyte latest.log is streamed rather than loaded.
+            return File.ReadLines(path);
+        }
+
+        return ReadGzipLines(path);
+    }
+
+    private static IEnumerable<string> ReadGzipLines(string path)
+    {
+        using var file = File.OpenRead(path);
+        using var gzip = new GZipStream(file, CompressionMode.Decompress);
+        using var reader = new StreamReader(gzip);
+
+        string? line;
+        while ((line = reader.ReadLine()) is not null)
+        {
+            yield return line;
+        }
+    }
+
+    /// <summary>
+    /// True when latest.log looks like a session that began after the crash — the signature of
+    /// an auto-restart having rotated the crash's own log away.
+    /// </summary>
+    private static bool LooksLikeALaterSession(string path, DateTimeOffset detectedAt)
+    {
+        var info = new FileInfo(path);
+        var crash = detectedAt.UtcDateTime;
+        var lastWrite = info.LastWriteTimeUtc;
+
+        // Not every file system reports a creation time; where it is missing or nonsensical
+        // .NET hands back an epoch sentinel or the write time, so fall back to the write time
+        // rather than reading "no birth time" as "created long ago".
+        var created = info.CreationTimeUtc;
+        var firstWrite = created > DateTime.UnixEpoch && created <= lastWrite ? created : lastWrite;
+
+        return lastWrite >= crash && firstWrite > crash;
+    }
+
+    /// <summary>
+    /// The archived session log whose last write is the closest one at or after the crash —
+    /// i.e. the log that was sealed by the restart that followed it.
+    /// </summary>
+    private static string? FindArchivedSessionLog(string latestLogPath, DateTimeOffset detectedAt)
+    {
+        var directory = Path.GetDirectoryName(latestLogPath);
+        if (string.IsNullOrEmpty(directory) || !Directory.Exists(directory)) return null;
+
+        var latestName = Path.GetFileName(latestLogPath);
+        var crash = detectedAt.UtcDateTime;
+
+        return new DirectoryInfo(directory)
+            .EnumerateFiles()
+            .Where(f => !string.Equals(f.Name, latestName, StringComparison.OrdinalIgnoreCase))
+            .Where(f => f.Name.EndsWith(".log", StringComparison.OrdinalIgnoreCase)
+                        || f.Name.EndsWith(".log.gz", StringComparison.OrdinalIgnoreCase))
+            .Where(f => f.LastWriteTimeUtc >= crash)
+            .OrderBy(f => f.LastWriteTimeUtc)
+            .Select(f => f.FullName)
+            .FirstOrDefault();
+    }
+
+    private async Task<ServerLoaderDto?> DetectLoaderAsync(string serverName, CancellationToken ct)
+    {
+        try
+        {
+            return await _servers.DetectLoaderAsync(serverName, ct);
+        }
+        catch (Exception ex)
+        {
+            // Loader detection touches the server config on disk; a missing or unreadable one
+            // must never block a diagnosis. The lines are simply omitted.
+            _logger.LogDebug("Could not detect the loader for {Server}: {Message}", serverName, ex.Message);
             return null;
         }
     }

@@ -169,7 +169,11 @@ builder.Services.AddHttpClient<IFabricService, FabricService>();
 builder.Services.AddHttpClient<INeoForgeService, NeoForgeService>();
 builder.Services.AddHttpClient<IQuiltService, QuiltService>();
 builder.Services.AddHttpClient<IMojangApiService, MojangApiService>();
-builder.Services.AddHttpClient<IAiCompletionService, OpenAiCompatibleClient>();
+// The client builds a linked CTS from Ai:TimeoutSeconds (up to 300), so HttpClient must not
+// impose its own 100-second default on top: an admin who configures 300s for a large model on
+// CPU would otherwise be told "did not respond within 300s" after 100.
+builder.Services.AddHttpClient<IAiCompletionService, OpenAiCompatibleClient>()
+    .ConfigureHttpClient(c => c.Timeout = Timeout.InfiniteTimeSpan);
 builder.Services.AddScoped<IAiDiagnosisService, AiDiagnosisService>();
 builder.Services.AddMemoryCache();
 builder.Services.AddScoped<IAdminShellSession, AdminShellService>();

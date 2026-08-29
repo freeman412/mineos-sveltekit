@@ -80,6 +80,68 @@ public class CrashLogRedactorTests
         Assert.DoesNotContain("email", result.RulesApplied);
     }
 
+    [Fact]
+    public void RedactsABracketedIpv6AddressWithAPort()
+    {
+        // How vanilla writes a player on a residential IPv6 connection.
+        var result = CrashLogRedactor.Redact(
+            "Steve[/[2001:db8:85a3::8a2e:370:7334]:52344] logged in with entity id 214", Default);
+
+        Assert.DoesNotContain("2001:db8", result.Text);
+        Assert.DoesNotContain("8a2e", result.Text);
+        Assert.DoesNotContain("52344", result.Text);
+        Assert.Contains("<ip>", result.Text);
+        Assert.Contains("ip-address", result.RulesApplied);
+    }
+
+    [Fact]
+    public void RedactsABareIpv6Address()
+    {
+        var result = Redact("[12:04:31] [Server thread/INFO]: connection from 2001:db8::1 refused");
+
+        Assert.DoesNotContain("2001:db8", result);
+        Assert.Contains("<ip>", result);
+    }
+
+    [Fact]
+    public void RedactsLoopbackIpv6()
+    {
+        var result = Redact("Starting Minecraft server on ::1");
+
+        Assert.DoesNotContain("::1", result);
+        Assert.Contains("<ip>", result);
+    }
+
+    [Fact]
+    public void LeavesOrdinaryLogTextAlone()
+    {
+        // The IPv6 rule must not eat timestamps, stack frames or version numbers: every one of
+        // them is hex groups separated by colons or dots to a loose pattern.
+        const string line =
+            "[12:04:31] [Server thread/INFO]: Done (21.402s)! For help, type \"help\"";
+        var result = CrashLogRedactor.Redact(line, Default);
+
+        Assert.Equal(line, result.Text);
+        Assert.DoesNotContain("ip-address", result.RulesApplied);
+    }
+
+    [Fact]
+    public void LeavesStackFrameLineNumbersAlone()
+    {
+        const string line = "\tat net.minecraft.server.MinecraftServer.tick(MinecraftServer.java:123)";
+
+        Assert.Equal(line, CrashLogRedactor.Redact(line, Default).Text);
+    }
+
+    [Fact]
+    public void ReportsTheIpRuleOnlyOnceWhenBothFamiliesFire()
+    {
+        var result = CrashLogRedactor.Redact(
+            "from /10.0.0.4:25565 and from [2001:db8::1]:25565", Default);
+
+        Assert.Equal(1, result.RulesApplied.Count(r => r == "ip-address"));
+    }
+
     private static int CountOccurrences(string haystack, string needle)
     {
         var count = 0;

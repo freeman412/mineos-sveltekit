@@ -24,6 +24,20 @@ public static partial class CrashLogRedactor
     [GeneratedRegex(@"(?<!-)/?\b(?:\d{1,3}\.){3}\d{1,3}(?::\d{1,5})?\b")]
     private static partial Regex IpAddress();
 
+    // IPv6, the other half of the mandatory "ip-address" rule. Reported under the same rule
+    // name as IPv4 because it protects exactly the same thing: a third party's address.
+    //
+    // Two forms, in this order: bracketed with an optional port, as vanilla writes a player's
+    // address ("Steve[/[2001:db8::1]:52344] logged in"), then bare.
+    //
+    // The shape is deliberately strict rather than "hex groups separated by colons": a log is
+    // full of "[12:04:31]" timestamps and "Foo.java:123" frames, which that loose shape would
+    // eat. A real address is either the full eight groups or contains a "::" elision, and
+    // neither of those describes a timestamp. The lookbehind on the bare form stops a match
+    // starting in the middle of an address or a "1.50:52344" port suffix.
+    [GeneratedRegex(@"/?\[(?:(?:[0-9A-Fa-f]{1,4}:){7}[0-9A-Fa-f]{1,4}|(?:[0-9A-Fa-f]{1,4}:){1,7}:(?:(?:[0-9A-Fa-f]{1,4}:)*(?:(?:\d{1,3}\.){3}\d{1,3}|[0-9A-Fa-f]{1,4}))?|::(?:[0-9A-Fa-f]{1,4}:)*(?:(?:\d{1,3}\.){3}\d{1,3}|[0-9A-Fa-f]{1,4}))\](?::\d{1,5})?|(?<![0-9A-Fa-f:.])/?(?:(?:[0-9A-Fa-f]{1,4}:){7}[0-9A-Fa-f]{1,4}|(?:[0-9A-Fa-f]{1,4}:){1,7}:(?:(?:[0-9A-Fa-f]{1,4}:)*(?:(?:\d{1,3}\.){3}\d{1,3}|[0-9A-Fa-f]{1,4}))?|::(?:[0-9A-Fa-f]{1,4}:)*(?:(?:\d{1,3}\.){3}\d{1,3}|[0-9A-Fa-f]{1,4}))")]
+    private static partial Regex Ipv6Address();
+
     // Deliberately NOT matching bare base64 runs: "[A-Za-z0-9+/]{40,}" also
     // matches filesystem paths, which would swallow the mod filename that is
     // usually the diagnosis. Labelled and structured tokens only.
@@ -57,6 +71,9 @@ public static partial class CrashLogRedactor
         text = Apply(text, CredentialLine(), "$1 <redacted-secret>", "credential-line", applied);
         text = Apply(text, SecretToken(), "<redacted-secret>", "secret-token", applied);
         text = Apply(text, EmailAddress(), "<email>", "email", applied);
+        // IPv6 first: an IPv4-mapped address ("::ffff:203.0.113.9") must be taken whole
+        // rather than having its trailing dotted quad carved out from under it.
+        text = Apply(text, Ipv6Address(), "<ip>", "ip-address", applied);
         text = Apply(text, IpAddress(), "<ip>", "ip-address", applied);
 
         if (options.RedactPaths)
@@ -76,7 +93,8 @@ public static partial class CrashLogRedactor
     private static string Apply(string text, Regex pattern, string replacement, string ruleName, List<string> applied)
     {
         if (!pattern.IsMatch(text)) return text;
-        applied.Add(ruleName);
+        // Two patterns share the "ip-address" rule name; the report lists a rule once.
+        if (!applied.Contains(ruleName)) applied.Add(ruleName);
         return pattern.Replace(text, replacement);
     }
 
