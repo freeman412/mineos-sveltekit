@@ -54,7 +54,9 @@ public sealed class AiDiagnosisService : IAiDiagnosisService
 
     private const string SystemPrompt =
         "You are a Minecraft server administrator's assistant. You are given a redacted crash report "
-        + "and log tail. Reply with ONLY a JSON object and no prose, using these keys: "
+        + "and a distilled summary of the whole session log, in which repeated errors are collapsed "
+        + "into counts and omissions are marked. Reply with ONLY a JSON object and no prose, "
+        + "using these keys: "
         + "summary (one sentence), likelyCause (one or two sentences), suggestedActions (array of short strings), "
         + "classification (one of: mineos-bug, mod-or-modpack, environment, unknown), "
         + "confidence (one of: low, medium, high). "
@@ -234,13 +236,13 @@ public sealed class AiDiagnosisService : IAiDiagnosisService
         }
         else
         {
-            sections.Add("--- no crash report was produced; log tail only ---");
+            sections.Add("--- no crash report was produced; distilled log only ---");
         }
 
         var logTail = ReadLogTail(serverName);
         if (!string.IsNullOrWhiteSpace(logTail))
         {
-            sections.Add("--- latest.log (tail) ---");
+            sections.Add("--- latest.log (whole-session distillation) ---");
             sections.Add(logTail);
         }
 

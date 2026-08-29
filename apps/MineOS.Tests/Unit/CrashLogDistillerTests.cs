@@ -120,6 +120,36 @@ public class CrashLogDistillerTests
     }
 
     [Fact]
+    public void KeepsTheEndOfAnOversizedLogRatherThanTheBeginning()
+    {
+        var options = new LogDistillerOptions { MaxScanBytes = 4_000 };
+        var lines = Enumerable.Range(0, 5_000)
+            .Select(i => $"[12:00:00] [Server thread/INFO]: early filler line {i}")
+            .Append("[12:41:07] [Server thread/FATAL]: the crash at the very end");
+
+        var result = CrashLogDistiller.Distill(lines, options);
+
+        Assert.Contains("the crash at the very end", result.Text);
+    }
+
+    [Fact]
+    public void KeepsErrorsApartWhenTheyDifferOnlyByAModVersion()
+    {
+        var lines = new[]
+        {
+            "[12:00:00] [main/ERROR]: Mod thermal 1.20.1-10.2.0 failed to load",
+            "[12:00:01] [main/ERROR]: Mod thermal 1.20.1-10.3.0 failed to load"
+        };
+
+        var result = CrashLogDistiller.Distill(lines, Default);
+
+        // Two different versions of the same mod are two different faults, not one repeated one.
+        Assert.Equal(2, result.Stats.DistinctEvents);
+        Assert.Contains("10.2.0", result.Text);
+        Assert.Contains("10.3.0", result.Text);
+    }
+
+    [Fact]
     public void HandlesAnEmptyLogWithoutThrowing()
     {
         var result = CrashLogDistiller.Distill(Array.Empty<string>(), Default);

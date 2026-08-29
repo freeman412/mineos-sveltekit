@@ -68,8 +68,16 @@ public static partial class CrashLogDistiller
         RegexOptions.CultureInvariant)]
     private static partial Regex AbsolutePath();
 
-    [GeneratedRegex(@"0[xX][0-9a-fA-F]+|\d+(?:\.\d+)?", RegexOptions.CultureInvariant)]
+    // The <ver> alternative is matched first and deliberately left ALONE by the evaluator below.
+    // Collapsing "1.20.1" and "47.2.0" to <n> would merge two genuinely different faults that
+    // differ only by a mod or loader version — exactly the distinction an admin needs to see.
+    // Three or more dot-separated numeric groups is the shape of a version and nothing else;
+    // coordinates and entity ids never reach three groups.
+    [GeneratedRegex(@"(?<ver>\b\d+(?:\.\d+){2,}\b)|0[xX][0-9a-fA-F]+|\d+(?:\.\d+)?",
+        RegexOptions.CultureInvariant)]
     private static partial Regex NumericValue();
+
+    private static string ReplaceNumeric(Match match) => match.Groups["ver"].Success ? match.Value : "<n>";
 
     private const int MaxLandmarks = 200;
     private const string Elision = "  ⤷ ";
@@ -150,7 +158,7 @@ public static partial class CrashLogDistiller
         // Order matters: UUIDs and paths are consumed before the numeric rule can shred them.
         var value = UuidValue().Replace(text, "<uuid>");
         value = AbsolutePath().Replace(value, "<path>");
-        value = NumericValue().Replace(value, "<n>");
+        value = NumericValue().Replace(value, ReplaceNumeric);
         return value.Trim();
     }
 
@@ -227,15 +235,15 @@ public static partial class CrashLogDistiller
 
         public bool Accept(string raw)
         {
-            var cost = (long)raw.Length + 1;
-            if (BytesScanned + cost > _options.MaxScanBytes)
-            {
-                ScanTruncated = true;
-                return false;
-            }
-
-            BytesScanned += cost;
+            BytesScanned += (long)raw.Length + 1;
             LinesScanned++;
+
+            // Past the byte budget we stop doing the optional work — header capture and the
+            // landmark regex — and keep only the ring buffer and the event dictionary, both of
+            // which are already O(1) in the file size. We never stop reading: on a multi-gigabyte
+            // log the crash is at the END, and quitting at the front would diagnose the server's
+            // startup instead of the thing that killed it. Reading on costs seconds of I/O.
+            if (!ScanTruncated && BytesScanned > _options.MaxScanBytes) ScanTruncated = true;
 
             var parsed = Parse(raw);
             if (parsed.IsNewEntry)
@@ -262,9 +270,9 @@ public static partial class CrashLogDistiller
             _currentFrames = 0;
             _currentDropped = 0;
 
-            var landmark = LandmarkPattern().Match(parsed.Message);
-            _currentLandmark = landmark.Success;
-            _currentLandmarkText = landmark.Success ? raw : string.Empty;
+            var landmark = !ScanTruncated && LandmarkPattern().IsMatch(parsed.Message);
+            _currentLandmark = landmark;
+            _currentLandmarkText = landmark ? raw : string.Empty;
 
             if (_currentSeverity > 0)
             {
@@ -375,7 +383,7 @@ public static partial class CrashLogDistiller
         private void Push(string text, int ordinal)
         {
             var entry = new LineEntry(_pushed, text, ordinal);
-            if (Header.Count < _options.HeaderLines) Header.Add(entry);
+            if (!ScanTruncated && Header.Count < _options.HeaderLines) Header.Add(entry);
 
             if (_ring.Length > 0)
             {
@@ -430,7 +438,10 @@ public static partial class CrashLogDistiller
         var reserve = Math.Min(budget / 2, Length(provisional));
         var sectionBudget = Math.Max(0, budget - reserve);
 
-        var truncatedNote = scan.ScanTruncated ? $", scan stopped at {N(scan.BytesScanned)} bytes" : string.Empty;
+        var truncatedNote = scan.ScanTruncated
+            ? $", whole file read ({N(scan.BytesScanned)} bytes) but header/landmark capture was "
+              + $"disabled past {N(options.MaxScanBytes)} bytes"
+            : string.Empty;
         TryLine(
             $"=== distilled log: {N(scan.LinesScanned)} lines scanned, {N(scan.Signatures.Count)} distinct problem events, "
             + $"{N(scan.EventOccurrences)} occurrences{truncatedNote} ===",
