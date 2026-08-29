@@ -172,13 +172,16 @@ public class CrashLogDistillerTests
     [Fact]
     public void MarksTheTailEvenWhenNoTailLinesFitInTheBudget()
     {
-        var options = new LogDistillerOptions { MaxOutputCharacters = 700, HeaderLines = 0, TailLines = 50 };
+        // Distinct lines so nothing deduplicates, each long enough that not even one
+        // fits the remaining budget — this is the keep == 0 path, where the marker
+        // used to live inside the heading branch and vanish with it.
+        var options = new LogDistillerOptions { MaxOutputCharacters = 400, HeaderLines = 0, TailLines = 50 };
         var lines = Enumerable.Range(0, 200)
-            .Select(i => $"[12:00:00] [Server thread/ERROR]: a distinctly long failure message number {i} padding padding padding");
+            .Select(i => $"[12:00:00] [Server thread/INFO]: distinct filler line {i} " + new string('x', 200));
 
         var result = CrashLogDistiller.Distill(lines, options).Text;
 
-        Assert.True(result.Length <= 700);
-        Assert.Contains("omitted", result, StringComparison.OrdinalIgnoreCase);
+        Assert.True(result.Length <= 400, $"output was {result.Length}, budget 400");
+        Assert.Contains("earlier tail lines omitted", result);
     }
 }
