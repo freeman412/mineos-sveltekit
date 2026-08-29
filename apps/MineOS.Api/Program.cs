@@ -170,6 +170,7 @@ builder.Services.AddHttpClient<INeoForgeService, NeoForgeService>();
 builder.Services.AddHttpClient<IQuiltService, QuiltService>();
 builder.Services.AddHttpClient<IMojangApiService, MojangApiService>();
 builder.Services.AddHttpClient<IAiCompletionService, OpenAiCompatibleClient>();
+builder.Services.AddScoped<IAiDiagnosisService, AiDiagnosisService>();
 builder.Services.AddMemoryCache();
 builder.Services.AddScoped<IAdminShellSession, AdminShellService>();
 builder.Services.AddSingleton<IProcessManager, ProcessManager>();
