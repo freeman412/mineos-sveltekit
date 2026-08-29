@@ -41,7 +41,7 @@
 	let groupedSettings = $derived.by(() => {
 		const settings = (data.settings.data ?? []) as SettingInfo[];
 		const groups: Record<string, SettingInfo[]> = {};
-		const groupOrder = ['General', 'Integrations', 'Notifications', 'Advanced'];
+		const groupOrder = ['General', 'AI', 'Integrations', 'Notifications', 'Advanced'];
 
 		for (const s of settings) {
 			const group = s.group || 'General';
@@ -147,6 +147,8 @@
 		switch (group) {
 			case 'General':
 				return '⚙';
+			case 'AI':
+				return '🤖';
 			case 'Integrations':
 				return '🔌';
 			case 'Notifications':
