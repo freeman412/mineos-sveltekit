@@ -1,4 +1,5 @@
 // apps/MineOS.Infrastructure/Services/AiDiagnosisService.cs
+using System.Globalization;
 using Microsoft.Extensions.Logging;
 using MineOS.Application.Dtos;
 using MineOS.Application.Interfaces;
@@ -9,6 +10,17 @@ namespace MineOS.Infrastructure.Services;
 public sealed class AiDiagnosisService : IAiDiagnosisService
 {
     private const int MaxInputCharacters = 64_000;
+
+    // The crash report is capped as its own section rather than by trimming the assembled text
+    // from the end. Head-truncating a crash report is safe: the exception and its stack sit at
+    // the top, the mod list and system details at the bottom. Head-truncating the distilled log
+    // is not — its most valuable content, the verbatim pre-crash tail, is at the end, and it is
+    // exactly what the distiller reserves budget for.
+    private const int MaxCrashReportCharacters = 24_000;
+
+    // Leaves comfortable room for the capped crash report and the headers inside
+    // MaxInputCharacters, so the final backstop below should now rarely bind.
+    private const int MaxDistilledLogCharacters = 40_000;
 
     private readonly IServerPathProvider _paths;
     private readonly IRepository<CrashEvent> _crashEvents;
@@ -232,7 +244,16 @@ public sealed class AiDiagnosisService : IAiDiagnosisService
         if (report is not null)
         {
             sections.Add("--- crash report ---");
-            sections.Add(report);
+            if (report.Length > MaxCrashReportCharacters)
+            {
+                var droppedChars = report.Length - MaxCrashReportCharacters;
+                sections.Add(report[..MaxCrashReportCharacters]);
+                sections.Add($"--- crash report truncated: {droppedChars.ToString("N0", CultureInfo.InvariantCulture)} further characters omitted ---");
+            }
+            else
+            {
+                sections.Add(report);
+            }
         }
         else
         {
@@ -247,6 +268,7 @@ public sealed class AiDiagnosisService : IAiDiagnosisService
         }
 
         var raw = string.Join("\n", sections);
+        // Final backstop only: every section is capped above, so this should rarely bind.
         if (raw.Length > MaxInputCharacters)
         {
             raw = raw[..MaxInputCharacters] + "\n--- truncated ---";
@@ -316,7 +338,9 @@ public sealed class AiDiagnosisService : IAiDiagnosisService
             // File.ReadLines is lazy and the distiller enumerates it exactly once, so a
             // multi-gigabyte latest.log is streamed rather than loaded. A tail would only show
             // the last few seconds; the cause of a modded crash is usually logged much earlier.
-            return CrashLogDistiller.Distill(File.ReadLines(path), new LogDistillerOptions()).Text;
+            return CrashLogDistiller.Distill(
+                File.ReadLines(path),
+                new LogDistillerOptions { MaxOutputCharacters = MaxDistilledLogCharacters }).Text;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {

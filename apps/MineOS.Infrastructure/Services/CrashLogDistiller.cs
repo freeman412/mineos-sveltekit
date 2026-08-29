@@ -455,11 +455,36 @@ public static partial class CrashLogDistiller
 
         // --- session header ---------------------------------------------------------------
         // Lines belonging to a stored problem event are left out here: they are reproduced in
-        // full, with their counts, in the events sections below.
-        var headerLines = scan.Header.Where(e => e.Ordinal < 0).Select(e => e.Text).ToList();
-        var headerEmitted = AppendBlock(
+        // full, with their counts, in the events sections below. The gap is marked inline, the
+        // same way the tail marks it — the heading promises the first N lines of the session, so
+        // an unmarked hole under it would read as a contiguous verbatim block that it is not.
+        var headerLines = new List<string>();
+        var headerMarkers = new List<bool>();
+        long headerCollapsed = 0;
+
+        void FlushHeaderCollapsed()
+        {
+            if (headerCollapsed == 0) return;
+            headerLines.Add($"{Elision}{N(headerCollapsed)} repeated lines omitted (shown below)");
+            headerMarkers.Add(true);
+            headerCollapsed = 0;
+        }
+
+        foreach (var entry in scan.Header)
+        {
+            if (entry.Ordinal >= 0) { headerCollapsed++; continue; }
+            FlushHeaderCollapsed();
+            headerLines.Add(entry.Text);
+            headerMarkers.Add(false);
+        }
+
+        FlushHeaderCollapsed();
+
+        var headerWritten = AppendBlock(
             TryLine, $"=== session start (first {N(scan.Header.Count)} lines) ===", headerLines,
             Math.Min(sectionBudget, budget == 0 ? 0 : Math.Max(budget / 4, 0)));
+        // Marker lines are not source lines; they must not count towards what was emitted.
+        var headerEmitted = headerWritten - headerMarkers.Take((int)headerWritten).Count(m => m);
         emitted += headerEmitted;
 
         // --- landmarks ---------------------------------------------------------------------
@@ -672,6 +697,15 @@ public static partial class CrashLogDistiller
         var dropped = lines.Count - keep;
         var headingWritten = false;
         long written = 0;
+
+        // Not one tail line fits. The marker still has to go out: an unmarked absence tells the
+        // reader "nothing was here", which is the one conclusion this component exists to prevent.
+        // If even the marker will not fit, that is the honest end of the budget.
+        if (keep == 0)
+        {
+            tryLine($"--- {N(dropped)} earlier tail lines omitted (budget) ---", cap);
+            return 0;
+        }
 
         for (var i = lines.Count - keep; i < lines.Count; i++)
         {

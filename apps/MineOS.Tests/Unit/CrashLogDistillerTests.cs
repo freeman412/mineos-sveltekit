@@ -168,4 +168,17 @@ public class CrashLogDistillerTests
         Assert.Equal(0, result.Stats.LinesScanned);
         Assert.NotNull(result.Text);
     }
+
+    [Fact]
+    public void MarksTheTailEvenWhenNoTailLinesFitInTheBudget()
+    {
+        var options = new LogDistillerOptions { MaxOutputCharacters = 700, HeaderLines = 0, TailLines = 50 };
+        var lines = Enumerable.Range(0, 200)
+            .Select(i => $"[12:00:00] [Server thread/ERROR]: a distinctly long failure message number {i} padding padding padding");
+
+        var result = CrashLogDistiller.Distill(lines, options).Text;
+
+        Assert.True(result.Length <= 700);
+        Assert.Contains("omitted", result, StringComparison.OrdinalIgnoreCase);
+    }
 }

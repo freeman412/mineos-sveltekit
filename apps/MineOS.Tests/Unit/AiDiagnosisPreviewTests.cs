@@ -80,6 +80,29 @@ public class AiDiagnosisPreviewTests : IDisposable
         Assert.Contains("OutOfMemoryError", preview.RedactedInput);
     }
 
+    [Fact]
+    public async Task AnOversizedCrashReportDoesNotEvictTheDistilledLog()
+    {
+        var service = Build(Event());
+
+        // Well over the 24,000-character per-section cap for the crash report.
+        var report = "java.lang.OutOfMemoryError: Java heap space\n"
+            + string.Join("\n", Enumerable.Range(0, 1_200)
+                .Select(i => $"\tat net.minecraft.some.very.long.package.name.Class{i}.method{i}(Class{i}.java:{i})"));
+        Assert.True(report.Length > 24_000);
+        await File.WriteAllTextAsync(
+            Path.Combine(_root, "smp", "crash-reports", "crash-2026-08-29.txt"), report);
+
+        var log = string.Join("\n", Enumerable.Range(0, 500)
+            .Select(i => $"[12:00:00] [Server thread/INFO]: Saving chunks for level 'ServerLevel[world]' {i}")
+            .Append("[12:41:07] [Server thread/INFO]: the distinctive final log line"));
+        await File.WriteAllTextAsync(Path.Combine(_root, "smp", "logs", "latest.log"), log);
+
+        var preview = await service.PreviewAsync("smp", 7, default);
+
+        Assert.Contains("the distinctive final log line", preview.RedactedInput);
+    }
+
     public void Dispose()
     {
         if (Directory.Exists(_root)) Directory.Delete(_root, recursive: true);
