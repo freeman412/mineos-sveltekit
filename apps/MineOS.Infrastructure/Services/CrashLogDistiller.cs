@@ -238,12 +238,15 @@ public static partial class CrashLogDistiller
             BytesScanned += (long)raw.Length + 1;
             LinesScanned++;
 
-            // Past the byte budget we stop doing the optional work — header capture and the
-            // landmark regex — and keep only the ring buffer and the event dictionary, both of
-            // which are already O(1) in the file size. We never stop reading: on a multi-gigabyte
-            // log the crash is at the END, and quitting at the front would diagnose the server's
-            // startup instead of the thing that killed it. Reading on costs seconds of I/O.
-            if (!ScanTruncated && BytesScanned > _options.MaxScanBytes) ScanTruncated = true;
+            // Past the byte budget we stop running the landmark regex — the only genuinely
+            // per-line optional work, and the only thing that would make a multi-gigabyte scan
+            // expensive. Everything else keeps going: the session header is bounded by
+            // HeaderLines in total (~60 lines, then never again) and is far too valuable on a
+            // modded crash to sacrifice, and the ring buffer and event dictionary are already
+            // O(1) in the file size. We never stop reading: on a multi-gigabyte log the crash is
+            // at the END, and quitting at the front would diagnose the server's startup instead
+            // of the thing that killed it. Reading on costs seconds of I/O.
+            if (!ScanTruncated && BytesScanned > _options.LandmarkScanByteLimit) ScanTruncated = true;
 
             var parsed = Parse(raw);
             if (parsed.IsNewEntry)
@@ -383,7 +386,7 @@ public static partial class CrashLogDistiller
         private void Push(string text, int ordinal)
         {
             var entry = new LineEntry(_pushed, text, ordinal);
-            if (!ScanTruncated && Header.Count < _options.HeaderLines) Header.Add(entry);
+            if (Header.Count < _options.HeaderLines) Header.Add(entry);
 
             if (_ring.Length > 0)
             {
@@ -439,8 +442,8 @@ public static partial class CrashLogDistiller
         var sectionBudget = Math.Max(0, budget - reserve);
 
         var truncatedNote = scan.ScanTruncated
-            ? $", whole file read ({N(scan.BytesScanned)} bytes) but header/landmark capture was "
-              + $"disabled past {N(options.MaxScanBytes)} bytes"
+            ? $", whole file read ({N(scan.BytesScanned)} bytes); the session header below is "
+              + $"complete, but landmark matching was disabled past {N(options.LandmarkScanByteLimit)} bytes"
             : string.Empty;
         TryLine(
             $"=== distilled log: {N(scan.LinesScanned)} lines scanned, {N(scan.Signatures.Count)} distinct problem events, "

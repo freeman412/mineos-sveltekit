@@ -122,7 +122,7 @@ public class CrashLogDistillerTests
     [Fact]
     public void KeepsTheEndOfAnOversizedLogRatherThanTheBeginning()
     {
-        var options = new LogDistillerOptions { MaxScanBytes = 4_000 };
+        var options = new LogDistillerOptions { LandmarkScanByteLimit = 4_000 };
         var lines = Enumerable.Range(0, 5_000)
             .Select(i => $"[12:00:00] [Server thread/INFO]: early filler line {i}")
             .Append("[12:41:07] [Server thread/FATAL]: the crash at the very end");
@@ -130,6 +130,17 @@ public class CrashLogDistillerTests
         var result = CrashLogDistiller.Distill(lines, options);
 
         Assert.Contains("the crash at the very end", result.Text);
+    }
+
+    [Fact]
+    public void KeepsTheSessionHeaderEvenOnAnOversizedLog()
+    {
+        var options = new LogDistillerOptions { LandmarkScanByteLimit = 500 };
+        var lines = new[] { "[11:00:00] [main/INFO]: Loading 412 mods" }
+            .Concat(Enumerable.Range(0, 5_000)
+                .Select(i => $"[12:00:00] [Server thread/INFO]: filler {i}"));
+
+        Assert.Contains("Loading 412 mods", CrashLogDistiller.Distill(lines, options).Text);
     }
 
     [Fact]
