@@ -219,7 +219,7 @@ public static partial class CrashLogDistiller
         public LogDistillerOptions Options => _options;
         public long LinesScanned { get; private set; }
         public long BytesScanned { get; private set; }
-        public bool ScanTruncated { get; private set; }
+        public bool LandmarkCaptureDisabled { get; private set; }
         public long OrdinaryLinesScanned { get; private set; }
         public long EventOccurrences { get; private set; }
         public int EventsOmitted { get; private set; }
@@ -246,7 +246,10 @@ public static partial class CrashLogDistiller
             // O(1) in the file size. We never stop reading: on a multi-gigabyte log the crash is
             // at the END, and quitting at the front would diagnose the server's startup instead
             // of the thing that killed it. Reading on costs seconds of I/O.
-            if (!ScanTruncated && BytesScanned > _options.LandmarkScanByteLimit) ScanTruncated = true;
+            if (!LandmarkCaptureDisabled && BytesScanned > _options.LandmarkScanByteLimit)
+            {
+                LandmarkCaptureDisabled = true;
+            }
 
             var parsed = Parse(raw);
             if (parsed.IsNewEntry)
@@ -273,7 +276,7 @@ public static partial class CrashLogDistiller
             _currentFrames = 0;
             _currentDropped = 0;
 
-            var landmark = !ScanTruncated && LandmarkPattern().IsMatch(parsed.Message);
+            var landmark = !LandmarkCaptureDisabled && LandmarkPattern().IsMatch(parsed.Message);
             _currentLandmark = landmark;
             _currentLandmarkText = landmark ? raw : string.Empty;
 
@@ -441,13 +444,13 @@ public static partial class CrashLogDistiller
         var reserve = Math.Min(budget / 2, Length(provisional));
         var sectionBudget = Math.Max(0, budget - reserve);
 
-        var truncatedNote = scan.ScanTruncated
+        var landmarkNote = scan.LandmarkCaptureDisabled
             ? $", whole file read ({N(scan.BytesScanned)} bytes); the session header below is "
               + $"complete, but landmark matching was disabled past {N(options.LandmarkScanByteLimit)} bytes"
             : string.Empty;
         TryLine(
             $"=== distilled log: {N(scan.LinesScanned)} lines scanned, {N(scan.Signatures.Count)} distinct problem events, "
-            + $"{N(scan.EventOccurrences)} occurrences{truncatedNote} ===",
+            + $"{N(scan.EventOccurrences)} occurrences{landmarkNote} ===",
             sectionBudget);
 
         // --- session header ---------------------------------------------------------------
@@ -509,7 +512,7 @@ public static partial class CrashLogDistiller
         var stats = new LogDistillationStats(
             scan.LinesScanned,
             scan.BytesScanned,
-            scan.ScanTruncated,
+            scan.LandmarkCaptureDisabled,
             scan.Signatures.Count,
             scan.EventOccurrences,
             scan.EventsOmitted,

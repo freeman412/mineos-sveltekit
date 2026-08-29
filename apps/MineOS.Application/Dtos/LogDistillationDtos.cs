@@ -21,10 +21,15 @@ public sealed record LogDistillerOptions
     public long LandmarkScanByteLimit { get; init; } = 512L * 1024 * 1024;
 }
 
+/// <param name="LandmarkCaptureDisabled">
+/// True when the log exceeded <see cref="LogDistillerOptions.LandmarkScanByteLimit"/> and
+/// landmark matching was disabled to bound per-line cost. Scanning always continues to the end
+/// of the log; nothing is dropped from the scan.
+/// </param>
 public sealed record LogDistillationStats(
     long LinesScanned,
     long BytesScanned,
-    bool ScanTruncated,
+    bool LandmarkCaptureDisabled,
     int DistinctEvents,
     long EventOccurrences,
     int EventsOmitted,
