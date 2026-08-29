@@ -8,8 +8,7 @@ namespace MineOS.Infrastructure.Services;
 
 public sealed class AiDiagnosisService : IAiDiagnosisService
 {
-    private const int LogTailLines = 200;
-    private const int MaxInputCharacters = 24_000;
+    private const int MaxInputCharacters = 64_000;
 
     private readonly IServerPathProvider _paths;
     private readonly IRepository<CrashEvent> _crashEvents;
@@ -312,8 +311,10 @@ public sealed class AiDiagnosisService : IAiDiagnosisService
 
         try
         {
-            var lines = File.ReadLines(path).ToList();
-            return string.Join("\n", lines.Skip(Math.Max(0, lines.Count - LogTailLines)));
+            // File.ReadLines is lazy and the distiller enumerates it exactly once, so a
+            // multi-gigabyte latest.log is streamed rather than loaded. A tail would only show
+            // the last few seconds; the cause of a modded crash is usually logged much earlier.
+            return CrashLogDistiller.Distill(File.ReadLines(path), new LogDistillerOptions()).Text;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
