@@ -57,6 +57,7 @@ public sealed class AppDbContext : DbContext
 
     // Crash Detection
     public DbSet<CrashEvent> CrashEvents => Set<CrashEvent>();
+    public DbSet<CrashDiagnosis> CrashDiagnoses => Set<CrashDiagnosis>();
 
     // Player Activity Tracking
     public DbSet<PlayerSession> PlayerSessions => Set<PlayerSession>();
@@ -328,6 +329,30 @@ public sealed class AppDbContext : DbContext
                 .HasConversion(timestampConverter)
                 .HasColumnType("INTEGER");
             entity.Property(x => x.RestartAttemptedAt)
+                .HasConversion(timestampConverter)
+                .HasColumnType("INTEGER");
+        });
+
+        modelBuilder.Entity<CrashDiagnosis>(entity =>
+        {
+            entity.HasKey(x => x.Id);
+            entity.HasIndex(x => new { x.ServerName, x.CrashEventId });
+
+            // Scoped to the server on purpose: two servers running the same
+            // modpack crash identically and must each keep their own row.
+            entity.HasIndex(x => new { x.ServerName, x.SourceHash }).IsUnique();
+
+            entity.Property(x => x.ServerName).HasMaxLength(256);
+            entity.Property(x => x.SourceHash).HasMaxLength(64);
+            entity.Property(x => x.Model).HasMaxLength(128);
+            entity.Property(x => x.Status).HasMaxLength(32);
+            entity.Property(x => x.Classification).HasMaxLength(32);
+            entity.Property(x => x.Confidence).HasMaxLength(16);
+
+            var timestampConverter = new ValueConverter<DateTimeOffset, long>(
+                value => value.ToUnixTimeSeconds(),
+                value => DateTimeOffset.FromUnixTimeSeconds(value));
+            entity.Property(x => x.CreatedAt)
                 .HasConversion(timestampConverter)
                 .HasColumnType("INTEGER");
         });
