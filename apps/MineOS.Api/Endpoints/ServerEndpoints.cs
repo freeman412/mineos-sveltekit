@@ -3,6 +3,7 @@ using System.Linq;
 using System.Security.Claims;
 using Microsoft.AspNetCore.Mvc;
 using MineOS.Api.Authorization;
+using MineOS.Application;
 using MineOS.Application.Dtos;
 using MineOS.Application.Interfaces;
 using MineOS.Infrastructure.Services;
@@ -147,6 +148,38 @@ public static class ServerEndpoints
             }
         });
 
+        // Mutable display label (issue #180). The on-disk name never changes,
+        // so this is allowed while the server is running. Rides the /servers
+        // group's ServerAccessFilter like every other server-scoped route.
+        servers.MapPut("/{name}/display-name", async (
+            string name,
+            [FromBody] SetDisplayNameRequest request,
+            IServerService serverService,
+            CancellationToken cancellationToken) =>
+        {
+            var displayName = request.DisplayName?.Trim();
+            if (displayName is { Length: > 64 })
+            {
+                return Results.BadRequest(new { error = "Display name must be 64 characters or fewer." });
+            }
+
+            if (displayName is not null && displayName.Any(char.IsControl))
+            {
+                return Results.BadRequest(new { error = "Display name cannot contain control characters." });
+            }
+
+            try
+            {
+                await serverService.SetDisplayNameAsync(
+                    name, string.IsNullOrEmpty(displayName) ? null : displayName, cancellationToken);
+                return Results.NoContent();
+            }
+            catch (DirectoryNotFoundException ex)
+            {
+                return Results.NotFound(new { error = ex.Message });
+            }
+        });
+
         // Server status
         servers.MapGet("/{name}/status", async (
             string name,
@@ -161,6 +194,70 @@ public static class ServerEndpoints
             catch (DirectoryNotFoundException ex)
             {
                 return Results.NotFound(new { error = ex.Message });
+            }
+        });
+
+        // Server software updates (issue #83): detection, per-server
+        // notification mode, and apply. Rides the group-level
+        // ServerAccessFilter like every other server-scoped route.
+        servers.MapGet("/{name}/updates", async (
+            string name,
+            IUpdateService updateService,
+            CancellationToken cancellationToken) =>
+        {
+            try
+            {
+                return Results.Ok(await updateService.GetUpdateStatusAsync(name, cancellationToken));
+            }
+            catch (DirectoryNotFoundException ex)
+            {
+                return Results.NotFound(new { error = ex.Message });
+            }
+        });
+
+        servers.MapPut("/{name}/updates/mode", async (
+            string name,
+            [FromBody] SetUpdateModeRequest request,
+            IUpdateService updateService,
+            CancellationToken cancellationToken) =>
+        {
+            try
+            {
+                await updateService.SetUpdateModeAsync(name, request.Mode ?? "", cancellationToken);
+                return Results.NoContent();
+            }
+            catch (DirectoryNotFoundException ex)
+            {
+                return Results.NotFound(new { error = ex.Message });
+            }
+            catch (ArgumentException ex)
+            {
+                return Results.BadRequest(new { error = ex.Message });
+            }
+        });
+
+        servers.MapPost("/{name}/updates/apply", async (
+            string name,
+            [FromBody] ApplyUpdateRequest request,
+            IUpdateService updateService,
+            CancellationToken cancellationToken) =>
+        {
+            try
+            {
+                var result = await updateService.ApplyUpdateAsync(name, request.ProfileId ?? "", cancellationToken);
+                return Results.Ok(result);
+            }
+            catch (DirectoryNotFoundException ex)
+            {
+                return Results.NotFound(new { error = ex.Message });
+            }
+            catch (InvalidOperationException ex)
+            {
+                return Results.Conflict(new { error = ex.Message });
+            }
+            catch (ArgumentException ex)
+            {
+                return Results.BadRequest(new { error = ex.Message });
             }
         });
 
@@ -234,11 +331,12 @@ public static class ServerEndpoints
                         await serverService.StopServerAsync(name, timeout, cancellationToken);
                         return Results.Ok(new { message = $"Server '{name}' stopped" });
 
+                    // One gated operation, not a stop and a start with a gap between
+                    // them: another caller could win that gap, start the server, and
+                    // leave this restart failing with "already running".
                     case "restart":
                         var restartTimeout = await ResolveShutdownTimeoutAsync(settingsService, null, cancellationToken);
-                        await serverService.StopServerAsync(name, restartTimeout, cancellationToken);
-                        await Task.Delay(1000, cancellationToken);
-                        await serverService.StartServerAsync(name, cancellationToken);
+                        await serverService.RestartServerAsync(name, restartTimeout, cancellationToken);
                         return Results.Ok(new { message = $"Server '{name}' restarted" });
 
                     case "kill":
@@ -324,6 +422,156 @@ public static class ServerEndpoints
             }
             catch (InvalidOperationException ex)
             {
+                return Results.Conflict(new { error = ex.Message });
+            }
+        });
+
+        // BungeeCord configuration (config.yml)
+        servers.MapGet("/{name}/bungee-config", async (
+            string name,
+            IServerService serverService,
+            CancellationToken cancellationToken) =>
+        {
+            try
+            {
+                var config = await serverService.GetBungeeConfigAsync(name, cancellationToken);
+                return Results.Ok(config);
+            }
+            catch (DirectoryNotFoundException ex)
+            {
+                return Results.NotFound(new { error = ex.Message });
+            }
+            catch (InvalidOperationException ex)
+            {
+                return Results.Conflict(new { error = ex.Message });
+            }
+        });
+
+        servers.MapPut("/{name}/bungee-config", async (
+            string name,
+            [FromBody] BungeeConfigDto config,
+            IServerService serverService,
+            CancellationToken cancellationToken) =>
+        {
+            try
+            {
+                await serverService.UpdateBungeeConfigAsync(name, config, cancellationToken);
+                return Results.Ok(new { message = "BungeeCord config updated" });
+            }
+            catch (DirectoryNotFoundException ex)
+            {
+                return Results.NotFound(new { error = ex.Message });
+            }
+            catch (InvalidOperationException ex)
+            {
+                return Results.Conflict(new { error = ex.Message });
+            }
+        });
+
+        // Proxy forwarding security. Both routes sit in the `servers` group, so
+        // ServerAccessFilter gates them against the server being acted on — the
+        // secure action deliberately targets the *backend*, which is the server
+        // whose files it changes.
+        servers.MapGet("/{name}/forwarding", async (
+            string name,
+            IProxyForwardingService forwardingService,
+            CancellationToken cancellationToken) =>
+        {
+            try
+            {
+                return Results.Ok(await forwardingService.GetForwardingStatusAsync(name, cancellationToken));
+            }
+            catch (DirectoryNotFoundException ex)
+            {
+                return Results.NotFound(new { error = ex.Message });
+            }
+        });
+
+        servers.MapGet("/{name}/forwarding/backends", async (
+            string name,
+            HttpContext httpContext,
+            IProxyForwardingService forwardingService,
+            IServerAccessService accessService,
+            CancellationToken cancellationToken) =>
+        {
+            try
+            {
+                var summary = await forwardingService.GetProxyBackendsAsync(name, cancellationToken);
+
+                // ServerAccessFilter only guards the proxy named in the route. The
+                // rows describe *other* servers, and "this one is open to
+                // impersonation" is exactly the sort of thing a partially
+                // privileged user should not learn about a server they cannot see.
+                var user = httpContext.User;
+                var role = user.FindFirstValue(ClaimTypes.Role) ?? "user";
+                var isAdmin = string.Equals(role, "admin", StringComparison.OrdinalIgnoreCase);
+
+                if (user.Identity?.IsAuthenticated == true && !isAdmin)
+                {
+                    if (!ServerAccessFilter.TryGetUserId(user, out var userId))
+                    {
+                        return Results.Unauthorized();
+                    }
+
+                    var visible = new List<BackendForwardingDto>();
+                    foreach (var backend in summary.Backends)
+                    {
+                        var access = await accessService.GetAccessAsync(
+                            userId, backend.ServerName, cancellationToken);
+                        if (access != null)
+                        {
+                            visible.Add(backend);
+                        }
+                    }
+                    summary = summary with { Backends = visible };
+                }
+
+                return Results.Ok(summary);
+            }
+            catch (DirectoryNotFoundException ex)
+            {
+                return Results.NotFound(new { error = ex.Message });
+            }
+        });
+
+        servers.MapPost("/{name}/forwarding/secure", async (
+            string name,
+            IProxyForwardingService forwardingService,
+            CancellationToken cancellationToken) =>
+        {
+            try
+            {
+                return Results.Ok(await forwardingService.SecureBackendAsync(name, cancellationToken));
+            }
+            catch (DirectoryNotFoundException ex)
+            {
+                return Results.NotFound(new { error = ex.Message });
+            }
+            catch (InvalidOperationException ex)
+            {
+                // Refusals are expected here (no proxy, several proxies, a loader
+                // with no verified path) and each carries a message worth showing.
+                return Results.Conflict(new { error = ex.Message });
+            }
+        });
+
+        servers.MapPost("/{name}/forwarding/install-mod", async (
+            string name,
+            IProxyForwardingService forwardingService,
+            CancellationToken cancellationToken) =>
+        {
+            try
+            {
+                return Results.Ok(await forwardingService.InstallForwardingModAsync(name, cancellationToken));
+            }
+            catch (DirectoryNotFoundException ex)
+            {
+                return Results.NotFound(new { error = ex.Message });
+            }
+            catch (InvalidOperationException ex)
+            {
+                // Wrong loader, or no build matching this Minecraft version. Both
+                // carry a message the user needs to read.
                 return Results.Conflict(new { error = ex.Message });
             }
         });
@@ -510,6 +758,13 @@ public static class ServerEndpoints
 
         cron.MapPost("/", async (string name, CreateCronRequest request, ICronService cronService, CancellationToken ct) =>
         {
+            if (!CronActions.IsValid(request.Action))
+            {
+                return Results.BadRequest(new
+                {
+                    error = $"Unknown cron action '{request.Action}'. Valid actions: {string.Join(", ", CronActions.All)}"
+                });
+            }
             var dto = await cronService.CreateAsync(name, request, ct);
             return Results.Created($"/api/v1/servers/{name}/cron/{dto.Hash}", dto);
         });

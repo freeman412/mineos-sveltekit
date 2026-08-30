@@ -1,0 +1,249 @@
+# Changelog
+
+All notable changes to MineOS are documented here. This project follows
+[Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
+[Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+Pre-releases publish `:preview` Docker images and are not intended for production.
+
+## [Unreleased]
+
+### Added
+
+- **Server software updates** (#83). Servers running vanilla, Paper, Bedrock,
+  Velocity, or BungeeCord are compared against the profile catalog MineOS already
+  fetches: an "Update available" chip appears on the server page and the servers
+  list when a newer build exists, with a guided update that stops nothing you
+  didn't approve — apply requires a stopped server, keeps one rollback generation
+  (`*.jar.bak` / `bedrock_server.bak`), and flags restart-required. Version jumps
+  (e.g. 1.21.11 → 1.22) are surfaced separately as an explicit opt-in with a
+  plugin/world-format warning, never badged on their own for build-based families.
+  Per-server notification modes: always notify, ignore this update (the badge
+  returns when something even newer ships), or never notify. Modded loaders
+  (Forge/NeoForge/Fabric/Quilt) report "manual update required" by design.
+
+- **Servers pick their backends when a proxy is set up.** Creating a proxy used to
+  register every Java server on the host automatically, unsecured, and land players on
+  whichever sorted first. The setup flow now lists eligible servers and attaches only
+  the ones chosen, through the same path the Proxies page uses — so a backend attached
+  at setup is secured exactly like one attached later. An empty proxy is now a
+  legitimate choice, and the UI says what it means instead of showing blank space.
+- **New servers get a slug directory, separate from their label.** A server's folder
+  was whatever was typed at creation, permanently, so labels became paths that every
+  consumer had to survive. New servers are created at e.g. `servers/server-loco-7f3a`
+  and carry "Server Loco" as their display name; Velocity keys backends by the label,
+  so players still type `/server serverloco`. Existing servers are untouched.
+- **Server display names.** Rename any server after creation — a mutable label shown
+  across the UI, with the immutable backend name (the on-disk folder and screen
+  session) still shown alongside it so console context is never lost. Renaming works
+  while the server is running, survives config edits, and clones start unlabeled (#180).
+
+### Fixed
+
+- **Pages behind a reverse proxy no longer return 502.** SvelteKit mirrors every preload
+  `<link>` into a `Link:` response header; on MineOS pages that one header ran to ~3.9 KB,
+  and the whole header block measured 4090 bytes against the 4 KB `proxy_buffer_size` that
+  nginx, Apache and Traefik use by default. The proxy could not buffer it, logged
+  "upstream sent too big header", and served a 502 instead of the page. Only full page
+  loads were affected — a click-through navigation fetches `__data.json`, which carries no
+  such header — so the same page worked when reached by clicking and failed when reached
+  by hitting refresh. The preloads are now emitted as tags in the page head, where they
+  still do their job, and the header block is 191 bytes.
+- **Live streams survive a reverse proxy's read timeout.** The console, jobs and
+  notifications streams only write when their subject changes, so an idle server sent
+  nothing at all and nginx closed a connection that had been quiet for 60 seconds — the
+  default in nginx, Apache and Traefik alike. `EventSource` reconnects silently, so
+  nothing looked broken while the console and live status dropped and re-established every
+  minute; one deployment logged 325 such timeouts. Streams now carry a keep-alive comment
+  every 20 seconds. This also removes the SQLite connection errors those cancellations
+  produced mid-query.
+- **Forced hosts are picked from the backends you defined.** The row was a native
+  `<select multiple>`, which needs cmd/ctrl-click to choose more than one — a plain click
+  replaced the selection — and reported its choice in DOM order, so a hostname routed to
+  `survival, lobby` was silently rewritten to `lobby, survival` the first time the row was
+  touched. That order is the routing priority Velocity uses. It is now a list of toggles
+  numbered with their try order, and a name routed there but no longer defined is kept
+  rather than dropped.
+- **Form controls follow the theme.** `--input-bg` was read by seven components and
+  defined by none, so every input fell back to a hardcoded slate that belongs to no theme —
+  including the light one. The proxy config page was also the only place in the app
+  with a cyan primary button.
+- **A stop, kill or restart can no longer race a start.** Gating starts alone closed half
+  the window: stop sends its command and then polls for the process to exit, and neither
+  stop nor kill took the gate, so a start could run against a server midway through
+  shutting down and a stop could be sent to a JVM still coming up. A restart released the
+  gate between its two halves, letting another caller start the server in the gap and
+  leaving the restart to fail with "already running". The gate now covers the whole
+  lifecycle, and a restart holds it once across both halves.
+- **Securing a Paper backend no longer leaves `config/` unwritable.** The directory was
+  created as root and only the file inside it was chowned, so a brand-new server behind a
+  proxy could not write `paper-global.yml` or `paper-world-defaults.yml`. It died with
+  `AccessDeniedException`, then died differently on the half-created world left behind.
+  Existing installs repair themselves the next time forwarding is written.
+- **Concurrent start requests no longer launch a server more than once.** The "already
+  running" check was a check-then-act with nothing serializing it, so the start endpoint,
+  watchdog, startup service and cron scheduler could race. Four concurrent requests
+  produced four JVMs — on a proxy the loser died with `EADDRINUSE`, on a game server it
+  meant two JVMs writing one world directory.
+- **Server names containing a space no longer break process detection.** The screen
+  session name was parsed from a re-joined command line and truncated at the first space,
+  so "Server Loco" was filed under "Server" — MineOS reported such servers stopped while
+  they ran, and stop/kill looked for a PID under a server that does not exist.
+- **The proxy config editor no longer wipes itself on save.** Backends, try order and
+  forced hosts are dynamically rendered rows, and the save handler let SvelteKit reset the
+  form, blanking every one of them. The values were written correctly; the editor erased
+  itself in front of you. Backend selection is now a picker rather than free text.
+- **Proxies pick a Java runtime that can actually load their jar.** Proxies were pinned to
+  Java 21, which was right when Velocity's floor was 21 and wrong once Velocity 4.x shipped
+  Java 25 bytecode: a 4.x proxy died before `main()` with `UnsupportedClassVersionError`
+  (class file 69 vs 65) in a restart loop. MineOS now reads the required version off the
+  jar's own `Main-Class` bytecode, so it tracks upstream automatically — Velocity 3.4.0
+  targets Java 17, 3.5.1 targets 21, 4.x targets 25. Game servers keep using the Minecraft
+  version, whose bootstrap launchers (paperclip, the Fabric installer) deliberately report
+  an ancient target and cannot be read this way.
+- **Java version tiers accept newer runtimes.** Each tier now falls forward when its exact
+  match is not installed, instead of resolving to whatever `java` happened to be on `PATH`.
+  Below Java 17 the exact match is still required, since legacy Minecraft genuinely breaks
+  on modern JVMs.
+
+### Changed
+
+- **The Java Binary field lists the runtimes the host actually has**, via a new
+  `GET /api/v1/host/java-runtimes`. It previously offered four hardcoded paths that named
+  amd64 and JRE directories on an image shipping arm64 JDKs, so every explicit choice
+  pointed at a binary that did not exist.
+
+## [1.2.0] — in beta
+
+The proxy release. MineOS goes from "one server at a time" to running a network:
+a proxy players connect to, with game servers behind it whose identities the proxy
+can actually vouch for.
+
+### Added
+
+- **Proxies section.** Proxies have their own `/proxies` page instead of sitting in
+  the game-server grid: one card per proxy with live status, address, players and
+  memory, a backend-security table with per-row actions, Start/Stop/Restart, and
+  properties at `/proxies/<name>/proxy-config`.
+- **Attach a server to a proxy from the create wizard.** `/servers/new?type=proxy` is
+  a dedicated proxy flow, and creating a game server offers "Behind a proxy?" to
+  register it with a proxy once its files finish installing.
+- **Velocity proxy support** (#63, #99) and **BungeeCord proxy support** alongside it,
+  with a `config.yml` editor (#64, #157).
+- **Verified proxy forwarding.** New Velocity proxies default to modern forwarding,
+  every server derives a live Secured / Misconfigured / Securable / Unverifiable
+  status, and Paper/Purpur backends can be secured in one click (#164).
+- **Exposure reporting.** Backends that cannot verify forwarded players (Forge,
+  vanilla, anything behind BungeeCord) report whether their port is actually
+  reachable from outside, read from Docker rather than assumed (#164).
+- **One-click FabricProxy-Lite install**, with its required Modrinth dependencies, so
+  Fabric backends can verify forwarded players too (#166).
+- **Mod dependency resolution.** Single-mod installs resolve and install their
+  dependencies, preview what they will pull in, and skip what is already present
+  (#21, #170).
+- **Mod loader version updates from the Mods page** — upgrade or downgrade NeoForge,
+  Forge, Fabric and Quilt on an existing server (#107).
+- **CLI monitoring** (#119): live server refresh, a real `/health` badge, a richer
+  server table (players / memory / needs-restart), and a live per-server metrics
+  panel (TPS/CPU/RAM/players) streamed over SSE.
+
+### Changed
+
+- Servers and the dashboard show **game servers only**, so their stats match their
+  lists. Proxies are discoverable from the sidebar and their own section.
+- Attach and detach keep Velocity's `try` list and BungeeCord's `priorities` in sync
+  with the server map, so a proxy never boots warning about a backend it cannot route
+  to.
+- Links to the old `/servers/<name>/proxy-config` permanently redirect to
+  `/proxies/<name>/proxy-config`.
+- PaperMC migrated to the Fill v3 API ahead of the `api.papermc.io/v2` sunset (#99).
+- CI now runs the web unit tests and type-check before the build, so broken tests and
+  type errors gate a pull request.
+
+### Fixed
+
+- An attach whose forwarding check failed reported success, leaving a backend
+  registered but unsecured and saying nothing about it. It now reports the failure
+  and names the risk.
+- SSE streams reconnect with exponential backoff instead of dying silently on the
+  first dropped connection; the server heartbeat uses the same path.
+- Mod search returned zero results on every Fabric/Quilt server (the loader version
+  was used as the Minecraft version), and Paper servers without a profile searched
+  unfiltered (#167, #168).
+- Forwarding status was sent as enum numbers while the web client matched on names,
+  so the security panel rendered blank (#165).
+- Start verification treated any `startup.log` output as success, reporting JVM-level
+  crashes as healthy starts for every server type (#162).
+- Integration tests ran against the real `/var/games/minecraft` instead of a temp
+  directory, which is why the suite carried 6 "known" failures (#163).
+- NeoForge servers were mislabeled as Forge in loader detection, in `isLatest`
+  selection (string vs numeric sort), and in the overview's JAR File field.
+- Loader install progress appeared frozen due to a buffered SSE proxy.
+- Console `/tellraw` and quoted commands.
+- CLI: narrow-terminal TUI crash, world-readable `.env` (now `0600`), self-update
+  SHA-256 verification and HTTP timeouts, a goroutine race (#119).
+
+### Security
+
+- **Backends behind a proxy were open to impersonation.** They required
+  `online-mode=false` while MineOS generated `player-info-forwarding-mode = "none"`,
+  leaving any reachable backend open to players joining as any username, including
+  operators. New proxies are now configured to verify forwarded identities, and
+  existing ones are **reported** as misconfigured rather than silently changed (#164).
+- Release hardening: cross-server ACL, admin gates, path-traversal guards, and safe
+  backup-restore / world-replace.
+- Dynamic same-origin CSRF / 403 fix (#100).
+- Microsoft.OpenApi 2.3.0 → 2.12.2 for GHSA-v5pm-xwqc-g5wc (#169).
+
+### Upgrade notes
+
+- No database migrations.
+- **Existing proxies keep their current forwarding mode** and will now surface as
+  misconfigured with a fix available. This is a report of a pre-existing condition,
+  not a change to your configuration — you choose when to secure them.
+- Mod search results for Paper servers are now filtered to the server's Minecraft
+  version where they previously were not.
+
+### Pre-releases on this line
+
+| Tag | Focus |
+|---|---|
+| `v1.2.0-beta.6` | Proxies get their own section; wizard attach; live status; CI gate |
+| `v1.2.0-beta.5` | Verified proxy forwarding, BungeeCord support, mod dependency resolution |
+| `v1.2.0-beta.4` | CLI overhaul — hardening + monitoring (#119) |
+| `v1.2.0-beta.3` | Velocity proxy support, Fill v3 migration, release hardening |
+| `v1.2.0-beta.2` | NeoForge JAR File mislabel fix |
+| `v1.2.0-beta.1` | Mod loader version updates (#107), CSRF fix (#100) |
+
+## [1.1.0] — 2026-04-14
+
+15 issues resolved, 168 files changed.
+
+### Added
+
+- Native Bedrock server support (#53)
+- Java 25 auto-detection for MC 26.1+ (#90)
+- Redesigned server creation wizard with NeoForge + Quilt
+- Mod loader detection, filtering, and per-mod toggles (#74)
+- Per-server TPS monitoring control (#76)
+- Change Server Type on existing servers
+- Console colorization (#68)
+- Fabric mod loader support (#62)
+- Client mod management with `.mrpack` generation (#66, #10)
+- Cron job scheduling (#22)
+- Server icon cropping (#35)
+- Performance chart time axis (#9)
+- CLI `mineos update`; ARM64 Docker images
+- 58 automated tests
+
+### Fixed
+
+- Whitelist / op / ban console commands (#80)
+- macOS install bash 3.2 compatibility (#81)
+- Backup sizes showing 0B (#51)
+- Source build auto-clone (#77)
+
+## Earlier releases
+
+1.0.x and 0.2.x predate this file. Their notes live on the
+[releases page](https://github.com/freeman412/mineos-sveltekit/releases).

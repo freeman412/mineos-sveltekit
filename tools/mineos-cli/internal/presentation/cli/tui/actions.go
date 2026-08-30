@@ -1,7 +1,8 @@
-﻿package tui
+package tui
 
 import (
 	"bufio"
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -10,39 +11,29 @@ import (
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
+
 	"github.com/freemancraft/mineos-sveltekit/tools/mineos-cli/internal/application/usecases"
+	"github.com/freemancraft/mineos-sveltekit/tools/mineos-cli/internal/infrastructure/env"
 )
 
-func (m TuiModel) ServerActionCmd(action string) tea.Cmd {
-	server := m.SelectedServer()
-	if server == "" || !m.ConfigReady {
-		return func() tea.Msg { return ActionResultMsg{Err: errors.New("select a server first")} }
-	}
-	ctx := m.Ctx
+// ServerActionCmd runs a server action (start/stop/restart/kill) in-process
+// through the API client — the unified boundary for stateful calls; only
+// process orchestration (stack ops, install/reconfigure/uninstall) shells out.
+func (m TuiModel) ServerActionCmd(name, action string) tea.Cmd {
 	client := m.Client
+	ctx := m.Ctx
+	if client == nil || !m.ConfigReady {
+		return func() tea.Msg {
+			return ServerActionDoneMsg{Server: name, Action: action, Err: errors.New("API not connected")}
+		}
+	}
 	return func() tea.Msg {
+		if ctx == nil {
+			ctx = context.Background()
+		}
 		uc := usecases.NewServerActionUseCase(client)
-		err := uc.Execute(ctx, server, action)
-		return ActionResultMsg{
-			Message: fmt.Sprintf("%s: %s", action, server),
-			Err:     err,
-		}
-	}
-}
-
-func (m TuiModel) StopAllCmd(timeout int) tea.Cmd {
-	if !m.ConfigReady {
-		return func() tea.Msg { return ActionResultMsg{Err: errors.New("API client not ready")} }
-	}
-	ctx := m.Ctx
-	client := m.Client
-	return func() tea.Msg {
-		uc := usecases.NewStopAllServersUseCase(client)
-		_, err := uc.Execute(ctx, timeout)
-		return ActionResultMsg{
-			Message: fmt.Sprintf("stop-all requested (timeout %ds)", timeout),
-			Err:     err,
-		}
+		err := uc.Execute(ctx, name, action)
+		return ServerActionDoneMsg{Server: name, Action: action, Err: err}
 	}
 }
 
@@ -59,17 +50,6 @@ func (m TuiModel) ConsoleCommandCmd(command string) tea.Cmd {
 			Message: fmt.Sprintf("sent to %s: %s", server, command),
 			Err:     err,
 		}
-	}
-}
-
-func (m TuiModel) ComposeActionCmd(args ...string) tea.Cmd {
-	if !m.ComposeReady {
-		return func() tea.Msg { return ActionResultMsg{Err: errors.New("docker compose not available")} }
-	}
-	return func() tea.Msg {
-		err := m.Compose.Run(args)
-		action := strings.Join(args, " ")
-		return ActionResultMsg{Message: "compose " + action + " requested", Err: err}
 	}
 }
 
@@ -94,7 +74,7 @@ func (m TuiModel) ExecMenuItem(item MenuItem) tea.Cmd {
 
 	// Streaming commands show output in real-time (for long-running docker operations)
 	if item.Streaming {
-		return m.StartStreamingCmd(exe, args, item.Label)
+		return m.StartStreamingCmd(exe, args, item.Label, item.Effect)
 	}
 
 	// Non-interactive commands capture output for display in TUI
@@ -114,16 +94,18 @@ func (m TuiModel) ExecMenuItem(item MenuItem) tea.Cmd {
 }
 
 // StartStreamingCmd starts a command that streams output without requiring stdin
-func (m TuiModel) StartStreamingCmd(exe string, args []string, label string) tea.Cmd {
+func (m TuiModel) StartStreamingCmd(exe string, args []string, label string, effect ContainerEffect) tea.Cmd {
 	return func() tea.Msg {
 		cmd := exec.Command(exe, args...)
 
 		// Use combined output (stdout + stderr together)
 		stdoutPipe, err := cmd.StdoutPipe()
 		if err != nil {
+			// The command never ran, so its container effect must not apply.
 			return StreamingStartedMsg{
 				Output: makeErrorChan("Failed to create pipe: " + err.Error()),
 				Label:  label,
+				Effect: EffectNone,
 			}
 		}
 
@@ -135,6 +117,7 @@ func (m TuiModel) StartStreamingCmd(exe string, args []string, label string) tea
 			return StreamingStartedMsg{
 				Output: makeErrorChan("Failed to start: " + err.Error()),
 				Label:  label,
+				Effect: EffectNone,
 			}
 		}
 
@@ -179,6 +162,7 @@ func (m TuiModel) StartStreamingCmd(exe string, args []string, label string) tea
 		return StreamingStartedMsg{
 			Output: outputChan,
 			Label:  label,
+			Effect: effect,
 		}
 	}
 }
@@ -189,90 +173,6 @@ func makeErrorChan(errMsg string) <-chan string {
 	ch <- errMsg
 	close(ch)
 	return ch
-}
-
-// StartInteractiveCmd starts an interactive command with piped I/O
-func (m TuiModel) StartInteractiveCmd(exe string, args []string, label string) tea.Cmd {
-	return func() tea.Msg {
-		cmd := exec.Command(exe, args...)
-
-		stdin, err := cmd.StdinPipe()
-		if err != nil {
-			return ExecFinishedMsg{Action: label, Err: err}
-		}
-
-		stdout, err := cmd.StdoutPipe()
-		if err != nil {
-			stdin.Close()
-			return ExecFinishedMsg{Action: label, Err: err}
-		}
-
-		stderr, err := cmd.StderrPipe()
-		if err != nil {
-			stdin.Close()
-			stdout.Close()
-			return ExecFinishedMsg{Action: label, Err: err}
-		}
-
-		if err := cmd.Start(); err != nil {
-			stdin.Close()
-			stdout.Close()
-			stderr.Close()
-			return ExecFinishedMsg{Action: label, Err: err}
-		}
-
-		// Create output channel and start readers
-		outputChan := make(chan string, 100)
-
-		// Read stdout
-		go func() {
-			buf := make([]byte, 1024)
-			for {
-				n, err := stdout.Read(buf)
-				if n > 0 {
-					lines := strings.Split(string(buf[:n]), "\n")
-					for _, line := range lines {
-						if line != "" {
-							outputChan <- line
-						}
-					}
-				}
-				if err != nil {
-					break
-				}
-			}
-		}()
-
-		// Read stderr
-		go func() {
-			buf := make([]byte, 1024)
-			for {
-				n, err := stderr.Read(buf)
-				if n > 0 {
-					lines := strings.Split(string(buf[:n]), "\n")
-					for _, line := range lines {
-						if line != "" {
-							outputChan <- line
-						}
-					}
-				}
-				if err != nil {
-					break
-				}
-			}
-		}()
-
-		// Wait for command to finish in background
-		go func() {
-			cmd.Wait()
-			close(outputChan)
-		}()
-
-		return InteractiveStartedMsg{
-			Stdin:  stdin,
-			Output: outputChan,
-		}
-	}
 }
 
 // ListenInteractiveCmd listens for output from an interactive command
@@ -307,7 +207,8 @@ func (m TuiModel) SendInteractiveInput(input string) tea.Cmd {
 	}
 }
 
-// ToggleEnvSettingCmd toggles a boolean env var between "true" and "false" in the .env file
+// ToggleEnvSettingCmd toggles a boolean env var between "true" and "false" in
+// the .env file (via the single writer in infrastructure/env).
 func (m TuiModel) ToggleEnvSettingCmd(envKey, currentValue string) tea.Cmd {
 	envPath := m.Cfg.EnvPath
 	newVal := "true"
@@ -315,40 +216,9 @@ func (m TuiModel) ToggleEnvSettingCmd(envKey, currentValue string) tea.Cmd {
 		newVal = "false"
 	}
 	return func() tea.Msg {
-		err := writeEnvValue(envPath, envKey, newVal)
+		err := env.SetValue(envPath, envKey, newVal)
 		return SettingsToggledMsg{Key: envKey, Val: newVal, Err: err}
 	}
-}
-
-// writeEnvValue sets a key=value in the .env file
-func writeEnvValue(path, key, value string) error {
-	if path == "" {
-		path = ".env"
-	}
-	data, err := os.ReadFile(path)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return os.WriteFile(path, []byte(key+"="+value+"\n"), 0o644)
-		}
-		return err
-	}
-	lines := strings.Split(string(data), "\n")
-	found := false
-	prefix := key + "="
-	for i, line := range lines {
-		if strings.HasPrefix(strings.TrimSpace(line), prefix) {
-			lines[i] = prefix + value
-			found = true
-		}
-	}
-	if !found {
-		lines = append(lines, prefix+value)
-	}
-	output := strings.Join(lines, "\n")
-	if !strings.HasSuffix(output, "\n") {
-		output += "\n"
-	}
-	return os.WriteFile(path, []byte(output), 0o644)
 }
 
 func (m TuiModel) SelectedServer() string {

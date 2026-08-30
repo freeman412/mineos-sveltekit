@@ -56,6 +56,24 @@ body:
     validations:
       required: false
 
+  - type: input
+    id: access-url
+    attributes:
+      label: Browser URL
+      description: What URL is in your browser's address bar when the problem occurs? (Redact private domains if needed — the scheme/host/port pattern is what matters.)
+      placeholder: e.g., http://192.168.1.50:3000
+    validations:
+      required: false
+
+  - type: input
+    id: reverse-proxy
+    attributes:
+      label: Reverse Proxy
+      description: Are you accessing MineOS through a reverse proxy? Which one?
+      placeholder: e.g., nginx / Caddy / Traefik / none
+    validations:
+      required: false
+
   - type: dropdown
     id: browser
     attributes:

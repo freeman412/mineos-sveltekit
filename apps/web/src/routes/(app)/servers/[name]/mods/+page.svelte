@@ -3,6 +3,7 @@
 	import CurseForgeSearch from '$lib/components/CurseForgeSearch.svelte';
 	import ModrinthSearch from '$lib/components/ModrinthSearch.svelte';
 	import ProgressBar from '$lib/components/ProgressBar.svelte';
+	import LoaderVersionManager from '$lib/components/LoaderVersionManager.svelte';
 	import { modal } from '$lib/stores/modal';
 	import { formatBytes, formatDate } from '$lib/utils/formatting';
 	import type { PageData } from './$types';
@@ -63,7 +64,10 @@
 		loadMods();
 		loadClientMods();
 		loadClientPackages();
+		await detectLoader();
+	});
 
+	async function detectLoader() {
 		const serverName = data.server?.name;
 		if (!serverName) {
 			loaderLoading = false;
@@ -77,6 +81,7 @@
 				if (info.loader) {
 					detectedLoader = info.loader;
 					detectedVersion = info.version;
+					showLoaderPicker = false;
 				} else {
 					const stored = localStorage.getItem(`mineos-loader-${serverName}`);
 					if (stored) {
@@ -91,7 +96,7 @@
 		} finally {
 			loaderLoading = false;
 		}
-	});
+	}
 
 	function selectLoader(loader: string) {
 		detectedLoader = loader;
@@ -593,11 +598,22 @@
 		</div>
 	{:else if detectedLoader}
 		<div class="loader-banner">
-			<img src={loaderLogos[detectedLoader]} alt={loaderNames[detectedLoader] ?? detectedLoader} class="loader-logo" />
-			<span class="loader-name">{loaderNames[detectedLoader] ?? detectedLoader}</span>
-			{#if detectedVersion}
-				<span class="loader-version">{detectedVersion}</span>
-			{/if}
+			<div class="loader-banner-info">
+				<img src={loaderLogos[detectedLoader]} alt={loaderNames[detectedLoader] ?? detectedLoader} class="loader-logo" />
+				<span class="loader-name">{loaderNames[detectedLoader] ?? detectedLoader}</span>
+				{#if detectedVersion}
+					<span class="loader-version">{detectedVersion}</span>
+				{/if}
+			</div>
+			<LoaderVersionManager
+				serverName={data.server?.name ?? ''}
+				loader={detectedLoader}
+				loaderName={loaderNames[detectedLoader] ?? detectedLoader}
+				currentVersion={detectedVersion}
+				currentMcVersion={serverVersion}
+				{isServerRunning}
+				onUpdated={detectLoader}
+			/>
 		</div>
 	{/if}
 
@@ -1517,13 +1533,20 @@
 
 	.loader-banner {
 		display: flex;
-		align-items: center;
+		flex-direction: column;
+		align-items: stretch;
 		gap: 12px;
 		padding: 12px 20px;
 		background: rgba(22, 27, 46, 0.9);
 		border: 1px solid rgba(42, 47, 71, 0.8);
 		border-radius: 12px;
 		margin-bottom: 16px;
+	}
+
+	.loader-banner-info {
+		display: flex;
+		align-items: center;
+		gap: 12px;
 	}
 
 	.loader-banner.loading {

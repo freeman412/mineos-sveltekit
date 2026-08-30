@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Authorization;
+using MineOS.Api.Authorization;
 using MineOS.Application.Interfaces;
 
 namespace MineOS.Api.Endpoints;
@@ -10,6 +11,8 @@ public static class WorldEndpoints
         var worlds = api.MapGroup("/servers/{serverName}/worlds")
             .WithTags("Worlds")
             .RequireAuthorization();
+        // Gate per-server: a user with access to one server must not touch another's worlds.
+        worlds.AddEndpointFilter<ServerAccessFilter>();
 
         worlds.MapGet("/", async (
             string serverName,

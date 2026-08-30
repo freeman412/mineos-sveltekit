@@ -74,7 +74,10 @@ func (c *Client) ListServers(ctx context.Context) ([]ports.Server, error) {
 		return nil, ErrApiKeyMissing
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.apiBaseURL+"/servers/list", nil)
+	// /host/servers (ServerSummaryDto) carries richer per-server fields — players,
+	// memory, needs-restart — that /servers/list does not. It has no status string,
+	// so derive one from Up for the existing status-based rendering/commands.
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.apiBaseURL+"/host/servers", nil)
 	if err != nil {
 		return nil, err
 	}
@@ -97,6 +100,16 @@ func (c *Client) ListServers(ctx context.Context) ([]ports.Server, error) {
 	var servers []ports.Server
 	if err := json.NewDecoder(resp.Body).Decode(&servers); err != nil {
 		return nil, err
+	}
+
+	for i := range servers {
+		if servers[i].Status == "" {
+			if servers[i].Up {
+				servers[i].Status = "running"
+			} else {
+				servers[i].Status = "stopped"
+			}
+		}
 	}
 
 	return servers, nil
@@ -301,6 +314,109 @@ func (c *Client) StreamConsoleLogs(ctx context.Context, name, source string) (<-
 	}()
 
 	return logs, errs
+}
+
+// PerfSample mirrors the API's PerformanceSampleDto (the fields the CLI shows).
+type PerfSample struct {
+	Timestamp   time.Time `json:"timestamp"`
+	IsRunning   bool      `json:"isRunning"`
+	CpuPercent  float64   `json:"cpuPercent"`
+	RamUsedMb   int64     `json:"ramUsedMb"`
+	RamTotalMb  int64     `json:"ramTotalMb"`
+	Tps         *float64  `json:"tps"`
+	PlayerCount int       `json:"playerCount"`
+}
+
+// PerformanceHistory fetches DB-backed samples for the last N minutes
+// (the API clamps minutes to 5-1440). Oldest first.
+func (c *Client) PerformanceHistory(ctx context.Context, name string, minutes int) ([]PerfSample, error) {
+	if strings.TrimSpace(name) == "" {
+		return nil, errors.New("server name is required")
+	}
+	endpoint := fmt.Sprintf("%s/servers/%s/performance/history?minutes=%d",
+		c.apiBaseURL, url.PathEscape(strings.TrimSpace(name)), minutes)
+	var samples []PerfSample
+	if err := c.getJSON(ctx, endpoint, &samples); err != nil {
+		return nil, err
+	}
+	return samples, nil
+}
+
+// StreamPerformance opens the per-server performance SSE (2s cadence) and emits
+// each sample. Mirrors StreamConsoleLogs; cancel via ctx to stop.
+func (c *Client) StreamPerformance(ctx context.Context, name string) (<-chan PerfSample, <-chan error) {
+	samples := make(chan PerfSample)
+	errs := make(chan error, 1)
+
+	go func() {
+		defer close(samples)
+		defer close(errs)
+
+		if strings.TrimSpace(c.apiKey) == "" {
+			errs <- ErrApiKeyMissing
+			return
+		}
+		if strings.TrimSpace(name) == "" {
+			errs <- errors.New("server name is required")
+			return
+		}
+
+		endpoint := fmt.Sprintf("%s/servers/%s/performance/stream", c.apiBaseURL, url.PathEscape(strings.TrimSpace(name)))
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+		if err != nil {
+			errs <- err
+			return
+		}
+		req.Header.Set("X-Api-Key", c.apiKey)
+
+		streamClient := *c.httpClient
+		streamClient.Timeout = 0
+		resp, err := streamClient.Do(req)
+		if err != nil {
+			if ctx.Err() == nil {
+				errs <- err
+			}
+			return
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode == http.StatusForbidden || resp.StatusCode == http.StatusUnauthorized {
+			errs <- ErrApiKeyInvalid
+			return
+		}
+		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+			errs <- fmt.Errorf("stream performance failed: %s", readBody(resp.Body))
+			return
+		}
+
+		scanner := bufio.NewScanner(resp.Body)
+		scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+		for scanner.Scan() {
+			line := scanner.Text()
+			if !strings.HasPrefix(line, "data:") {
+				continue
+			}
+			payload := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+			if payload == "" {
+				continue
+			}
+			var s PerfSample
+			if err := json.Unmarshal([]byte(payload), &s); err != nil {
+				continue
+			}
+			select {
+			case samples <- s:
+			case <-ctx.Done():
+				return
+			}
+		}
+
+		if err := scanner.Err(); err != nil && ctx.Err() == nil {
+			errs <- err
+		}
+	}()
+
+	return samples, errs
 }
 
 func readBody(reader io.Reader) string {

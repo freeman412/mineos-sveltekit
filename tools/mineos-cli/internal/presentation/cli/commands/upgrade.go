@@ -3,7 +3,10 @@ package commands
 import (
 	"archive/tar"
 	"archive/zip"
+	"bufio"
 	"compress/gzip"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -13,15 +16,33 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 )
 
 const (
-	githubRepo       = "freeman412/mineos-sveltekit"
-	githubAPIBase    = "https://api.github.com"
-	latestReleaseURL = githubAPIBase + "/repos/" + githubRepo + "/releases/latest"
-	allReleasesURL   = githubAPIBase + "/repos/" + githubRepo + "/releases"
+	githubRepo     = "freeman412/mineos-sveltekit"
+	checksumsAsset = "checksums.txt"
+)
+
+// githubAPIBase is a variable so tests can point release fetching at an
+// httptest server.
+var githubAPIBase = "https://api.github.com"
+
+func latestReleaseURL() string {
+	return githubAPIBase + "/repos/" + githubRepo + "/releases/latest"
+}
+
+func allReleasesURL() string {
+	return githubAPIBase + "/repos/" + githubRepo + "/releases"
+}
+
+var (
+	// metadataHTTPClient is for the small GitHub API JSON calls.
+	metadataHTTPClient = &http.Client{Timeout: 30 * time.Second}
+	// downloadHTTPClient allows a longer budget for fetching the release binary.
+	downloadHTTPClient = &http.Client{Timeout: 10 * time.Minute}
 )
 
 type githubRelease struct {
@@ -176,7 +197,7 @@ func runUpgrade(cmd *cobra.Command, currentVersion string, force, checkOnly, inc
 	tmpPath := tmpFile.Name()
 	defer os.Remove(tmpPath)
 
-	resp, err := http.Get(downloadURL)
+	resp, err := downloadHTTPClient.Get(downloadURL)
 	if err != nil {
 		tmpFile.Close()
 		return fmt.Errorf("failed to download: %w", err)
@@ -192,6 +213,11 @@ func runUpgrade(cmd *cobra.Command, currentVersion string, force, checkOnly, inc
 	tmpFile.Close()
 	if err != nil {
 		return fmt.Errorf("failed to save download: %w", err)
+	}
+
+	// Verify integrity before this binary overwrites the running executable.
+	if err := verifyChecksum(out, tmpPath, assetName, release); err != nil {
+		return fmt.Errorf("integrity check failed: %w", err)
 	}
 
 	// Extract binary from archive
@@ -219,8 +245,70 @@ func runUpgrade(cmd *cobra.Command, currentVersion string, force, checkOnly, inc
 	return nil
 }
 
+// verifyChecksum verifies the SHA-256 of the downloaded file against the
+// release's checksums.txt asset. A present-but-mismatching checksum is fatal.
+// If the release has no checksums.txt (e.g. an older release), it warns and
+// proceeds — transport is still HTTPS and forward upgrades always target a
+// release built with the checksums step.
+func verifyChecksum(out io.Writer, filePath, assetName string, release *githubRelease) error {
+	var checksumURL string
+	for _, a := range release.Assets {
+		if a.Name == checksumsAsset {
+			checksumURL = a.BrowserDownloadURL
+			break
+		}
+	}
+	if checksumURL == "" {
+		fmt.Fprintln(out, "Warning: no checksums.txt in release — skipping integrity verification.")
+		return nil
+	}
+
+	resp, err := metadataHTTPClient.Get(checksumURL)
+	if err != nil {
+		return fmt.Errorf("failed to fetch checksums: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("failed to fetch checksums: status %s", resp.Status)
+	}
+
+	expected := ""
+	scanner := bufio.NewScanner(resp.Body)
+	for scanner.Scan() {
+		// checksums.txt lines are "<sha256>  <filename>".
+		fields := strings.Fields(scanner.Text())
+		if len(fields) >= 2 && filepath.Base(fields[len(fields)-1]) == assetName {
+			expected = strings.ToLower(fields[0])
+			break
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return fmt.Errorf("failed to read checksums: %w", err)
+	}
+	if expected == "" {
+		return fmt.Errorf("no checksum listed for %s", assetName)
+	}
+
+	f, err := os.Open(filePath)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return err
+	}
+	actual := hex.EncodeToString(h.Sum(nil))
+	if actual != expected {
+		return fmt.Errorf("sha256 mismatch for %s: expected %s, got %s", assetName, expected, actual)
+	}
+
+	fmt.Fprintln(out, "Verified checksum.")
+	return nil
+}
+
 func fetchLatestRelease() (*githubRelease, error) {
-	resp, err := http.Get(latestReleaseURL)
+	resp, err := metadataHTTPClient.Get(latestReleaseURL())
 	if err != nil {
 		return nil, err
 	}
@@ -250,7 +338,7 @@ func fetchBestRelease(includePrerelease bool) (*githubRelease, error) {
 	}
 
 	// Otherwise, fetch all releases and find the newest (including pre-releases)
-	resp, err := http.Get(allReleasesURL)
+	resp, err := metadataHTTPClient.Get(allReleasesURL())
 	if err != nil {
 		return nil, err
 	}

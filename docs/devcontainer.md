@@ -66,13 +66,16 @@ The API container includes the following Minecraft server management dependencie
 - **tar**: For compressed archive creation (.tar.gz)
 - **screen**: For managing server processes
 - **rsync**: For file synchronization (used in Phase 4 profiles)
-- **openjdk-17-jre-headless**: Default Java runtime
-- **temurin-21-jre**: Modern Java runtime (Paper 1.21+)
+- **temurin-25-jdk**: Default Java runtime (`JAVA_HOME`); required by Velocity 4.x
+- **temurin-21-jdk**: Paper 1.21+ and Velocity 3.5.x
 - **temurin-8-jre**: Legacy Java 8 support
 
 ## Tips
 
 - Need a shell in the other service? Use `Dev Containers: Attach to Running Container...`
 - If port 5173 or 5078 is in use, update `.devcontainer/docker-compose.yml` and re-open.
-- To target a specific runtime, set `java_binary` in the server config (or the Advanced page) to a full path
-  like `/usr/lib/jvm/temurin-21-jre/bin/java` or `/usr/lib/jvm/temurin-8-jre/bin/java`.
+- Leave `java_binary` blank and MineOS picks a runtime for you: proxies from the jar's own bytecode
+  target, game servers from the Minecraft version. Set it only to override that choice.
+- To target a specific runtime, set `java_binary` in the server config (or the Advanced page) to a full
+  path. The Java Binary field suggests what is actually installed, read from the host at page load;
+  paths are arch-suffixed, e.g. `/usr/lib/jvm/temurin-25-jdk-arm64/bin/java`.

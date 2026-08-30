@@ -105,6 +105,29 @@ public sealed class UserService : IUserService
             throw new ArgumentException("User not found");
         }
 
+        if (!string.IsNullOrWhiteSpace(request.Username))
+        {
+            var normalized = request.Username.Trim();
+            if (!string.Equals(user.Username, normalized, StringComparison.Ordinal))
+            {
+                // Only a rename to a *different* name (beyond casing) can collide.
+                if (!string.Equals(user.Username, normalized, StringComparison.OrdinalIgnoreCase))
+                {
+                    var exists = await _db.Users.AnyAsync(
+                        u => u.Username.ToLower() == normalized.ToLower() && u.Id != id,
+                        cancellationToken);
+
+                    if (exists)
+                    {
+                        throw new InvalidOperationException("Username already exists");
+                    }
+                }
+
+                _logger.LogInformation("Renaming user {OldUsername} to {NewUsername}", user.Username, normalized);
+                user.Username = normalized;
+            }
+        }
+
         if (request.MinecraftUsername != null)
         {
             var minecraftLink = await ResolveMinecraftProfileAsync(request.MinecraftUsername, cancellationToken);

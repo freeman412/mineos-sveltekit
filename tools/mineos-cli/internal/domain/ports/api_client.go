@@ -4,7 +4,16 @@ import "context"
 
 type Server struct {
 	Name   string `json:"name"`
-	Status string `json:"status"`
+	Status string `json:"status"` // derived from Up when sourced from /host/servers
+
+	// Richer fields from GET /host/servers (ServerSummaryDto).
+	Up            bool   `json:"up"`
+	Profile       string `json:"profile"`
+	Port          *int   `json:"port"`
+	PlayersOnline *int   `json:"playersOnline"`
+	PlayersMax    *int   `json:"playersMax"`
+	MemoryBytes   *int64 `json:"memoryBytes"`
+	NeedsRestart  bool   `json:"needsRestart"`
 }
 
 type StopAllResult struct {

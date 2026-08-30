@@ -1,6 +1,7 @@
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Text.Json;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.Json;
@@ -17,6 +18,12 @@ public static class HostEndpoints
     public static RouteGroupBuilder MapHostEndpoints(this RouteGroupBuilder api)
     {
         var host = api.MapGroup("/host");
+
+        // Host-wide operations that run arbitrary processes (BuildTools compiles a
+        // JAR) or create servers from an uploaded archive (arbitrary tar extraction)
+        // are admin-only. Same /host prefix, but this sub-group adds the role gate.
+        var adminHost = api.MapGroup("/host")
+            .RequireAuthorization(new AuthorizeAttribute { Roles = "admin" });
 
         host.MapGet("/metrics", async (IHostService hostService, CancellationToken cancellationToken) =>
             Results.Ok(await hostService.GetMetricsAsync(cancellationToken)));
@@ -166,7 +173,7 @@ public static class HostEndpoints
             }
         });
 
-        host.MapPost("/profiles/buildtools", async (
+        adminHost.MapPost("/profiles/buildtools", async (
             [FromBody] BuildToolsRequest request,
             IProfileService profileService,
             CancellationToken cancellationToken) =>
@@ -241,7 +248,7 @@ public static class HostEndpoints
                 }
             });
 
-        host.MapDelete("/profiles/buildtools/{id}", async (
+        adminHost.MapDelete("/profiles/buildtools/{id}", async (
             string id,
             IProfileService profileService,
             CancellationToken cancellationToken) =>
@@ -285,7 +292,7 @@ public static class HostEndpoints
         host.MapGet("/imports", async (IHostService hostService, CancellationToken cancellationToken) =>
             Results.Ok(await hostService.GetImportsAsync(cancellationToken)));
 
-        host.MapPost("/imports/upload", async (
+        adminHost.MapPost("/imports/upload", async (
             HttpRequest request,
             IImportService importService,
             CancellationToken cancellationToken) =>
@@ -307,7 +314,7 @@ public static class HostEndpoints
             }
         });
 
-        host.MapPost("/imports/{filename}/create-server", async (
+        adminHost.MapPost("/imports/{filename}/create-server", async (
             string filename,
             [FromBody] ImportServerRequest request,
             IBackgroundJobService jobService,
@@ -360,7 +367,7 @@ public static class HostEndpoints
             }
         });
 
-        host.MapDelete("/imports/{filename}", async (
+        adminHost.MapDelete("/imports/{filename}", async (
             string filename,
             IImportService importService,
             CancellationToken cancellationToken) =>
@@ -388,6 +395,9 @@ public static class HostEndpoints
 
         host.MapGet("/groups", async (IHostService hostService, CancellationToken cancellationToken) =>
             Results.Ok(await hostService.GetGroupsAsync(cancellationToken)));
+
+        host.MapGet("/java-runtimes", async (IHostService hostService, CancellationToken cancellationToken) =>
+            Results.Ok(await hostService.GetJavaRuntimesAsync(cancellationToken)));
 
         return api;
     }

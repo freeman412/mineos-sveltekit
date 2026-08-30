@@ -12,6 +12,15 @@ func (m TuiModel) View() string {
 		return "Loading..."
 	}
 
+	// Below a usable size the split layout can't render — and an unclamped
+	// content width would panic strings.Repeat with a negative count. Show a
+	// resize notice instead of crashing.
+	if m.Width < MinTerminalWidth || m.Height < MinTerminalHeight {
+		return fmt.Sprintf(
+			"Terminal too small.\nResize to at least %dx%d (current %dx%d).",
+			MinTerminalWidth, MinTerminalHeight, m.Width, m.Height)
+	}
+
 	// 1. Render Header
 	header := m.RenderHeader()
 	headerHeight := lipgloss.Height(header)
@@ -22,8 +31,13 @@ func (m TuiModel) View() string {
 		contentHeight = MinContentHeight
 	}
 
+	// Clamp defensively so a renderer is never handed a negative width, even if
+	// the thresholds above change (leftWidth+separator must leave room).
 	leftWidth := SidebarWidth
-	rightWidth := m.Width - leftWidth - 1
+	if leftWidth > m.Width-1 {
+		leftWidth = max(0, m.Width-1)
+	}
+	rightWidth := max(0, m.Width-leftWidth-1)
 
 	// 3. Render Navigation and Content
 	leftLines := m.RenderNavSidebar(leftWidth, contentHeight)
@@ -38,6 +52,8 @@ func (m TuiModel) View() string {
 		rightLines = m.RenderServiceLogsMain(rightWidth, contentHeight)
 	case ViewSettings:
 		rightLines = m.RenderSettingsMain(rightWidth, contentHeight)
+	case ViewHealth:
+		rightLines = m.RenderHealthMain(rightWidth, contentHeight)
 	case ViewOutput:
 		rightLines = m.RenderOutputMain(rightWidth, contentHeight)
 	default:
@@ -47,6 +63,11 @@ func (m TuiModel) View() string {
 	// Overlay confirm dialog if active
 	if m.Mode == ModeConfirm {
 		rightLines = m.RenderConfirmDialog(rightWidth, contentHeight)
+	}
+
+	// Overlay help if toggled
+	if m.ShowHelp {
+		rightLines = m.RenderHelpOverlay(rightWidth, contentHeight)
 	}
 
 	// Overlay search input if active
@@ -175,7 +196,7 @@ func (m TuiModel) RenderOutputMain(width, height int) []string {
 
 	if len(m.OutputLines) == 0 {
 		if m.StreamingRunning {
-			lines = append(lines, StyleStatus.Render("  Streaming output..."))
+			lines = append(lines, "  "+m.Spinner.View()+StyleStatus.Render(" Streaming output..."))
 			lines = append(lines, "")
 			lines = append(lines, StyleSubtle.Render("  Waiting for command output..."))
 		} else if m.InteractiveRunning {
@@ -240,8 +261,14 @@ func (m TuiModel) RenderConfirmDialog(width, height int) []string {
 	lines = append(lines, StyleError.Render("  │"+strings.Repeat(" ", boxWidth)+"│"))
 
 	// Action name
+	actionLabel := ""
 	if m.ConfirmAction != nil {
-		actionLine := centerText(m.ConfirmAction.Label, boxWidth)
+		actionLabel = m.ConfirmAction.Label
+	} else if m.ConfirmServerAction != "" {
+		actionLabel = m.ConfirmServerAction + " " + m.ConfirmServerName
+	}
+	if actionLabel != "" {
+		actionLine := centerText(actionLabel, boxWidth)
 		lines = append(lines, StyleError.Render("  │")+StyleSelected.Render(actionLine)+StyleError.Render("│"))
 	}
 

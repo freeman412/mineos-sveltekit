@@ -147,6 +147,7 @@ builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<IUserService, UserService>();
 builder.Services.AddScoped<IServerAccessService, ServerAccessService>();
 builder.Services.AddScoped<IServerService, ServerService>();
+builder.Services.AddScoped<IUpdateService, UpdateService>();
 builder.Services.AddScoped<IBackupService, BackupService>();
 builder.Services.AddScoped<IArchiveService, ArchiveService>();
 builder.Services.AddScoped<IClientPackageService, ClientPackageService>();
@@ -182,10 +183,23 @@ builder.Services.AddSingleton<TelemetryReporterService>();
 builder.Services.AddSingleton<ITelemetryReportTrigger>(sp => sp.GetRequiredService<TelemetryReporterService>());
 builder.Services.AddHostedService(sp => sp.GetRequiredService<TelemetryReporterService>());
 builder.Services.AddHostedService<ApplicationLifetimeService>();
+builder.Services.AddScoped<IModDependencyService, ModDependencyService>();
+builder.Services.AddSingleton<IContainerPortInspector, DockerPortInspector>();
+builder.Services.AddScoped<IProxyForwardingService, ProxyForwardingService>();
 builder.Services.AddSingleton<WatchdogService>();
 builder.Services.AddSingleton<IWatchdogService>(sp => sp.GetRequiredService<WatchdogService>());
 builder.Services.AddHostedService(sp => sp.GetRequiredService<WatchdogService>());
-builder.Services.AddHttpClient<IProfileService, ProfileService>();
+builder.Services.AddHttpClient(DiscordWebhookService.HttpClientName);
+builder.Services.AddSingleton<DiscordWebhookService>();
+builder.Services.AddSingleton<IDiscordWebhookService>(sp => sp.GetRequiredService<DiscordWebhookService>());
+builder.Services.AddHostedService(sp => sp.GetRequiredService<DiscordWebhookService>());
+builder.Services.AddHttpClient<IProfileService, ProfileService>(client =>
+{
+    // hub.spigotmc.org (BungeeCord/BuildTools) is behind Cloudflare and rejects
+    // requests with no User-Agent. Other upstreams (Mojang, PaperMC, minecraft.net)
+    // are fine with this UA so we set it as the default.
+    client.DefaultRequestHeaders.UserAgent.ParseAdd("Mozilla/5.0 (compatible; MineOS/1.0)");
+});
 builder.Services.AddHttpClient<IModService, ModService>(client =>
 {
     client.Timeout = Timeout.InfiniteTimeSpan;
@@ -236,8 +250,12 @@ app.UseSwaggerUI();
 app.UseSerilogRequestLogging();
 app.Lifetime.ApplicationStopped.Register(Log.CloseAndFlush);
 app.UseAuthentication();
-app.UseAuthorization();
+// ApiKeyMiddleware must run BEFORE UseAuthorization so a valid X-Api-Key request
+// (which carries no JWT) is turned into an authenticated principal before the
+// authorization policies (.RequireAuthorization / role checks) evaluate. Otherwise
+// key-only requests are rejected by UseAuthorization before the key is ever checked.
 app.UseMiddleware<ApiKeyMiddleware>();
+app.UseAuthorization();
 
 var connectionString = builder.Configuration.GetConnectionString("Default");
 if (!string.IsNullOrWhiteSpace(connectionString))

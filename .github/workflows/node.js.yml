@@ -2,9 +2,9 @@ name: Node.js CI
 
 on:
   push:
-    branches: [ master ]
+    branches: [ vibing, master ]
   pull_request:
-    branches: [ master ]
+    branches: [ vibing, master ]
   workflow_dispatch:
 
 jobs:
@@ -23,4 +23,6 @@ jobs:
           cache: npm
           cache-dependency-path: apps/web/package-lock.json
       - run: npm ci
+      - run: npm run test:unit
+      - run: npm run check
       - run: npm run build

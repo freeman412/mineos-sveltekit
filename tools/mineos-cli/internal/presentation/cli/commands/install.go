@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -262,9 +263,9 @@ func runInstall(cmd *cobra.Command, opts installOptions) error {
 	if opts.webOrigin == "" && !opts.quiet {
 		defaultOrigin := fmt.Sprintf("http://localhost:%d", opts.webPort)
 		fmt.Fprintln(out, "")
-		fmt.Fprintln(out, styleStep.Render("Web interface URL")+" "+styleDim.Render("- The full address you'll use in your browser"))
-		fmt.Fprintln(out, styleDim.Render("If running on this computer, use 'localhost'. If accessing from other devices,"))
-		fmt.Fprintln(out, styleDim.Render("replace 'localhost' with this computer's IP address (e.g., http://192.168.1.100:3000)"))
+		fmt.Fprintln(out, styleStep.Render("Web interface URL")+" "+styleDim.Render("- The main address for the web UI"))
+		fmt.Fprintln(out, styleDim.Render("Any address that reaches this computer works (localhost, LAN IP, or DNS name)."))
+		fmt.Fprintln(out, styleDim.Render("This is just the default shown in messages (e.g., http://192.168.1.100:3000)"))
 		value, err := promptString(reader, out, "Web UI origin", defaultOrigin)
 		if err != nil {
 			return err
@@ -365,7 +366,7 @@ func runInstall(cmd *cobra.Command, opts installOptions) error {
 		cloneCmd.Stdout = out
 		cloneCmd.Stderr = out
 		if err := cloneCmd.Run(); err != nil {
-			return fmt.Errorf("failed to clone source repository: %w\nPlease clone manually: git clone https://github.com/freeman412/mineos-sveltekit.git .")
+			return fmt.Errorf("failed to clone source repository: %w\nPlease clone manually: git clone https://github.com/freeman412/mineos-sveltekit.git .", err)
 		}
 		if !dirExists("apps") {
 			return errors.New("source files not found after cloning; the repository may have changed structure")
@@ -439,9 +440,13 @@ func runInstall(cmd *cobra.Command, opts installOptions) error {
 		installationID:   installationID,
 	})
 
-	if err := os.WriteFile(".env", []byte(envContents), 0o644); err != nil {
+	// .env holds the seed password, JWT secret, and API key — keep it owner-only.
+	if err := os.WriteFile(".env", []byte(envContents), 0o600); err != nil {
 		return err
 	}
+	// WriteFile leaves permissions untouched on a pre-existing file; force-tighten
+	// so re-running install over a 0644 .env still ends up owner-only.
+	_ = os.Chmod(".env", 0o600)
 
 	if err := createDirectories(out, opts.hostBaseDir, opts.dataDir); err != nil {
 		return err
@@ -509,6 +514,11 @@ func runInstall(cmd *cobra.Command, opts installOptions) error {
 	fmt.Fprintln(out, "")
 	fmt.Fprintln(out, styleTitle.Render("  Web Interface"))
 	fmt.Fprintf(out, "  %s %s\n", styleLabel.Render("Open your browser:"), styleValue.Render(opts.webOrigin))
+	if lanIP := primaryLanIP(); lanIP != "" {
+		fmt.Fprintf(out, "  %s %s\n",
+			styleLabel.Render("From other devices:"),
+			styleValue.Render(fmt.Sprintf("http://%s:%d", lanIP, opts.webPort)))
+	}
 	fmt.Fprintln(out, "")
 	fmt.Fprintln(out, styleTitle.Render("  Login Credentials"))
 	fmt.Fprintf(out, "  %s  %s\n", styleLabel.Render("Username:"), styleValue.Render(opts.adminUser))
@@ -921,9 +931,25 @@ func resolveImageVersion(imageTag string) string {
 	return imageTag
 }
 
+// primaryLanIP returns this machine's primary outbound IPv4 address, or ""
+// if it cannot be determined. The UDP dial sends no packets; it only asks
+// the OS which interface would route externally.
+func primaryLanIP() string {
+	conn, err := net.Dial("udp4", "192.0.2.1:80")
+	if err != nil {
+		return ""
+	}
+	defer conn.Close()
+	addr, ok := conn.LocalAddr().(*net.UDPAddr)
+	if !ok || addr.IP == nil || addr.IP.IsLoopback() {
+		return ""
+	}
+	return addr.IP.String()
+}
+
 // appendToEnv appends a KEY=VALUE line to the given .env file.
 func appendToEnv(path, key, value string) {
-	f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0o644)
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0o600)
 	if err != nil {
 		return
 	}

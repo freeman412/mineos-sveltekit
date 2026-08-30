@@ -53,10 +53,9 @@ public sealed class SettingsService : ISettingsService
             "secret", "Integrations", "CurseForge API Key"),
 
         [Keys.DiscordWebhookUrl] = new(
-            "Discord webhook URL for server event notifications (start, stop, crash).",
+            "Discord webhook URL for server event notifications (start, stop, crash, backups, create/delete).",
             false, "Discord__WebhookUrl",
-            "text", "Notifications", "Discord Webhook URL",
-            ComingSoon: true),
+            "text", "Notifications", "Discord Webhook URL"),
 
         [Keys.LogLevel] = new(
             "Minimum log level for the API. Higher levels reduce log volume.",

@@ -1,9 +1,9 @@
 name: Publish Docker Images
 
+# Releases are cut from v* tags only. Do not add a branches trigger here —
+# that would publish :latest images on every push to the default branch.
 on:
   push:
-    branches:
-      - main
     tags:
       - "v*"
   workflow_dispatch:

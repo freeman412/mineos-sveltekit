@@ -1,4 +1,4 @@
-﻿package tui
+package tui
 
 import (
 	"bufio"
@@ -11,28 +11,6 @@ import (
 
 	"github.com/freemancraft/mineos-sveltekit/tools/mineos-cli/internal/infrastructure/api"
 )
-
-func (m *TuiModel) EnsureLogStream() {
-	if !m.LogsActive {
-		return
-	}
-
-	m.StopLogs()
-	ctx, cancel := context.WithCancel(context.Background())
-	m.LogCancel = cancel
-
-	if m.LogType == LogTypeDocker {
-		if !m.ComposeReady {
-			return
-		}
-		m.LogsChan, m.LogErrsChan = StreamDockerLogs(ctx, m.Compose, m.LogSource)
-	} else {
-		if !m.ConfigReady || m.MinecraftSource == "" {
-			return
-		}
-		m.LogsChan, m.LogErrsChan = StreamMinecraftLogs(ctx, m.Client, m.MinecraftSource, m.MinecraftType)
-	}
-}
 
 func StreamMinecraftLogs(ctx context.Context, client *api.Client, server, source string) (<-chan string, <-chan error) {
 	logsChan := make(chan string, 100)

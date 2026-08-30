@@ -45,7 +45,7 @@ func (m TuiModel) RenderServersTable(width, height int) []string {
 	lines := make([]string, 0, height)
 
 	// Table Header
-	header := fmt.Sprintf("  %-25s %-15s", "SERVER NAME", "STATUS")
+	header := fmt.Sprintf("  %-20s %-10s %-8s %-7s", "SERVER NAME", "STATUS", "PLAYERS", "MEM")
 	lines = append(lines, StyleHeader.Render(header))
 	lines = append(lines, StyleSubtle.Render(strings.Repeat("─", width)))
 
@@ -54,29 +54,121 @@ func (m TuiModel) RenderServersTable(width, height int) []string {
 	}
 
 	if len(m.Servers) == 0 {
-		lines = append(lines, TrimToWidth(StyleSubtle.Render(" No servers found."), width))
+		// Distinguish loading / unreachable / genuinely empty.
+		var state string
+		switch {
+		case m.ContainersStopped:
+			state = StyleSubtle.Render(" Containers are stopped.")
+		case !m.ConfigReady:
+			state = m.Spinner.View() + StyleSubtle.Render(" Connecting to API...")
+		case m.ErrMsg != "":
+			state = StyleSubtle.Render(" Server list unavailable.")
+		case !m.ServersLoadedOnce:
+			state = m.Spinner.View() + StyleSubtle.Render(" Loading servers...")
+		default:
+			state = StyleSubtle.Render(" No servers found.")
+		}
+		lines = append(lines, TrimToWidth(" "+state, width))
 		return PadLines(lines, height)
 	}
 
 	for i, server := range m.Servers {
 		prefix := "  "
-		name := server.Name
-		status := server.Status
-
 		nameStyle := StyleHeader // Default
 		if i == m.Selected {
 			prefix = StyleSelected.Render("▶ ")
 			nameStyle = StyleSelected
 		}
 
-		statusFormatted := FormatStatus(status)
+		// Pad plain text before styling so column widths stay honest.
+		name := nameStyle.Render(fmt.Sprintf("%-20s", server.Name))
+		status := FormatStatus(fmt.Sprintf("%-10s", server.Status))
+		players := fmt.Sprintf("%-8s", formatPlayers(server.PlayersOnline, server.PlayersMax))
+		mem := fmt.Sprintf("%-7s", formatMemory(server.MemoryBytes))
+		restart := ""
+		if server.NeedsRestart {
+			restart = " " + StyleError.Render("⟳ restart")
+		}
 
-		// Align columns
-		line := fmt.Sprintf("%s%-25s %-15s", prefix, nameStyle.Render(name), statusFormatted)
+		line := fmt.Sprintf("%s%s %s %s %s%s", prefix, name, status, players, mem, restart)
 		lines = append(lines, TrimToWidth(line, width))
 	}
 
 	return PadLines(lines, height)
+}
+
+// formatPlayers renders "online/max" (or "online", or "—" when unknown).
+func formatPlayers(online, max *int) string {
+	if online == nil {
+		return "—"
+	}
+	if max == nil {
+		return fmt.Sprintf("%d", *online)
+	}
+	return fmt.Sprintf("%d/%d", *online, *max)
+}
+
+// formatMemory renders a byte count as a compact MiB/GiB value ("—" when unknown).
+func formatMemory(b *int64) string {
+	if b == nil || *b <= 0 {
+		return "—"
+	}
+	mib := float64(*b) / (1024 * 1024)
+	if mib >= 1024 {
+		return fmt.Sprintf("%.1fG", mib/1024)
+	}
+	return fmt.Sprintf("%.0fM", mib)
+}
+
+// renderMetricsLines renders the live per-server metrics panel (streamed via SSE).
+func (m TuiModel) renderMetricsLines() []string {
+	lines := []string{StyleHeader.Render(" LIVE METRICS ")}
+	p := m.PerfSample
+	if p == nil {
+		return append(lines, StyleSubtle.Render("  waiting for data…"), "")
+	}
+	tps := "—"
+	tpsStyle := StyleRunning
+	if p.Tps != nil {
+		tps = fmt.Sprintf("%.1f", *p.Tps)
+		if *p.Tps < 18 { // low-TPS highlight (matches the server-side alert threshold)
+			tpsStyle = StyleError
+		}
+	}
+	lines = append(lines, fmt.Sprintf("  TPS: %s   CPU: %.0f%%   RAM: %d/%d MB   Players: %d",
+		tpsStyle.Render(tps), p.CpuPercent, p.RamUsedMb, p.RamTotalMb, p.PlayerCount))
+	lines = append(lines, m.renderSparklines()...)
+	return append(lines, "")
+}
+
+// renderSparklines renders TPS and CPU history strips from the sample buffer
+// (history-endpoint backfill + live samples).
+func (m TuiModel) renderSparklines() []string {
+	if len(m.PerfHistory) < 2 {
+		return nil
+	}
+	var tpsSeries, cpuSeries []float64
+	for _, s := range m.PerfHistory {
+		if s.Tps != nil {
+			tpsSeries = append(tpsSeries, *s.Tps)
+		}
+		cpuSeries = append(cpuSeries, s.CpuPercent)
+	}
+
+	var lines []string
+	if len(tpsSeries) >= 2 {
+		lo, avg, hi := SeriesStats(tpsSeries)
+		lines = append(lines, fmt.Sprintf("  TPS %s %s",
+			StyleStatus.Render(Sparkline(tpsSeries, SparklineWidth)),
+			StyleSubtle.Render(fmt.Sprintf("min %.1f  avg %.1f  max %.1f", lo, avg, hi))))
+	}
+	if len(cpuSeries) >= 2 {
+		lo, avg, hi := SeriesStats(cpuSeries)
+		lines = append(lines, fmt.Sprintf("  CPU %s %s",
+			StyleStatus.Render(Sparkline(cpuSeries, SparklineWidth)),
+			StyleSubtle.Render(fmt.Sprintf("min %.0f%%  avg %.0f%%  max %.0f%%  (last %dm)", lo, avg, hi, PerfHistoryMinutes))))
+	}
+	return lines
 }
 
 // RenderMinecraftLogs renders Minecraft server logs for the selected server
@@ -149,6 +241,9 @@ func (m TuiModel) RenderServerActionsMain(width, height int) []string {
 		lines = append(lines, statusLine)
 		lines = append(lines, "")
 	}
+
+	// Live metrics panel (streamed via SSE while this view is open)
+	lines = append(lines, m.renderMetricsLines()...)
 
 	// Show actions
 	lines = append(lines, StyleHeader.Render(" ACTIONS "))

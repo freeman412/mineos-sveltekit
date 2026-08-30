@@ -3,12 +3,12 @@ package commands
 import (
 	"fmt"
 	"io"
-	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/google/uuid"
 	"github.com/joho/godotenv"
+
+	"github.com/freemancraft/mineos-sveltekit/tools/mineos-cli/internal/infrastructure/env"
 )
 
 // envDefault defines a required env var and its default value.
@@ -72,20 +72,9 @@ func ensureEnvDefaults(envPath string, out io.Writer) ([]string, error) {
 }
 
 // appendLineIfMissing appends a line to a file if it doesn't already contain it.
+// Thin alias over the single writer in infrastructure/env.
 func appendLineIfMissing(path string, line string) error {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return err
-	}
-	if strings.Contains(string(data), line) {
-		return nil
-	}
-	content := string(data)
-	if !strings.HasSuffix(content, "\n") {
-		content += "\n"
-	}
-	content += "\n" + line + "\n"
-	return os.WriteFile(path, []byte(content), 0o644)
+	return env.AppendLineIfMissing(path, line)
 }
 
 func loadEnvValues(path string) (map[string]string, error) {
@@ -96,38 +85,8 @@ func loadEnvValues(path string) (map[string]string, error) {
 	return godotenv.Read(envPath)
 }
 
+// setEnvFileValue sets key=value in the .env file.
+// Thin alias over the single writer in infrastructure/env.
 func setEnvFileValue(path, key, value string) error {
-	envPath := strings.TrimSpace(path)
-	if envPath == "" {
-		envPath = ".env"
-	}
-	envPath = filepath.Clean(envPath)
-
-	data, err := os.ReadFile(envPath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return os.WriteFile(envPath, []byte(key+"="+value+"\n"), 0o644)
-		}
-		return err
-	}
-
-	lines := strings.Split(string(data), "\n")
-	found := false
-	prefix := key + "="
-	for i, line := range lines {
-		trimmed := strings.TrimSpace(line)
-		if strings.HasPrefix(trimmed, prefix) {
-			lines[i] = prefix + value
-			found = true
-		}
-	}
-	if !found {
-		lines = append(lines, prefix+value)
-	}
-
-	output := strings.Join(lines, "\n")
-	if !strings.HasSuffix(output, "\n") {
-		output += "\n"
-	}
-	return os.WriteFile(envPath, []byte(output), 0o644)
+	return env.SetValue(path, key, value)
 }

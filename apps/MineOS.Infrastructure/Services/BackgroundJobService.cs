@@ -18,6 +18,7 @@ public sealed class BackgroundJobService : IBackgroundJobService, IHostedService
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly IRepository<JobRecord> _jobRepo;
     private readonly IRepository<SystemNotification> _notificationRepo;
+    private readonly IDiscordWebhookService _discordWebhook;
     private readonly Channel<BackgroundJob> _jobQueue;
     private readonly ConcurrentDictionary<string, JobState> _jobs;
     private readonly ConcurrentDictionary<string, ModpackInstallState> _modpackStates = new();
@@ -30,12 +31,14 @@ public sealed class BackgroundJobService : IBackgroundJobService, IHostedService
         ILogger<BackgroundJobService> logger,
         IServiceScopeFactory scopeFactory,
         IRepository<JobRecord> jobRepo,
-        IRepository<SystemNotification> notificationRepo)
+        IRepository<SystemNotification> notificationRepo,
+        IDiscordWebhookService discordWebhook)
     {
         _logger = logger;
         _scopeFactory = scopeFactory;
         _jobRepo = jobRepo;
         _notificationRepo = notificationRepo;
+        _discordWebhook = discordWebhook;
         _jobQueue = Channel.CreateUnbounded<BackgroundJob>();
         _modpackJobQueue = Channel.CreateUnbounded<ModpackJob>();
         _jobs = new ConcurrentDictionary<string, JobState>();
@@ -367,6 +370,13 @@ public sealed class BackgroundJobService : IBackgroundJobService, IHostedService
     private class JobState
     {
         private readonly object _lock = new();
+
+        /// <summary>
+        /// Serializes the fire-and-forget writes of this job's row. Held on the state
+        /// rather than in a side dictionary so it lives and dies with the job entry.
+        /// </summary>
+        public SemaphoreSlim PersistGate { get; } = new(1, 1);
+
         public required string JobId { get; init; }
         public required string Type { get; init; }
         public required string ServerName { get; init; }
@@ -466,6 +476,25 @@ public sealed class BackgroundJobService : IBackgroundJobService, IHostedService
 
     private async Task UpsertJobAsync(JobState state, CancellationToken cancellationToken)
     {
+        // Persists are fire-and-forget (see PersistJobFireAndForget), so a status
+        // change, each progress tick and the completion write all run at once for one
+        // job. Finding the row and inserting it when absent is a check-then-act: two
+        // writers both see nothing and both insert, and the second is rejected with
+        // "UNIQUE constraint failed: Jobs.JobId". The per-job gate keeps concurrent
+        // writers for one row in line while leaving different jobs parallel.
+        await state.PersistGate.WaitAsync(cancellationToken);
+        try
+        {
+            await UpsertJobCoreAsync(state, cancellationToken);
+        }
+        finally
+        {
+            state.PersistGate.Release();
+        }
+    }
+
+    private async Task UpsertJobCoreAsync(JobState state, CancellationToken cancellationToken)
+    {
         var snap = state.Snapshot();
 
         var record = await _jobRepo.FindByIdAsync(cancellationToken, state.JobId);
@@ -546,6 +575,10 @@ public sealed class BackgroundJobService : IBackgroundJobService, IHostedService
             ServerName = serverName,
             IsRead = false
         }, cancellationToken);
+
+        _discordWebhook.QueueEvent(new DiscordEvent(
+            title, message, DiscordEvent.LevelFromNotificationType(type),
+            serverName, DateTimeOffset.UtcNow));
     }
 
     private static (string Type, string TitleSuffix) GetNotificationType(string outcome)

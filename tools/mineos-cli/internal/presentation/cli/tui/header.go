@@ -12,7 +12,7 @@ func (m TuiModel) RenderHeader() string {
 	health := StyleError.Render("● UNHEALTHY")
 	if m.ContainersStopped {
 		health = StyleSubtle.Render("● STOPPED")
-	} else if m.ConfigReady && m.ErrMsg == "" {
+	} else if m.Healthy {
 		health = StyleRunning.Render("● HEALTHY")
 	}
 

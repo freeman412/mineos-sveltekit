@@ -2,6 +2,28 @@
 
 A simple web interface to create and manage Minecraft servers. Run as many servers as you want, install mods with one click, and manage everything from your browser.
 
+## Features
+
+**Servers**
+- Create Vanilla, Paper, Spigot, Forge, NeoForge, Fabric, Quilt and Bedrock servers from a guided wizard
+- Start/stop/restart, live console, file manager, worlds, players, backups and archives
+- Live status, players, memory and TPS, with per-server performance charts
+- Scheduled tasks (cron), server icons, changing a server's type after the fact, and renaming servers with a display label
+- Update detection with one-click updates (backup + rollback kept) for Vanilla, Paper, Bedrock, Velocity and BungeeCord
+
+**Proxies / networks**
+- Run a Velocity or BungeeCord proxy players connect to, with your game servers attached behind it
+- Attach a server to a proxy from the create wizard, or from the Proxies page at any time
+- Every backend reports a live security status — Secured, Securable, Misconfigured or Unverifiable — so you can see which servers a proxy can actually vouch for, and secure them in one click
+
+**Mods and plugins**
+- Browse and install from Modrinth and CurseForge, with dependency resolution
+- Per-mod enable/disable, loader version upgrades, and client modpack (`.mrpack`) generation
+
+**Administration**
+- Multiple users with roles and per-server access control
+- Import existing servers, host metrics, and a `mineos` CLI with a terminal UI
+
 ## Quick Install
 
 **What you need:**
@@ -26,7 +48,9 @@ The installer will:
 - Configure environment settings
 - Start MineOS automatically
 
-**Access MineOS:** Open [http://localhost:3000](http://localhost:3000) in your browser
+**Access MineOS:** Open [http://localhost:3000](http://localhost:3000) on the machine running MineOS — or from any other device on your network using that machine's IP or hostname (e.g. `http://192.168.1.50:3000`). Any address works; no extra configuration needed.
+
+> Getting a **403 on login** or can't connect? See the [Troubleshooting guide](docs/TROUBLESHOOTING.md).
 
 ### Manual Installation
 
@@ -58,7 +82,7 @@ If you prefer to install manually or need offline installation:
    docker compose up -d
    ```
 
-5. **Access MineOS:** Open [http://localhost:3000](http://localhost:3000)
+5. **Access MineOS:** Open [http://localhost:3000](http://localhost:3000) — or use this machine's IP/hostname from any other device (e.g. `http://192.168.1.50:3000`)
 
 ## Management
 
