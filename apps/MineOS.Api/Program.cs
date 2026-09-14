@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Data.Sqlite;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Http.Features;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi;
@@ -8,6 +9,7 @@ using System.Text;
 using System.Threading;
 using MineOS.Api.Middleware;
 using MineOS.Api.Endpoints;
+using MineOS.Api.Security;
 using MineOS.Application.Interfaces;
 using HostOptions = MineOS.Application.Options.HostOptions;
 using ApiKeyOptions = MineOS.Application.Options.ApiKeyOptions;
@@ -214,7 +216,16 @@ builder.Services.AddScoped<ApiKeySeeder>();
 builder.Services.AddScoped<UserSeeder>();
 builder.Services.AddScoped<ISettingsService, SettingsService>();
 builder.Services.AddHttpClient<ITelemetryService, TelemetryService>();
-builder.Services.AddDataProtection();
+var dataProtectionKeyRing = DataProtectionKeyRing.ResolveDirectory(
+    defaultConnectionString, builder.Environment.ContentRootPath);
+DataProtectionKeyRing.EnsureDirectory(dataProtectionKeyRing);
+
+builder.Services.AddDataProtection()
+    // The default application discriminator is derived from the content root path, so a
+    // deployment that moves changes the purpose string and can no longer read keys it
+    // wrote itself. Name it explicitly and that stays true wherever the app is unpacked.
+    .SetApplicationName("MineOS")
+    .PersistKeysToFileSystem(new DirectoryInfo(dataProtectionKeyRing));
 builder.Services.AddHttpClient<DeviceAuthService>();
 builder.Services.AddSingleton<IDeviceAuthService>(sp =>
     sp.GetRequiredService<DeviceAuthService>());
